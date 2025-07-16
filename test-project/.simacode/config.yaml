@@ -1,0 +1,32 @@
+ai:
+  api_key: null
+  base_url: null
+  max_tokens: 4000
+  model: gpt-4
+  provider: openai
+  temperature: 0.1
+  timeout: 60
+logging:
+  backup_count: 5
+  file_path: null
+  format: '%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+  level: INFO
+  max_file_size: 10485760
+project_name: SimaCode Project
+security:
+  allowed_paths:
+  - /Users/yanhecun/Desktop/pgpt/simacode/test-project
+  forbidden_paths:
+  - /etc
+  - /sys
+  - /proc
+  - /dev
+  - /Users/yanhecun/.ssh
+  - /Users/yanhecun/.gnupg
+  max_command_execution_time: 30
+  require_permission_for_write: true
+session:
+  auto_cleanup: true
+  max_sessions: 100
+  save_sessions: true
+  session_dir: /Users/yanhecun/.simacode/sessions
