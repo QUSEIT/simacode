@@ -210,13 +210,13 @@ poetry run pytest -v
 - [x] Message history
 - [x] Streaming responses
 
-### Phase 3: Tool System (Next)
-- [ ] File operations
-- [ ] Bash execution
-- [ ] Permission system
-- [ ] Tool registration
+### Phase 3: Tool System ✅
+- [x] File operations
+- [x] Bash execution
+- [x] Permission system
+- [x] Tool registration
 
-### Phase 4: ReAct Engine
+### Phase 4: ReAct Engine (Next)
 - [ ] Task planning
 - [ ] Tool orchestration
 - [ ] Error handling
