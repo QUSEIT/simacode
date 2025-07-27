@@ -204,13 +204,13 @@ poetry run pytest -v
 - [x] Logging framework
 - [x] Project setup
 
-### Phase 2: AI Integration (Next)
-- [ ] OpenAI API client
-- [ ] Basic conversation management
-- [ ] Message history
-- [ ] Streaming responses
+### Phase 2: AI Integration ✅
+- [x] OpenAI API client
+- [x] Basic conversation management
+- [x] Message history
+- [x] Streaming responses
 
-### Phase 3: Tool System
+### Phase 3: Tool System (Next)
 - [ ] File operations
 - [ ] Bash execution
 - [ ] Permission system

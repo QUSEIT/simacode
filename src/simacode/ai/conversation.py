@@ -52,6 +52,8 @@ class Conversation:
     
     def get_last_n_messages(self, n: int) -> List[Message]:
         """Get the last n messages."""
+        if n <= 0:
+            return []
         return self.messages[-n:] if len(self.messages) >= n else self.messages
     
     def clear_messages(self) -> None:
