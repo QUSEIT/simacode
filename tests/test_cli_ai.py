@@ -402,7 +402,7 @@ class TestCLIErrorHandling:
         invalid_ctx.obj = {"config": None}  # Invalid config
         
         # This should handle the error gracefully
-        await _run_chat(invalid_ctx, "test message", False)
+        await _run_chat(invalid_ctx, "test message", False, False, None)
         
         # Verify error was printed
         error_calls = [call for call in mock_console.print.call_args_list 

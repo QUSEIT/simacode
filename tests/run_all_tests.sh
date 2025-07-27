@@ -21,7 +21,7 @@ SPECIFIC_TEST=""
 PARALLEL=false
 HTML_REPORT=false
 QUIET=false
-CONFIG_FILE="config/config.yaml"
+CONFIG_FILE="" # Use Config.load default behavior unless explicitly specified
 
 # Function to print colored output
 print_color() {
@@ -42,7 +42,7 @@ print_usage() {
     echo "  -t, --test TEST        Run specific test file or pattern"
     echo "  -p, --parallel         Run tests in parallel"
     echo "  --html                 Generate HTML coverage report"
-    echo "  -c, --config FILE      Specify config file (default: config/config.yaml)"
+    echo "  -c, --config FILE      Specify config file (default: use Config.load standard paths)"
     echo "  -h, --help             Show this help message"
     echo ""
     echo "Examples:"
@@ -51,7 +51,7 @@ print_usage() {
     echo "  $0 -t test_ai.py       Run only AI tests"
     echo "  $0 -f -q               Run quietly, stop on first failure"
     echo "  $0 --no-cov -p         Run without coverage, in parallel"
-    echo "  $0 -c config/test.yaml Use custom config file"
+    echo "  $0 -c config/config.yaml Use custom config file"
 }
 
 # Parse command line arguments
@@ -107,8 +107,8 @@ if [[ ! -f "pyproject.toml" ]]; then
     exit 1
 fi
 
-# Check if config file exists
-if [[ ! -f "$CONFIG_FILE" ]]; then
+# Check if config file exists (only if explicitly provided)
+if [[ -n "$CONFIG_FILE" && ! -f "$CONFIG_FILE" ]]; then
     print_color $RED "Error: Config file '$CONFIG_FILE' not found."
     print_color $YELLOW "Available config files:"
     find config/ -name "*.yaml" -o -name "*.yml" 2>/dev/null | sed 's/^/  /' || echo "  No config files found in config/ directory"
@@ -143,8 +143,10 @@ fi
 # Build pytest command with config file
 PYTEST_CMD="poetry run pytest"
 
-# Add config file to environment for tests that need it
-export SIMACODE_TEST_CONFIG="$CONFIG_FILE"
+# Add config file to environment for tests that need it (only if specified)
+if [[ -n "$CONFIG_FILE" ]]; then
+    export SIMACODE_TEST_CONFIG="$CONFIG_FILE"
+fi
 
 # Add test path
 if [[ -n "$SPECIFIC_TEST" ]]; then
@@ -187,7 +189,11 @@ fi
 # Print configuration
 if [[ $QUIET != true ]]; then
     print_color $BLUE "Test Configuration:"
-    echo "  Config File: $CONFIG_FILE"
+    if [[ -n "$CONFIG_FILE" ]]; then
+        echo "  Config File: $CONFIG_FILE"
+    else
+        echo "  Config File: Using Config.load default paths"
+    fi
     echo "  Coverage: $([ $COVERAGE == true ] && echo "✓ Enabled" || echo "✗ Disabled")"
     echo "  Verbose: $([ $VERBOSE == true ] && echo "✓ Enabled" || echo "✗ Disabled")"
     echo "  Fail Fast: $([ $FAIL_FAST == true ] && echo "✓ Enabled" || echo "✗ Disabled")"
@@ -200,8 +206,8 @@ if [[ $QUIET != true ]]; then
     fi
     echo
     
-    # Show brief config file info if available
-    if command -v yq &> /dev/null; then
+    # Show brief config file info if available and config file is specified
+    if [[ -n "$CONFIG_FILE" ]] && command -v yq &> /dev/null; then
         print_color $CYAN "Config Summary:"
         echo "  Project: $(yq '.project_name // "N/A"' "$CONFIG_FILE" 2>/dev/null || echo "N/A")"
         echo "  AI Provider: $(yq '.ai.provider // "N/A"' "$CONFIG_FILE" 2>/dev/null || echo "N/A")"

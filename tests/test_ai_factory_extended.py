@@ -23,8 +23,8 @@ class MockAIClient(AIClient):
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.api_key = config.get("api_key", "mock-key")
-        self.model = config.get("model", "mock-model")
+        self.api_key = config.get("api_key")  # No default, should be None if missing
+        self.model = config.get("model")  # No default, should be None if missing  
         self.provider = config.get("provider", "mock")
         self._should_fail = config.get("should_fail", False)
     
@@ -60,7 +60,7 @@ class AnthropicMockClient(AIClient):
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
         self.api_key = config.get("api_key")
-        self.model = config.get("model", "claude-3")
+        self.model = config.get("model")  # No default, should be None if missing
         self.max_tokens = config.get("max_tokens", 4000)
     
     @property
@@ -91,7 +91,7 @@ class LocalMockClient(AIClient):
     
     def __init__(self, config: Dict[str, Any]):
         super().__init__(config)
-        self.model_path = config.get("model_path", "/path/to/model")
+        self.model_path = config.get("model_path")  # No default, should be None if missing
         self.context_length = config.get("context_length", 2048)
     
     @property
