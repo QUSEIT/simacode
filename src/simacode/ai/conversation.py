@@ -96,7 +96,15 @@ class ConversationManager:
         self.current_conversation: Optional[Conversation] = None
         
         # Ensure storage directory exists
-        self.storage_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            if self.storage_dir.is_file():
+                # If it's a file, use its parent directory
+                self.storage_dir = self.storage_dir.parent / f"{self.storage_dir.name}_conversations"
+            self.storage_dir.mkdir(parents=True, exist_ok=True)
+        except (OSError, PermissionError) as e:
+            # If we can't create the directory, use a temporary location
+            import tempfile
+            self.storage_dir = Path(tempfile.mkdtemp(prefix="simacode_conversations_"))
         
         # Load existing conversations
         self._load_conversations()
@@ -161,9 +169,13 @@ class ConversationManager:
     
     def _save_conversation(self, conversation: Conversation) -> None:
         """Save conversation to disk."""
-        file_path = self._get_conversation_file_path(conversation.id)
-        with open(file_path, 'w', encoding='utf-8') as f:
-            json.dump(conversation.to_dict(), f, ensure_ascii=False, indent=2)
+        try:
+            file_path = self._get_conversation_file_path(conversation.id)
+            with open(file_path, 'w', encoding='utf-8') as f:
+                json.dump(conversation.to_dict(), f, ensure_ascii=False, indent=2)
+        except (OSError, PermissionError):
+            # If we can't save, just skip (conversation remains in memory)
+            pass
     
     def _load_conversations(self) -> None:
         """Load conversations from disk."""
@@ -176,7 +188,7 @@ class ConversationManager:
                     data = json.load(f)
                     conversation = Conversation.from_dict(data)
                     self.conversations[conversation.id] = conversation
-            except (json.JSONDecodeError, KeyError, OSError):
+            except (json.JSONDecodeError, KeyError, TypeError, OSError, ValueError):
                 # Skip invalid conversation files
                 continue
     

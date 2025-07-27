@@ -198,34 +198,34 @@ class Config(BaseModel):
         if project_root is None:
             project_root = Path.cwd()
             
-        # Load configuration from various sources
+        # Load configuration from various sources in order of precedence
         config_data = {}
         
-        # 1. Load from provided path
-        if config_path and config_path.exists():
-            with open(config_path) as f:
-                config_data.update(yaml.safe_load(f) or {})
+        # 1. First load default config as base
+        default_config = Path(__file__).parent.parent.parent / "config" / "default.yaml"
+        if default_config.exists():
+            with open(default_config) as f:
+                default_data = yaml.safe_load(f) or {}
+                config_data.update(default_data)
         
-        # 2. Load from project config
-        project_config = project_root / ".simacode" / "config.yaml"
-        if project_config.exists():
-            with open(project_config) as f:
-                project_data = yaml.safe_load(f) or {}
-                config_data.update(project_data)
-        
-        # 3. Load from user config
+        # 2. Load from user config (overrides default)
         user_config = Path.home() / ".simacode" / "config.yaml"
         if user_config.exists():
             with open(user_config) as f:
                 user_data = yaml.safe_load(f) or {}
                 config_data.update(user_data)
         
-        # 4. Load from default config file
-        default_config = Path(__file__).parent.parent / "config" / "default.yaml"
-        if default_config.exists() and not config_data:
-            with open(default_config) as f:
-                default_data = yaml.safe_load(f) or {}
-                config_data.update(default_data)
+        # 3. Load from project config (overrides user)
+        project_config = project_root / ".simacode" / "config.yaml"
+        if project_config.exists():
+            with open(project_config) as f:
+                project_data = yaml.safe_load(f) or {}
+                config_data.update(project_data)
+        
+        # 4. Load from provided path (highest precedence)
+        if config_path and config_path.exists():
+            with open(config_path) as f:
+                config_data.update(yaml.safe_load(f) or {})
         
         try:
             return cls(**config_data)

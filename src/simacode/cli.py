@@ -26,7 +26,7 @@ install(show_locals=True)
 console = Console()
 
 
-@click.group()
+@click.group(invoke_without_command=True)
 @click.option(
     "--config",
     "-c",
@@ -60,7 +60,12 @@ def main(
     if version:
         from . import __version__
         console.print(f"SimaCode version {__version__}")
-        return
+        ctx.exit(0)
+    
+    # If no command is provided, show help
+    if ctx.invoked_subcommand is None:
+        console.print(ctx.get_help())
+        ctx.exit(0)
     
     # Ensure context object exists
     ctx.ensure_object(dict)

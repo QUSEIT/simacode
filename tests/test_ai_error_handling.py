@@ -40,11 +40,18 @@ class TestNetworkErrorHandling:
         client = OpenAIClient(config)
         messages = [Message(role=Role.USER, content="Hello")]
         
-        with patch('aiohttp.ClientSession') as mock_session:
-            # Mock timeout error
-            mock_session.return_value.__aenter__.return_value.post.side_effect = \
-                asyncio.TimeoutError("Request timed out")
-            
+        # Create a proper mock that returns an async context manager
+        class MockPost:
+            def __call__(self, *args, **kwargs):
+                return MockResponseContext()
+        
+        class MockResponseContext:
+            async def __aenter__(self):
+                raise asyncio.TimeoutError("Request timed out")
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return None
+        
+        with patch.object(aiohttp.ClientSession, 'post', MockPost()):
             with pytest.raises(asyncio.TimeoutError):
                 await client.chat(messages)
     
@@ -55,11 +62,18 @@ class TestNetworkErrorHandling:
         client = OpenAIClient(config)
         messages = [Message(role=Role.USER, content="Hello")]
         
-        with patch('aiohttp.ClientSession') as mock_session:
-            # Mock connection error
-            mock_session.return_value.__aenter__.return_value.post.side_effect = \
-                aiohttp.ClientConnectionError("Connection failed")
-            
+        # Create a proper mock that returns an async context manager
+        class MockPost:
+            def __call__(self, *args, **kwargs):
+                return MockResponseContext()
+        
+        class MockResponseContext:
+            async def __aenter__(self):
+                raise aiohttp.ClientConnectionError("Connection failed")
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return None
+        
+        with patch.object(aiohttp.ClientSession, 'post', MockPost()):
             with pytest.raises(aiohttp.ClientConnectionError):
                 await client.chat(messages)
     
@@ -82,13 +96,21 @@ class TestNetworkErrorHandling:
         ]
         
         for status_code, status_text, error_message in error_scenarios:
-            with patch('aiohttp.ClientSession') as mock_session:
-                mock_response = AsyncMock()
-                mock_response.status = status_code
-                mock_response.text.return_value = error_message
-                
-                mock_session.return_value.__aenter__.return_value.post.return_value.__aenter__.return_value = mock_response
-                
+            # Create a proper mock that returns an async context manager
+            class MockPost:
+                def __call__(self, *args, **kwargs):
+                    return MockResponseContext()
+            
+            class MockResponseContext:
+                async def __aenter__(self):
+                    mock_response = AsyncMock()
+                    mock_response.status = status_code
+                    mock_response.text = AsyncMock(return_value=error_message)
+                    return mock_response
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+            
+            with patch.object(aiohttp.ClientSession, 'post', MockPost()):
                 with pytest.raises(Exception, match="OpenAI API error"):
                     await client.chat(messages)
     
@@ -108,13 +130,21 @@ class TestNetworkErrorHandling:
         ]
         
         for malformed_response in malformed_responses:
-            with patch('aiohttp.ClientSession') as mock_session:
-                mock_response = AsyncMock()
-                mock_response.status = 200
-                mock_response.json.return_value = malformed_response
-                
-                mock_session.return_value.__aenter__.return_value.post.return_value.__aenter__.return_value = mock_response
-                
+            # Create a proper mock that returns an async context manager
+            class MockPost:
+                def __call__(self, *args, **kwargs):
+                    return MockResponseContext()
+            
+            class MockResponseContext:
+                async def __aenter__(self):
+                    mock_response = AsyncMock()
+                    mock_response.status = 200
+                    mock_response.json = AsyncMock(return_value=malformed_response)
+                    return mock_response
+                async def __aexit__(self, exc_type, exc_val, exc_tb):
+                    return None
+            
+            with patch.object(aiohttp.ClientSession, 'post', MockPost()):
                 with pytest.raises((KeyError, IndexError)):
                     await client.chat(messages)
     
@@ -125,18 +155,27 @@ class TestNetworkErrorHandling:
         client = OpenAIClient(config)
         messages = [Message(role=Role.USER, content="Hello")]
         
-        with patch('aiohttp.ClientSession') as mock_session:
-            mock_response = AsyncMock()
-            mock_response.status = 200
-            
-            # Mock content that raises an exception during iteration
-            async def failing_content():
-                yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
-                raise aiohttp.ClientPayloadError("Stream interrupted")
-            
-            mock_response.content = failing_content()
-            mock_session.return_value.__aenter__.return_value.post.return_value.__aenter__.return_value = mock_response
-            
+        # Create a proper mock that returns an async context manager
+        class MockPost:
+            def __call__(self, *args, **kwargs):
+                return MockResponseContext()
+        
+        class MockResponseContext:
+            async def __aenter__(self):
+                mock_response = AsyncMock()
+                mock_response.status = 200
+                
+                # Mock content that raises an exception during iteration
+                async def failing_content():
+                    yield b'data: {"choices": [{"delta": {"content": "Hello"}}]}\n\n'
+                    raise aiohttp.ClientPayloadError("Stream interrupted")
+                
+                mock_response.content = failing_content()
+                return mock_response
+            async def __aexit__(self, exc_type, exc_val, exc_tb):
+                return None
+        
+        with patch.object(aiohttp.ClientSession, 'post', MockPost()):
             with pytest.raises(aiohttp.ClientPayloadError):
                 async for chunk in client.chat_stream(messages):
                     pass

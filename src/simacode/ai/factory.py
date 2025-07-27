@@ -30,7 +30,7 @@ class AIClientFactory:
     @classmethod
     def register_provider(cls, name: str, client_class: type) -> None:
         """Register a new AI provider."""
-        if not issubclass(client_class, AIClient):
+        if not isinstance(client_class, type) or not issubclass(client_class, AIClient):
             raise ValueError("Client class must inherit from AIClient")
         
         cls._providers[name] = client_class

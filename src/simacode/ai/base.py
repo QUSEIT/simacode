@@ -23,6 +23,17 @@ class Message:
     content: str
     metadata: Optional[Dict[str, Any]] = None
     
+    def __post_init__(self):
+        """Validate message fields after initialization."""
+        if not isinstance(self.role, Role):
+            if isinstance(self.role, str):
+                try:
+                    self.role = Role(self.role)
+                except ValueError:
+                    raise ValueError(f"Invalid role: {self.role}. Must be one of {list(Role)}")
+            else:
+                raise TypeError(f"Role must be a Role enum or string, got {type(self.role)}")
+    
     def to_dict(self) -> Dict[str, Any]:
         """Convert message to dictionary format."""
         result = {
