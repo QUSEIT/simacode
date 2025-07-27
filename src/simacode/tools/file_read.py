@@ -194,9 +194,11 @@ class FileReadTool(Tool):
             
             # Read file content
             if input_data.binary_mode:
-                await self._read_binary_file(normalized_path, input_data, execution_id)
+                async for result in self._read_binary_file(normalized_path, input_data, execution_id):
+                    yield result
             else:
-                await self._read_text_file(normalized_path, input_data, execution_id)
+                async for result in self._read_text_file(normalized_path, input_data, execution_id):
+                    yield result
             
             yield ToolResult(
                 type=ToolResultType.SUCCESS,
@@ -311,7 +313,8 @@ class FileReadTool(Tool):
                 content="Text decoding failed, attempting binary read",
                 execution_id=execution_id
             )
-            await self._read_binary_file(file_path, input_data, execution_id)
+            async for result in self._read_binary_file(file_path, input_data, execution_id):
+                yield result
     
     async def _read_binary_file(
         self, 

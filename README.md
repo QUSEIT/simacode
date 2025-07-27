@@ -68,6 +68,15 @@ simacode chat "Your message here"
 # Interactive chat mode
 simacode chat --interactive
 
+# Use ReAct engine for intelligent task planning
+simacode chat --react "Create a Python function to calculate fibonacci numbers"
+
+# Interactive ReAct mode
+simacode chat --react --interactive
+
+# Resume a session
+simacode chat --react --session-id <session_id>
+
 # Configuration management
 simacode config --check
 ```
@@ -216,11 +225,11 @@ poetry run pytest -v
 - [x] Permission system
 - [x] Tool registration
 
-### Phase 4: ReAct Engine (Next)
-- [ ] Task planning
-- [ ] Tool orchestration
-- [ ] Error handling
-- [ ] Session management
+### Phase 4: ReAct Engine ✅
+- [x] Task planning
+- [x] Tool orchestration
+- [x] Error handling
+- [x] Session management
 
 ### Phase 5: Terminal UI
 - [ ] Textual interface

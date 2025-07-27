@@ -190,4 +190,4 @@ simacode-dev/
 dev_sessions
 test_results
 react_test_results.json
-config/config.yaml
+.simacode

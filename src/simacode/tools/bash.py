@@ -189,7 +189,8 @@ class BashTool(Tool):
             try:
                 # Stream output if capturing
                 if input_data.capture_output:
-                    await self._stream_process_output(process, execution_id)
+                    async for output_result in self._stream_process_output(process, execution_id):
+                        yield output_result
                 
                 # Wait for process completion with timeout
                 try:
@@ -269,7 +270,7 @@ class BashTool(Tool):
         self, 
         process: asyncio.subprocess.Process, 
         execution_id: str
-    ) -> None:
+    ) -> AsyncGenerator[ToolResult, None]:
         """Stream process output in real-time."""
         async def read_stream(stream, stream_name):
             """Read from a stream and yield results."""
