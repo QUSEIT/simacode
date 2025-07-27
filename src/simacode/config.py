@@ -117,7 +117,7 @@ class AIConfig(BaseModel):
         description="API timeout in seconds"
     )
     
-    @validator('api_key', pre=True)
+    @validator('api_key', pre=True, always=True)
     def load_from_env(cls, v: Optional[str]) -> Optional[str]:
         if v is None:
             return os.getenv("SIMACODE_API_KEY") or os.getenv("OPENAI_API_KEY")

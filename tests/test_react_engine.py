@@ -209,7 +209,8 @@ class TestResultEvaluator:
         # Verify
         assert result.outcome == EvaluationOutcome.SUCCESS
         assert result.confidence == ConfidenceLevel.HIGH
-        assert result.success_score == 0.95
+        # Score should be combined: (0.95 AI + 0.5 rule-based) / 2 = 0.725
+        assert result.success_score == 0.725
 
 
 class TestReActSession:

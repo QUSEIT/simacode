@@ -79,7 +79,7 @@ class FileWriteInput(ToolInput):
         except LookupError:
             raise ValueError(f"Unknown encoding: {v}")
     
-    @validator('insert_line')
+    @validator('insert_line', always=True)
     def validate_insert_line(cls, v, values):
         """Validate insert line number."""
         if v is not None and values.get('mode') != 'insert':

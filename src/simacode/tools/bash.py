@@ -187,33 +187,112 @@ class BashTool(Tool):
             self._active_processes[execution_id] = process
             
             try:
-                # Stream output if capturing
-                if input_data.capture_output:
-                    async for output_result in self._stream_process_output(process, execution_id):
-                        yield output_result
+                # Create tasks for process completion and timeout
+                process_task = asyncio.create_task(process.wait())
+                timeout_task = asyncio.create_task(asyncio.sleep(input_data.timeout))
                 
-                # Wait for process completion with timeout
-                try:
-                    await asyncio.wait_for(
-                        process.wait(), 
-                        timeout=input_data.timeout
-                    )
-                except asyncio.TimeoutError:
-                    # Kill process on timeout
-                    process.terminate()
-                    try:
-                        await asyncio.wait_for(process.wait(), timeout=5)
-                    except asyncio.TimeoutError:
-                        process.kill()
-                        await process.wait()
+                # Stream output if capturing, with concurrent timeout monitoring
+                if input_data.capture_output:
+                    # Create a task to handle streaming
+                    async def stream_with_monitoring():
+                        try:
+                            async for output_result in self._stream_process_output(process, execution_id):
+                                yield output_result
+                        except Exception as e:
+                            yield ToolResult(
+                                type=ToolResultType.WARNING,
+                                content=f"Error during output streaming: {str(e)}",
+                                execution_id=execution_id
+                            )
                     
-                    yield ToolResult(
-                        type=ToolResultType.ERROR,
-                        content=f"Command timed out after {input_data.timeout} seconds",
-                        execution_id=execution_id,
-                        metadata={"timeout": input_data.timeout}
+                    # Monitor both streaming and timeout
+                    streaming_generator = stream_with_monitoring()
+                    timeout_occurred = False
+                    
+                    try:
+                        while not process_task.done() and not timeout_task.done():
+                            # Try to get the next output with a short timeout to allow checking process/timeout status
+                            try:
+                                output_result = await asyncio.wait_for(
+                                    streaming_generator.__anext__(), 
+                                    timeout=0.1  # Short timeout to check status frequently
+                                )
+                                yield output_result
+                            except asyncio.TimeoutError:
+                                # No output available, continue monitoring
+                                continue
+                            except StopAsyncIteration:
+                                # Streaming finished
+                                break
+                    except Exception as e:
+                        yield ToolResult(
+                            type=ToolResultType.WARNING,
+                            content=f"Error during output monitoring: {str(e)}",
+                            execution_id=execution_id
+                        )
+                    
+                    # Check if timeout occurred
+                    if timeout_task.done() and not process_task.done():
+                        timeout_occurred = True
+                    
+                    if timeout_occurred:
+                        # Timeout occurred during streaming
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=5)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                            await process.wait()
+                        
+                        yield ToolResult(
+                            type=ToolResultType.ERROR,
+                            content=f"Command timed out after {input_data.timeout} seconds",
+                            execution_id=execution_id,
+                            metadata={"timeout": input_data.timeout}
+                        )
+                        return
+                
+                # Wait for process completion or timeout (for processes without output or after streaming)
+                if not process_task.done():
+                    done, pending = await asyncio.wait(
+                        [process_task, timeout_task],
+                        return_when=asyncio.FIRST_COMPLETED
                     )
-                    return
+                    
+                    # Cancel pending tasks
+                    for task in pending:
+                        task.cancel()
+                        try:
+                            await task
+                        except asyncio.CancelledError:
+                            pass
+                    
+                    # Check if timeout occurred
+                    if timeout_task in done:
+                        # Timeout occurred
+                        process.terminate()
+                        try:
+                            await asyncio.wait_for(process.wait(), timeout=5)
+                        except asyncio.TimeoutError:
+                            process.kill()
+                            await process.wait()
+                        
+                        yield ToolResult(
+                            type=ToolResultType.ERROR,
+                            content=f"Command timed out after {input_data.timeout} seconds",
+                            execution_id=execution_id,
+                            metadata={"timeout": input_data.timeout}
+                        )
+                        return
+                        
+            except Exception as e:
+                yield ToolResult(
+                    type=ToolResultType.ERROR,
+                    content=f"Error during command execution: {str(e)}",
+                    execution_id=execution_id,
+                    metadata={"error_type": type(e).__name__}
+                )
+                return
                 
                 execution_time = time.time() - start_time
                 
