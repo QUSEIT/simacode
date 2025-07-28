@@ -74,9 +74,9 @@ class SecurityConfig(BaseModel):
     @validator('allowed_paths', 'forbidden_paths', pre=True)
     def convert_to_path_objects(cls, v: Union[str, list[str]]) -> list[Path]:
         if isinstance(v, str):
-            return [Path(v)]
+            return [Path(v).expanduser()]
         elif isinstance(v, list):
-            return [Path(item) if isinstance(item, str) else item for item in v]
+            return [Path(item).expanduser() if isinstance(item, str) else (item.expanduser() if hasattr(item, 'expanduser') else item) for item in v]
         return v
 
 
@@ -146,7 +146,11 @@ class SessionConfig(BaseModel):
     
     @validator('session_dir', pre=True)
     def ensure_session_dir(cls, v: Union[str, Path]) -> Path:
-        path = Path(v) if isinstance(v, str) else v
+        # Convert string to Path and expand ~ to user home directory
+        if isinstance(v, str):
+            path = Path(v).expanduser()
+        else:
+            path = v.expanduser() if hasattr(v, 'expanduser') else v
         path.mkdir(parents=True, exist_ok=True)
         return path
 
