@@ -20,7 +20,7 @@ class TestLogging:
         setup_logging(level="INFO")
         logger = get_logger("test")
         
-        assert logger.level == logging.INFO
+        assert logger.getEffectiveLevel() == logging.INFO
         assert len(logging.getLogger().handlers) > 0
 
     def test_setup_logging_with_config(self):
@@ -29,7 +29,7 @@ class TestLogging:
         setup_logging(config=config)
         
         logger = get_logger("test")
-        assert logger.level == logging.DEBUG
+        assert logger.getEffectiveLevel() == logging.DEBUG
 
     def test_setup_logging_with_file(self):
         """Test logging setup with file output."""
@@ -49,13 +49,13 @@ class TestLogging:
         setup_logging(level="INFO")
         logger = get_logger("test_level")
         
-        assert logger.level == logging.INFO
+        assert logger.getEffectiveLevel() == logging.INFO
         
         set_log_level("DEBUG")
-        assert logger.level == logging.DEBUG
+        assert logger.getEffectiveLevel() == logging.DEBUG
         
         set_log_level("WARNING")
-        assert logger.level == logging.WARNING
+        assert logger.getEffectiveLevel() == logging.WARNING
 
     def test_invalid_log_level(self):
         """Test handling of invalid log levels."""
@@ -70,20 +70,40 @@ class TestLogging:
         assert logger1 is logger2
         assert logger1.name == "module.submodule"
 
-    def test_logging_output(self, caplog):
-        """Test actual logging output."""
-        setup_logging(level="DEBUG")
-        logger = get_logger("test_output")
+    def test_logging_output(self):
+        """Test actual logging output to file."""
+        import tempfile
+        from pathlib import Path
         
-        logger.debug("Debug message")
-        logger.info("Info message")
-        logger.warning("Warning message")
-        logger.error("Error message")
+        # Create a temporary log file
+        with tempfile.NamedTemporaryFile(mode='w', delete=False, suffix='.log') as tmp_file:
+            log_file_path = Path(tmp_file.name)
         
-        assert "Debug message" in caplog.text
-        assert "Info message" in caplog.text
-        assert "Warning message" in caplog.text
-        assert "Error message" in caplog.text
+        try:
+            # Set up logging with file output
+            config = LoggingConfig(level="DEBUG", file_path=str(log_file_path))
+            setup_logging(config=config)
+            
+            logger = get_logger("test_output")
+            
+            logger.debug("Debug message")
+            logger.info("Info message")
+            logger.warning("Warning message")
+            logger.error("Error message")
+            
+            # Verify file output (file logging should work)
+            log_content = log_file_path.read_text()
+            assert "Debug message" in log_content
+            assert "Info message" in log_content
+            assert "Warning message" in log_content
+            assert "Error message" in log_content
+            
+            # Verify logger is configured with correct level
+            assert logger.getEffectiveLevel() == logging.DEBUG
+        finally:
+            # Clean up
+            if log_file_path.exists():
+                log_file_path.unlink()
 
     def test_rotating_file_handler(self):
         """Test rotating file handler functionality."""

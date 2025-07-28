@@ -3,9 +3,11 @@ Tests for CLI functionality.
 """
 
 import pytest
+from unittest.mock import patch, AsyncMock
 from click.testing import CliRunner
 
 from simacode.cli import main
+from simacode.ai.base import AIResponse
 
 
 class TestCLI:
@@ -63,22 +65,37 @@ class TestCLI:
         assert result.exit_code == 0
         assert "No message provided" in result.output
 
-    def test_chat_command_with_message(self):
+    @patch('simacode.cli.AIClientFactory.create_client')
+    def test_chat_command_with_message(self, mock_create_client):
         """Test chat command with message."""
+        # Mock AI client and response
+        mock_client = AsyncMock()
+        mock_response = AIResponse(content="Hello! How can I assist you today?", model="test-model")
+        mock_client.chat.return_value = mock_response
+        mock_create_client.return_value = mock_client
+        
         runner = CliRunner()
         result = runner.invoke(main, ["chat", "Hello AI"])
         
         assert result.exit_code == 0
-        assert "You: Hello AI" in result.output
-        assert "AI: Chat functionality coming soon..." in result.output
+        assert "AI: Hello! How can I assist you today?" in result.output
 
-    def test_chat_interactive_flag(self):
+    @patch('simacode.cli.AIClientFactory.create_client')
+    @patch('click.prompt')
+    def test_chat_interactive_flag(self, mock_prompt, mock_create_client):
         """Test chat command with interactive flag."""
+        # Mock user input - immediately exit
+        mock_prompt.side_effect = ["exit"]
+        
+        # Mock AI client
+        mock_client = AsyncMock()
+        mock_create_client.return_value = mock_client
+        
         runner = CliRunner()
         result = runner.invoke(main, ["chat", "--interactive"])
         
         assert result.exit_code == 0
-        assert "Chat functionality" in result.output
+        assert "Starting interactive chat mode" in result.output
 
     def test_verbose_flag(self):
         """Test verbose flag functionality."""
