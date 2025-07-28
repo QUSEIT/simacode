@@ -160,12 +160,12 @@ class MCPClient:
         try:
             # Send initialize request
             init_params = {
-                "protocol_version": "2024-11-05",
+                "protocolVersion": "2024-11-05",
                 "capabilities": {
-                    "tools": {"list_changed": False},
-                    "resources": {"subscribe": False, "list_changed": False}
+                    "tools": {"listChanged": False},
+                    "resources": {"subscribe": False, "listChanged": False}
                 },
-                "client_info": {
+                "clientInfo": {
                     "name": "simacode-mcp-client",
                     "version": "1.0.0"
                 }
@@ -174,7 +174,7 @@ class MCPClient:
             result = await self.protocol.call_method(MCPMethods.INITIALIZE, init_params)
             
             # Store server info and capabilities
-            self.server_info = result.get("server_info", {})
+            self.server_info = result.get("serverInfo", {})
             self.server_capabilities = result.get("capabilities", {})
             
             logger.info(f"Initialized session with server '{self.server_name}': {self.server_info}")

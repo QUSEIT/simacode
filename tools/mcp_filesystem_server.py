@@ -273,6 +273,7 @@ class FilesystemMCPServer:
                 text=f"Error creating directory {directory_path}: {str(e)}"
             )]
     
+    
 async def main():
     """Main entry point."""
     parser = argparse.ArgumentParser(description="Simple MCP Filesystem Server")

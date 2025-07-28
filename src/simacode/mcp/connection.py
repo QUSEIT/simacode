@@ -7,6 +7,7 @@ including stdio, WebSocket, and HTTP transports.
 
 import asyncio
 import logging
+import os
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 
@@ -37,13 +38,18 @@ class StdioTransport(MCPTransport):
             logger.info(f"Starting MCP server: {' '.join(self.command + self.args)}")
             
             # Start subprocess
+            # Merge custom env with current environment to ensure Python can run properly
+            process_env = dict(os.environ) if self.env else None
+            if self.env:
+                process_env.update(self.env)
+            
             self.process = await asyncio.create_subprocess_exec(
                 *self.command,
                 *self.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=self.env
+                env=process_env
             )
             
             # Check if process started successfully
