@@ -1,0 +1,126 @@
+# MCP Server Configuration
+# This file configures MCP (Model Context Protocol) servers for SimaCode
+
+# Global MCP settings
+mcp:
+  enabled: true
+  timeout: 30
+  max_concurrent: 5
+  log_level: INFO
+  cache_ttl: 300
+  health_check_interval: 30
+
+# MCP server definitions
+servers:
+  # File System Access Server
+  filesystem:
+    name: filesystem
+    enabled: false  # Disabled by default for security
+    type: subprocess
+    command: ["python", "-m", "mcp_server_filesystem"]
+    args: ["--root", "${WORKSPACE_ROOT:-/tmp}"]
+    environment:
+      WORKSPACE_ROOT: "${WORKSPACE_ROOT:-/tmp}"
+    working_directory: null
+    timeout: 60
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations: []
+      allowed_paths: ["${WORKSPACE_ROOT:-/tmp}", "/tmp"]
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 60
+      network_access: false
+
+  # GitHub Integration Server
+  github:
+    name: github
+    enabled: false  # Disabled by default - requires GITHUB_TOKEN
+    type: subprocess
+    command: ["npx", "@modelcontextprotocol/server-github"]
+    args: ["--token", "${GITHUB_TOKEN}"]
+    environment:
+      GITHUB_TOKEN: "${GITHUB_TOKEN}"
+    working_directory: null
+    timeout: 120
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations: 
+        - "read_repository"
+        - "list_issues"
+        - "list_pull_requests"
+        - "read_file"
+      allowed_paths: []
+      forbidden_paths: []
+      max_execution_time: 120
+      network_access: true
+
+  # SQLite Database Server (Example)
+  sqlite:
+    name: sqlite
+    enabled: false  # Disabled by default
+    type: subprocess
+    command: ["python", "-m", "mcp_server_sqlite"]
+    args: ["--db-path", "${DATABASE_PATH:-./data.db}"]
+    environment:
+      DATABASE_PATH: "${DATABASE_PATH:-./data.db}"
+    working_directory: null
+    timeout: 30
+    max_retries: 3
+    retry_delay: 1.0
+    security:
+      allowed_operations:
+        - "query"
+        - "schema"
+      allowed_paths: ["${DATABASE_PATH:-./data.db}"]
+      forbidden_paths: []
+      max_execution_time: 30
+      network_access: false
+
+  # Example HTTP/WebSocket MCP Server
+  web_server:
+    name: web_server
+    enabled: false  # Disabled by default
+    type: websocket
+    command: []  # Not used for websocket type
+    args: []
+    environment:
+      MCP_SERVER_URL: "${MCP_SERVER_URL:-ws://localhost:8080/mcp}"
+    working_directory: null
+    timeout: 30
+    max_retries: 3
+    retry_delay: 1.0
+    security:
+      allowed_operations: []
+      allowed_paths: []
+      forbidden_paths: []
+      max_execution_time: 60
+      network_access: true
+
+# Configuration Notes:
+# 
+# 1. Environment Variables:
+#    - Use ${VAR_NAME} syntax for environment variable substitution
+#    - Provide defaults with ${VAR_NAME:-default_value} syntax
+#    - Set environment variables before running SimaCode
+#
+# 2. Security:
+#    - By default, most servers are disabled for security
+#    - Review and configure security settings before enabling
+#    - allowed_paths and forbidden_paths are enforced for file access
+#    - max_execution_time prevents runaway processes
+#
+# 3. Server Types:
+#    - subprocess: Most common, runs MCP server as child process
+#    - websocket: Connects to WebSocket-based MCP server
+#
+# 4. To enable a server:
+#    - Set enabled: true
+#    - Configure required environment variables
+#    - Adjust security settings as needed
+#
+# 5. Example environment setup:
+#    export GITHUB_TOKEN="your_github_token_here"
+#    export WORKSPACE_ROOT="/path/to/your/workspace"
+#    export DATABASE_PATH="/path/to/your/database.db"

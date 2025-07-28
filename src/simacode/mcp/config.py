@@ -1,0 +1,339 @@
+"""
+MCP configuration management.
+
+This module handles loading, validating, and managing MCP server configurations
+from YAML files and environment variables.
+"""
+
+import os
+import string
+from pathlib import Path
+from typing import Any, Dict, List, Optional, Union
+
+import yaml
+from pydantic import BaseModel, Field, field_validator
+
+from .exceptions import MCPConfigurationError
+
+
+class MCPSecurityConfig(BaseModel):
+    """Security configuration for MCP servers."""
+    
+    allowed_operations: List[str] = Field(default_factory=list)
+    allowed_paths: List[str] = Field(default_factory=list)
+    forbidden_paths: List[str] = Field(default_factory=list)
+    max_execution_time: int = Field(default=300)  # 5 minutes
+    network_access: bool = Field(default=True)
+    
+    @field_validator('allowed_paths', 'forbidden_paths')
+    @classmethod
+    def validate_paths(cls, v: List[str]) -> List[str]:
+        """Validate and normalize paths."""
+        normalized_paths = []
+        for path in v:
+            try:
+                # Expand user and environment variables
+                expanded_path = os.path.expanduser(os.path.expandvars(path))
+                normalized_path = os.path.abspath(expanded_path)
+                normalized_paths.append(normalized_path)
+            except Exception as e:
+                raise ValueError(f"Invalid path '{path}': {str(e)}")
+        return normalized_paths
+
+
+class MCPServerConfig(BaseModel):
+    """Configuration for a single MCP server."""
+    
+    name: str = Field(..., description="Unique server name")
+    enabled: bool = Field(default=True)
+    type: str = Field(default="subprocess", description="Transport type")
+    command: List[str] = Field(..., description="Command to start server")
+    args: List[str] = Field(default_factory=list)
+    environment: Dict[str, str] = Field(default_factory=dict)
+    working_directory: Optional[str] = None
+    timeout: int = Field(default=30, ge=1, le=300)
+    max_retries: int = Field(default=3, ge=0, le=10)
+    retry_delay: float = Field(default=1.0, ge=0.1, le=60.0)
+    security: MCPSecurityConfig = Field(default_factory=MCPSecurityConfig)
+    
+    @field_validator('command')
+    @classmethod
+    def validate_command(cls, v: List[str]) -> List[str]:
+        """Validate command list."""
+        if not v:
+            raise ValueError("Command cannot be empty")
+        
+        # Check if first element (executable) exists
+        executable = v[0]
+        if not executable:
+            raise ValueError("Executable name cannot be empty")
+        
+        return v
+    
+    @field_validator('environment')
+    @classmethod
+    def validate_environment(cls, v: Dict[str, str]) -> Dict[str, str]:
+        """Validate and expand environment variables."""
+        expanded_env = {}
+        for key, value in v.items():
+            try:
+                # Expand environment variables in values
+                expanded_value = os.path.expandvars(value)
+                expanded_env[key] = expanded_value
+            except Exception as e:
+                raise ValueError(f"Invalid environment variable '{key}={value}': {str(e)}")
+        return expanded_env
+    
+    @field_validator('working_directory')
+    @classmethod
+    def validate_working_directory(cls, v: Optional[str]) -> Optional[str]:
+        """Validate working directory."""
+        if v is not None:
+            expanded_path = os.path.expanduser(os.path.expandvars(v))
+            if not os.path.isdir(expanded_path):
+                raise ValueError(f"Working directory does not exist: {expanded_path}")
+            return os.path.abspath(expanded_path)
+        return v
+
+
+class MCPGlobalConfig(BaseModel):
+    """Global MCP configuration."""
+    
+    enabled: bool = Field(default=True)
+    timeout: int = Field(default=30, ge=1, le=300)
+    max_concurrent: int = Field(default=10, ge=1, le=100)
+    log_level: str = Field(default="INFO")
+    cache_ttl: int = Field(default=300, ge=0)  # 5 minutes
+    health_check_interval: int = Field(default=30, ge=10)  # 30 seconds
+    
+    @field_validator('log_level')
+    @classmethod
+    def validate_log_level(cls, v: str) -> str:
+        """Validate log level."""
+        valid_levels = {'DEBUG', 'INFO', 'WARNING', 'ERROR', 'CRITICAL'}
+        if v.upper() not in valid_levels:
+            raise ValueError(f"Invalid log level. Must be one of: {valid_levels}")
+        return v.upper()
+
+
+class MCPConfig(BaseModel):
+    """Complete MCP configuration."""
+    
+    mcp: MCPGlobalConfig = Field(default_factory=MCPGlobalConfig)
+    servers: Dict[str, MCPServerConfig] = Field(default_factory=dict)
+    
+    def get_enabled_servers(self) -> Dict[str, MCPServerConfig]:
+        """Get only enabled servers."""
+        return {
+            name: config for name, config in self.servers.items()
+            if config.enabled and self.mcp.enabled
+        }
+    
+    def get_server_config(self, server_name: str) -> Optional[MCPServerConfig]:
+        """Get configuration for a specific server."""
+        return self.servers.get(server_name)
+    
+    def add_server(self, server_config: MCPServerConfig) -> None:
+        """Add a new server configuration."""
+        if server_config.name in self.servers:
+            raise MCPConfigurationError(
+                f"Server '{server_config.name}' already exists",
+                config_field="servers"
+            )
+        self.servers[server_config.name] = server_config
+    
+    def remove_server(self, server_name: str) -> bool:
+        """Remove a server configuration."""
+        if server_name in self.servers:
+            del self.servers[server_name]
+            return True
+        return False
+
+
+class MCPConfigManager:
+    """Manager for loading and managing MCP configurations."""
+    
+    def __init__(self, config_path: Optional[Union[str, Path]] = None):
+        self.config_path = self._resolve_config_path(config_path)
+        self.config: Optional[MCPConfig] = None
+        self._template_engine = EnvironmentTemplateEngine()
+    
+    def _resolve_config_path(self, config_path: Optional[Union[str, Path]]) -> Path:
+        """Resolve configuration file path."""
+        if config_path:
+            return Path(config_path).resolve()
+        
+        # Try multiple locations
+        possible_paths = [
+            Path.cwd() / "config" / "mcp_servers.yaml",
+            Path.cwd() / "mcp_servers.yaml",
+            Path.home() / ".simacode" / "mcp_servers.yaml",
+            Path(__file__).parent.parent.parent.parent / "config" / "mcp_servers.yaml"
+        ]
+        
+        for path in possible_paths:
+            if path.exists():
+                return path
+        
+        # Return default path for creation
+        return Path.cwd() / "config" / "mcp_servers.yaml"
+    
+    async def load_config(self) -> MCPConfig:
+        """Load MCP configuration from file."""
+        try:
+            if not self.config_path.exists():
+                # Create default configuration
+                self.config = MCPConfig()
+                await self.save_config()
+                return self.config
+            
+            with open(self.config_path, 'r', encoding='utf-8') as f:
+                raw_data = f.read()
+            
+            # Process templates (environment variables)
+            processed_data = self._template_engine.process(raw_data)
+            config_data = yaml.safe_load(processed_data)
+            
+            if not config_data:
+                config_data = {}
+            
+            # Parse and validate configuration
+            self.config = MCPConfig(**config_data)
+            return self.config
+            
+        except yaml.YAMLError as e:
+            raise MCPConfigurationError(
+                f"Invalid YAML in configuration file: {str(e)}",
+                config_field="yaml_syntax"
+            )
+        except Exception as e:
+            raise MCPConfigurationError(
+                f"Failed to load configuration from {self.config_path}: {str(e)}"
+            )
+    
+    async def save_config(self, config: Optional[MCPConfig] = None) -> None:
+        """Save MCP configuration to file."""
+        config_to_save = config or self.config
+        if not config_to_save:
+            raise MCPConfigurationError("No configuration to save")
+        
+        try:
+            # Ensure directory exists
+            self.config_path.parent.mkdir(parents=True, exist_ok=True)
+            
+            # Convert to dict and save
+            config_dict = config_to_save.model_dump(exclude_unset=False)
+            
+            with open(self.config_path, 'w', encoding='utf-8') as f:
+                yaml.dump(
+                    config_dict,
+                    f,
+                    default_flow_style=False,
+                    sort_keys=False,
+                    indent=2
+                )
+            
+            self.config = config_to_save
+            
+        except Exception as e:
+            raise MCPConfigurationError(
+                f"Failed to save configuration to {self.config_path}: {str(e)}"
+            )
+    
+    def get_config(self) -> Optional[MCPConfig]:
+        """Get current configuration."""
+        return self.config
+    
+    def create_default_config(self) -> MCPConfig:
+        """Create a default configuration with example servers."""
+        config = MCPConfig(
+            mcp=MCPGlobalConfig(
+                enabled=True,
+                timeout=30,
+                max_concurrent=5,
+                log_level="INFO"
+            ),
+            servers={
+                "filesystem": MCPServerConfig(
+                    name="filesystem",
+                    enabled=False,  # Disabled by default
+                    type="subprocess",
+                    command=["python", "-m", "mcp_server_filesystem"],
+                    args=["--root", "${WORKSPACE_ROOT:-/tmp}"],
+                    environment={
+                        "WORKSPACE_ROOT": "${WORKSPACE_ROOT:-/tmp}"
+                    },
+                    security=MCPSecurityConfig(
+                        allowed_paths=["${WORKSPACE_ROOT:-/tmp}", "/tmp"],
+                        forbidden_paths=["/etc", "/usr", "/sys", "/proc"],
+                        max_execution_time=60
+                    )
+                ),
+                "github": MCPServerConfig(
+                    name="github",
+                    enabled=False,  # Disabled by default
+                    type="subprocess", 
+                    command=["npx", "@modelcontextprotocol/server-github"],
+                    args=["--token", "${GITHUB_TOKEN}"],
+                    environment={
+                        "GITHUB_TOKEN": "${GITHUB_TOKEN}"
+                    },
+                    security=MCPSecurityConfig(
+                        allowed_operations=[
+                            "read_repository", "list_issues", "list_pull_requests"
+                        ],
+                        network_access=True,
+                        max_execution_time=120
+                    )
+                )
+            }
+        )
+        return config
+
+
+class EnvironmentTemplateEngine:
+    """Simple template engine for environment variable substitution."""
+    
+    def process(self, template_text: str) -> str:
+        """Process template text and substitute environment variables."""
+        try:
+            # Use string.Template for safe substitution
+            template = string.Template(template_text)
+            
+            # Get all environment variables
+            env_vars = dict(os.environ)
+            
+            # Perform safe substitution (leaves undefined variables as-is)
+            return template.safe_substitute(env_vars)
+            
+        except Exception as e:
+            raise MCPConfigurationError(
+                f"Template processing failed: {str(e)}",
+                config_field="template"
+            )
+
+
+# Utility functions for configuration management
+async def load_mcp_config(config_path: Optional[Union[str, Path]] = None) -> MCPConfig:
+    """Load MCP configuration from file."""
+    manager = MCPConfigManager(config_path)
+    return await manager.load_config()
+
+
+async def create_default_mcp_config(config_path: Optional[Union[str, Path]] = None) -> MCPConfig:
+    """Create and save a default MCP configuration."""
+    manager = MCPConfigManager(config_path)
+    config = manager.create_default_config()
+    await manager.save_config(config)
+    return config
+
+
+def validate_server_config(config_dict: Dict[str, Any]) -> MCPServerConfig:
+    """Validate a server configuration dictionary."""
+    try:
+        return MCPServerConfig(**config_dict)
+    except Exception as e:
+        raise MCPConfigurationError(
+            f"Invalid server configuration: {str(e)}",
+            config_field="server_config"
+        )
