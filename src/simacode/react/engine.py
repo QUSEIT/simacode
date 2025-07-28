@@ -250,7 +250,18 @@ class ReActEngine:
     async def _execution_and_evaluation_phase(self, session: ReActSession) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute tasks and evaluate results."""
         if not session.tasks:
-            raise ReActError("No tasks to execute")
+            # Handle conversational inputs that don't require task execution
+            session.add_log_entry("No tasks to execute - treating as conversational input")
+            yield self._create_status_update(session, "No specific tasks identified - providing conversational response")
+            
+            # Create a conversational response using the AI client
+            response = await self._generate_conversational_response(session)
+            yield {
+                "type": "conversational_response",
+                "content": response,
+                "session_id": session.id
+            }
+            return
         
         session.update_state(ReActState.EXECUTING)
         
@@ -421,6 +432,12 @@ class ReActEngine:
     
     async def _final_assessment_phase(self, session: ReActSession) -> AsyncGenerator[Dict[str, Any], None]:
         """Perform final assessment of overall execution."""
+        # Skip assessment if no tasks were executed (conversational input)
+        if not session.tasks:
+            session.add_log_entry("Skipping final assessment - no tasks were executed")
+            yield self._create_status_update(session, "Conversational interaction completed")
+            return
+            
         session.update_state(ReActState.EVALUATING)
         yield self._create_status_update(session, "Performing final assessment")
         
@@ -454,6 +471,22 @@ class ReActEngine:
         successful_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.COMPLETED)
         total_tasks = len(session.tasks)
         
+        # Handle conversational inputs with no tasks
+        if total_tasks == 0:
+            return {
+                "type": "final_result",
+                "content": "Conversational interaction completed successfully",
+                "session_id": session.id,
+                "session_data": session.to_dict(),
+                "summary": {
+                    "total_tasks": 0,
+                    "successful_tasks": 0,
+                    "failed_tasks": 0,
+                    "execution_time": (session.updated_at - session.created_at).total_seconds(),
+                    "interaction_type": "conversational"
+                }
+            }
+        
         return {
             "type": "final_result",
             "content": f"ReAct processing completed: {successful_tasks}/{total_tasks} tasks successful",
@@ -466,3 +499,26 @@ class ReActEngine:
                 "execution_time": (session.updated_at - session.created_at).total_seconds()
             }
         }
+    
+    async def _generate_conversational_response(self, session: ReActSession) -> str:
+        """Generate a conversational response when no tasks are identified."""
+        try:
+            # Create a simple conversational message using the AI client
+            conversation = [
+                Message(
+                    role="system",
+                    content="You are a helpful assistant. The user has sent a message that doesn't require any specific task execution. Provide a friendly, helpful response."
+                ),
+                Message(
+                    role="user", 
+                    content=session.user_input
+                )
+            ]
+            
+            response = await self.ai_client.chat(conversation)
+            return response.content
+            
+        except Exception as e:
+            logger.warning(f"Failed to generate conversational response: {str(e)}")
+            # Fallback response
+            return f"I understand you said: '{session.user_input}'. How can I help you with your development tasks?"

@@ -381,6 +381,7 @@ async def test_integration_simple_workflow(mock_ai_client, sample_planning_respo
                 assert "summary" in final_result
 
 
+
 if __name__ == "__main__":
     # Run tests
     pytest.main([__file__, "-v"])
