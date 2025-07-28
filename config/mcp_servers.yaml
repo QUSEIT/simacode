@@ -15,19 +15,19 @@ servers:
   # File System Access Server
   filesystem:
     name: filesystem
-    enabled: false  # Disabled by default for security
-    type: subprocess
-    command: ["python", "-m", "mcp_server_filesystem"]
-    args: ["--root", "${WORKSPACE_ROOT:-/tmp}"]
+    enabled: true  # Enabled for project use
+    type: stdio
+    command: ["python", "tools/mcp_filesystem_server.py"]
+    args: ["--root", "."]
     environment:
-      WORKSPACE_ROOT: "${WORKSPACE_ROOT:-/tmp}"
+      WORKSPACE_ROOT: "."
     working_directory: null
     timeout: 60
     max_retries: 3
     retry_delay: 2.0
     security:
-      allowed_operations: []
-      allowed_paths: ["${WORKSPACE_ROOT:-/tmp}", "/tmp"]
+      allowed_operations: ["read", "write", "list", "create", "delete"]
+      allowed_paths: [".", "/tmp"]
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 60
       network_access: false

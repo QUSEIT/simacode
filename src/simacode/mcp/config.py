@@ -46,7 +46,7 @@ class MCPServerConfig(BaseModel):
     
     name: str = Field(..., description="Unique server name")
     enabled: bool = Field(default=True)
-    type: str = Field(default="subprocess", description="Transport type")
+    type: str = Field(default="stdio", description="Transport type")
     command: List[str] = Field(..., description="Command to start server")
     args: List[str] = Field(default_factory=list)
     environment: Dict[str, str] = Field(default_factory=dict)
@@ -58,10 +58,15 @@ class MCPServerConfig(BaseModel):
     
     @field_validator('command')
     @classmethod
-    def validate_command(cls, v: List[str]) -> List[str]:
+    def validate_command(cls, v: List[str], info) -> List[str]:
         """Validate command list."""
+        # For websocket type servers, command can be empty
+        server_type = info.data.get('type', 'stdio')
+        if server_type == 'websocket':
+            return v  # Allow empty command for websocket servers
+        
         if not v:
-            raise ValueError("Command cannot be empty")
+            raise ValueError("Command cannot be empty for stdio servers")
         
         # Check if first element (executable) exists
         executable = v[0]
@@ -257,7 +262,7 @@ class MCPConfigManager:
                 "filesystem": MCPServerConfig(
                     name="filesystem",
                     enabled=False,  # Disabled by default
-                    type="subprocess",
+                    type="stdio",
                     command=["python", "-m", "mcp_server_filesystem"],
                     args=["--root", "${WORKSPACE_ROOT:-/tmp}"],
                     environment={
@@ -272,7 +277,7 @@ class MCPConfigManager:
                 "github": MCPServerConfig(
                     name="github",
                     enabled=False,  # Disabled by default
-                    type="subprocess", 
+                    type="stdio", 
                     command=["npx", "@modelcontextprotocol/server-github"],
                     args=["--token", "${GITHUB_TOKEN}"],
                     environment={
