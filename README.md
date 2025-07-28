@@ -6,8 +6,9 @@ A modern AI programming assistant built with Python, featuring intelligent ReAct
 
 - **Intelligent Task Planning**: Advanced ReAct framework for understanding and executing complex programming tasks
 - **Multi-Agent System**: Planned specialized agents for different operations (files, code analysis, system commands)
+- **MCP Integration**: Full support for Model Context Protocol tools with seamless AI and direct command-line access
 - **Secure by Design**: Comprehensive permission system and safety checks
-- **Extensible Architecture**: Tool registry system with planned plugin support for custom capabilities
+- **Extensible Architecture**: Tool registry system with plugin support for custom capabilities and MCP tools
 - **Multi-Provider AI Support**: Currently supports OpenAI, with planned support for Anthropic and other providers
 
 ## 📦 Installation
@@ -80,6 +81,216 @@ simacode chat --react --session-id <session_id>
 simacode config --check
 ```
 
+## 🔧 MCP Tool Integration
+
+SimaCode provides comprehensive support for Model Context Protocol (MCP) tools, enabling both AI-assisted and direct command-line access to external tools.
+
+### Two Ways to Use MCP Tools
+
+#### 1. AI-Assisted Usage (ReAct Mode)
+Let the AI intelligently choose and use MCP tools based on your natural language requests:
+
+```bash
+# Start interactive ReAct mode with MCP tools
+simacode chat --react --interactive
+
+# Example conversation:
+> Please read the contents of my config.yaml file
+# AI will automatically discover and use the appropriate MCP file tool
+
+> Help me scrape the title from https://example.com
+# AI will use web scraping MCP tools if available
+
+> Process this JSON data and extract the user information
+# AI will use data processing MCP tools
+```
+
+#### 2. Direct Tool Execution
+Execute specific MCP tools directly with precise control:
+
+```bash
+# Initialize MCP integration
+simacode mcp init
+
+# List all available tools
+simacode mcp list
+
+# Search for specific tools
+simacode mcp search "file"
+simacode mcp search "web" --fuzzy
+
+# Get detailed tool information
+simacode mcp info file_tools:read_file
+
+# Execute tools with parameters
+simacode mcp run file_tools:read_file --param file_path=/path/to/file.txt
+
+# Interactive parameter input
+simacode mcp run web_tools:fetch_url --interactive
+
+# Execute with JSON parameters
+simacode mcp run data_tools:process_json --params '{"data": {"key": "value"}, "operation": "filter"}'
+
+# Dry run to see what would be executed
+simacode mcp run my_tool --param input=test --dry-run
+
+# Show system status
+simacode mcp status
+```
+
+### MCP Configuration
+
+Create an MCP configuration file to define your tool servers:
+
+```yaml
+# .simacode/mcp.yaml or mcp.yaml
+servers:
+  file_tools:
+    command: ["python", "-m", "file_mcp_server"]
+    args: ["--port", "3001"]
+    env:
+      SERVER_NAME: "file_tools"
+    working_directory: "/tmp"
+  
+  web_tools:
+    command: ["node", "web-mcp-server.js"]
+    args: ["--config", "web-config.json"]
+    env:
+      NODE_ENV: "production"
+  
+  data_tools:
+    command: ["./data-server"]
+    args: ["--mode", "mcp"]
+
+discovery:
+  mode: "active"          # auto-discover new tools
+  interval: 60            # check every 60 seconds
+  auto_register: true     # automatically register new tools
+
+updates:
+  enable_hot_updates: true    # hot-reload tool changes
+  batch_updates: true         # batch multiple updates
+  max_concurrent: 5           # max concurrent updates
+
+namespaces:
+  require_namespaces: true       # use namespaces to avoid conflicts
+  conflict_resolution: "suffix"  # how to resolve name conflicts
+  auto_create_aliases: true      # create short aliases for tools
+```
+
+### MCP Tool Examples
+
+#### File Operations
+```bash
+# Read a file
+simacode mcp run file_tools:read_file --param file_path=config.yaml
+
+# Write to a file
+simacode mcp run file_tools:write_file \
+  --param file_path=output.txt \
+  --param content="Hello, world!" \
+  --param append=false
+```
+
+#### Web Operations  
+```bash
+# Fetch URL content
+simacode mcp run web_tools:fetch_url --param url=https://api.github.com/users/octocat
+
+# Scrape web page
+simacode mcp run web_tools:scrape_page \
+  --param url=https://example.com \
+  --param selector="h1" \
+  --param extract=text
+```
+
+#### Data Processing
+```bash
+# Process JSON data
+simacode mcp run data_tools:process_json \
+  --params '{"data": [1,2,3,4,5], "operation": "filter", "parameters": {"min": 3}}'
+```
+
+#### Interactive Usage
+```bash
+# Interactive mode guides you through parameter input
+simacode mcp run complex_tool --interactive
+
+# Example interactive session:
+Tool: complex_tool
+Description: A complex tool with multiple parameters
+
+file_path (Path to input file) [required]: /path/to/input.txt
+operation (Operation to perform) [optional]: process
+options (Additional options as JSON) [optional]: {"verbose": true}
+```
+
+### MCP Tool Development
+
+To integrate your own MCP tools:
+
+1. **Develop MCP Server**: Create a server that implements the MCP protocol
+2. **Add to Configuration**: Add server configuration to your MCP config file
+3. **Auto-Discovery**: Tools will be automatically discovered and registered
+4. **AI Integration**: Tools become available to both AI and direct CLI usage
+
+Example minimal MCP server configuration:
+```yaml
+servers:
+  my_custom_tools:
+    command: ["python", "-m", "my_mcp_server"]
+    args: ["--port", "3000"]
+    env:
+      DEBUG: "true"
+```
+
+### MCP Usage Scenarios
+
+#### When to Use AI-Assisted Mode (ReAct)
+✅ **Best for:**
+- Exploratory tasks where you're not sure which tools to use
+- Complex workflows requiring multiple tools
+- Natural language problem description
+- Learning what tools are available
+- Tasks requiring intelligent planning and decision-making
+
+**Example:**
+```bash
+simacode chat --react --interactive
+> "I need to analyze the JSON data in data.json, extract user information, and save it to a CSV file"
+# AI will automatically:
+# 1. Use file tool to read data.json
+# 2. Use data processing tool to extract user info  
+# 3. Use file tool to write CSV output
+```
+
+#### When to Use Direct Execution
+✅ **Best for:**
+- Precise control over tool execution
+- Scripting and automation
+- Known workflows with specific parameters
+- Testing individual tools
+- Integration with other command-line tools
+
+**Example:**
+```bash
+# Precise, scriptable tool execution
+simacode mcp run file_tools:read_file --param file_path=data.json | \
+simacode mcp run data_tools:extract_users --param format=csv | \
+simacode mcp run file_tools:write_file --param file_path=users.csv
+```
+
+#### Comparison Table
+
+| Aspect | AI-Assisted (ReAct) | Direct Execution |
+|--------|---------------------|------------------|
+| **Control** | AI decides tools and parameters | Full user control |
+| **Learning Curve** | Natural language, easy to start | Requires tool knowledge |
+| **Flexibility** | Adapts to complex scenarios | Precise, predictable |
+| **Automation** | Interactive, conversational | Scriptable, pipeline-friendly |
+| **Error Handling** | AI can retry and adapt | Manual error handling |
+| **Use Case** | Exploration, complex tasks | Automation, precise workflows |
+
 ### Configuration
 
 SimaCode uses a hierarchical configuration system:
@@ -122,20 +333,25 @@ SimaCode follows a clean architecture with distinct layers:
 ### Core Components
 
 #### ✅ **Implemented Components**
-- **CLI Layer**: Command-line interface with Click
+- **CLI Layer**: Command-line interface with Click and MCP tool commands
 - **Configuration**: YAML-based configuration with Pydantic validation
 - **Logging**: Structured logging with Rich formatting
-- **ReAct Engine**: Intelligent task planning and execution
-- **Tool System**: Extensible framework for operations (bash, file_read, file_write)
+- **ReAct Engine**: Intelligent task planning and execution with MCP tool integration
+- **Tool System**: Extensible framework with built-in tools (bash, file_read, file_write)
+- **MCP Integration**: Complete Model Context Protocol support with:
+  - **Tool Wrapper**: Seamless integration of MCP tools with SimaCode
+  - **Tool Registry**: Centralized management and namespace handling
+  - **Auto-Discovery**: Intelligent tool discovery and registration
+  - **Dynamic Updates**: Hot-reload and real-time tool updates
+  - **Unified Interface**: Both AI-assisted and direct CLI access
 - **AI Integration**: OpenAI client with conversation management
-- **Security**: Basic permission-based access control
-- **Session Management**: Basic session handling and persistence
+- **Security**: Comprehensive permission-based access control
+- **Session Management**: Session handling and persistence
 
 #### 🚧 **Planned Components**
 - **Multi-Agent System**: Specialized agents for different operations
-- **Plugin System**: Dynamic plugin loading and management
 - **Multi-Provider AI**: Support for Anthropic, Azure, Google AI providers
-- **Advanced Security**: Sandboxed execution and resource limits
+- **Advanced Security**: Enhanced sandboxed execution and resource limits
 
 ### Technology Stack
 

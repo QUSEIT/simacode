@@ -17,6 +17,7 @@ from ..react.engine import ReActEngine, ExecutionMode
 from ..session.manager import SessionManager, SessionConfig
 from ..react.engine import ReActSession
 from ..react.exceptions import ReActError
+from ..react.mcp_integration import setup_mcp_integration_for_react, MCPReActIntegration
 
 logger = logging.getLogger(__name__)
 
@@ -61,6 +62,9 @@ class ReActService:
         # Service state
         self.is_running = False
         
+        # MCP integration
+        self.mcp_integration: Optional[MCPReActIntegration] = None
+        
         logger.info("ReAct service initialized")
     
     async def start(self):
@@ -76,6 +80,9 @@ class ReActService:
             cleanup_count = await self.session_manager.cleanup_old_sessions()
             if cleanup_count > 0:
                 logger.info(f"Cleaned up {cleanup_count} old sessions on startup")
+            
+            # Initialize MCP integration
+            await self._initialize_mcp_integration()
             
             self.is_running = True
             logger.info("ReAct service started")
@@ -209,6 +216,81 @@ class ReActService:
         except Exception as e:
             logger.error(f"Error listing sessions: {str(e)}")
             return []
+    
+    async def _initialize_mcp_integration(self) -> None:
+        """Initialize MCP integration for the ReAct engine."""
+        try:
+            logger.info("Initializing MCP integration for ReAct engine...")
+            
+            # Look for MCP configuration in standard locations
+            mcp_config_paths = [
+                Path.cwd() / ".simacode" / "mcp.yaml",
+                Path.cwd() / "mcp.yaml",
+                Path.home() / ".config" / "simacode" / "mcp.yaml"
+            ]
+            
+            mcp_config_path = None
+            for path in mcp_config_paths:
+                if path.exists():
+                    mcp_config_path = path
+                    logger.info(f"Found MCP configuration at: {path}")
+                    break
+            
+            # Set up MCP integration
+            self.mcp_integration = await setup_mcp_integration_for_react(
+                self.react_engine, 
+                mcp_config_path
+            )
+            
+            if self.mcp_integration:
+                stats = self.mcp_integration.get_registry_stats()
+                logger.info(f"MCP integration initialized with {stats['total_tools']} tools")
+            else:
+                logger.warning("MCP integration failed to initialize, continuing without MCP tools")
+                
+        except Exception as e:
+            logger.warning(f"Could not initialize MCP integration: {str(e)}")
+            logger.info("ReAct service will continue without MCP tools")
+    
+    async def refresh_mcp_tools(self) -> bool:
+        """
+        Refresh MCP tools in the ReAct engine.
+        
+        Returns:
+            bool: True if refresh successful
+        """
+        try:
+            if self.mcp_integration:
+                tool_count = await self.mcp_integration.refresh_tools()
+                logger.info(f"Refreshed {tool_count} MCP tools")
+                return True
+            else:
+                logger.warning("MCP integration not available")
+                return False
+                
+        except Exception as e:
+            logger.error(f"Failed to refresh MCP tools: {str(e)}")
+            return False
+    
+    def get_mcp_status(self) -> Dict[str, Any]:
+        """
+        Get MCP integration status.
+        
+        Returns:
+            Dict[str, Any]: MCP status information
+        """
+        if self.mcp_integration:
+            return {
+                "enabled": True,
+                "initialized": self.mcp_integration.is_initialized,
+                "stats": self.mcp_integration.get_registry_stats()
+            }
+        else:
+            return {
+                "enabled": False,
+                "initialized": False,
+                "stats": {}
+            }
     
     async def delete_session(self, session_id: str) -> bool:
         """

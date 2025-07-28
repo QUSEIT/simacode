@@ -19,6 +19,7 @@ from .logging_config import setup_logging
 from .ai.factory import AIClientFactory
 from .ai.conversation import ConversationManager
 from .services.react_service import ReActService
+from .cli_mcp import mcp_group
 
 # Install rich traceback handler for better error display
 install(show_locals=True)
@@ -550,6 +551,10 @@ async def _handle_interactive_mode(ai_client, conversation_manager) -> None:
                 console.print(f"[red]Too many consecutive errors ({consecutive_errors}). Exiting for safety.[/red]")
                 break
             console.print("[dim]Please try again or type 'quit' to exit.[/dim]")
+
+
+# Add MCP command group to main CLI
+main.add_command(mcp_group)
 
 
 if __name__ == "__main__":
