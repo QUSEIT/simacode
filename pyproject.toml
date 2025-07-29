@@ -37,6 +37,7 @@ aiohttp = "^3.12.14"
 # MCP (Model Context Protocol) dependencies
 websockets = "^11.0.3"
 cachetools = "^5.3.2"
+psutil = "^5.9.0"
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
