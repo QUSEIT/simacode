@@ -7,6 +7,7 @@ MCP (Model Context Protocol) tools through the SimaCode CLI.
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from typing import Optional, Dict, Any, List
 
@@ -610,6 +611,7 @@ async def _execute_tool(tool_name: str, params: Dict[str, Any]) -> None:
         for key, value in params.items():
             console.print(f"   • {key}: {value}")
     
+    # Get registry and let it auto-initialize MCP if needed
     registry = SimaCodeToolRegistry()
     
     with Progress(
@@ -630,13 +632,21 @@ async def _execute_tool(tool_name: str, params: Dict[str, Any]) -> None:
                 elif result.type == ToolResultType.INFO:
                     progress.update(task, description=f"Info: {result.content}")
             
-            progress.remove_task(task)
+            # Remove task if it still exists
+            try:
+                progress.remove_task(task)
+            except KeyError:
+                pass  # Task already removed or doesn't exist
             
             # Display results
             _display_tool_results(tool_name, results)
             
         except Exception as e:
-            progress.remove_task(task)
+            # Remove task if it still exists
+            try:
+                progress.remove_task(task)  
+            except KeyError:
+                pass  # Task already removed or doesn't exist
             console.print(f"❌ [bold red]Execution failed: {str(e)}[/bold red]")
 
 
@@ -668,7 +678,8 @@ def _display_tool_results(tool_name: str, results: List[ToolResult]) -> None:
             icon = "📝"
         
         # Show result
-        console.print(f"{icon} [bold {style}]{result.type.value.upper()}[/bold {style}]: {result.content}")
+        result_type_str = result.type.value if hasattr(result.type, 'value') else str(result.type)
+        console.print(f"{icon} [bold {style}]{result_type_str.upper()}[/bold {style}]: {result.content}")
         
         # Show metadata if available
         if result.metadata:

@@ -85,12 +85,20 @@ class MCPClient:
             logger.info(f"Connecting to MCP server '{self.server_name}' (attempt {self.connection_attempts})")
             
             # Create transport and connection
-            transport = create_transport(self.server_config.type, {
+            transport_config = {
                 "command": self.server_config.command,
                 "args": self.server_config.args,
                 "environment": self.server_config.environment,
                 "working_directory": self.server_config.working_directory
-            })
+            }
+            
+            # Add WebSocket-specific configuration
+            if hasattr(self.server_config, 'url'):
+                transport_config["url"] = self.server_config.url
+            if hasattr(self.server_config, 'headers'):
+                transport_config["headers"] = self.server_config.headers
+            
+            transport = create_transport(self.server_config.type, transport_config)
             
             self.connection = MCPConnection(transport, timeout=self.server_config.timeout)
             await self.connection.connect()

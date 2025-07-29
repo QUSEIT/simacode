@@ -389,6 +389,9 @@ class SimaCodeToolRegistry:
         Yields:
             ToolResult: Execution results
         """
+        # Ensure MCP is initialized before looking up tools
+        await self._ensure_mcp_initialized()
+        
         tool = self.get_tool(tool_name)
         if not tool:
             yield ToolResult(

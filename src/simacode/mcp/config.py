@@ -49,6 +49,8 @@ class MCPServerConfig(BaseModel):
     type: str = Field(default="stdio", description="Transport type")
     command: List[str] = Field(..., description="Command to start server")
     args: List[str] = Field(default_factory=list)
+    url: Optional[str] = Field(default=None, description="WebSocket URL for websocket type")
+    headers: Dict[str, str] = Field(default_factory=dict, description="HTTP headers for websocket connection")
     environment: Dict[str, str] = Field(default_factory=dict)
     working_directory: Optional[str] = None
     timeout: int = Field(default=30, ge=1, le=300)
@@ -297,18 +299,33 @@ class MCPConfigManager:
 
 
 class EnvironmentTemplateEngine:
-    """Simple template engine for environment variable substitution."""
+    """Simple template engine for environment variable substitution with default values."""
     
     def process(self, template_text: str) -> str:
-        """Process template text and substitute environment variables."""
+        """Process template text and substitute environment variables with default value support."""
         try:
-            # Use string.Template for safe substitution
-            template = string.Template(template_text)
+            import re
             
-            # Get all environment variables
+            # Pattern to match ${VAR:-default} or ${VAR}
+            pattern = r'\$\{([^}]+)\}'
+            
+            def substitute_var(match):
+                var_expr = match.group(1)
+                
+                # Check if it has a default value (VAR:-default)
+                if ':-' in var_expr:
+                    var_name, default_value = var_expr.split(':-', 1)
+                    return os.getenv(var_name.strip(), default_value.strip())
+                else:
+                    # Simple variable substitution
+                    return os.getenv(var_expr.strip(), match.group(0))  # Keep original if not found
+            
+            # Replace all variable expressions
+            result = re.sub(pattern, substitute_var, template_text)
+            
+            # Also handle simple $VAR syntax
+            template = string.Template(result)
             env_vars = dict(os.environ)
-            
-            # Perform safe substitution (leaves undefined variables as-is)
             return template.safe_substitute(env_vars)
             
         except Exception as e:

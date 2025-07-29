@@ -31,6 +31,8 @@ class StdioTransport(MCPTransport):
         self.env = env
         self.process: Optional[asyncio.subprocess.Process] = None
         self._connected = False
+        self._read_lock = asyncio.Lock()
+        self._write_lock = asyncio.Lock()
         
     async def connect(self) -> bool:
         """Start subprocess and establish stdio connection."""
@@ -106,14 +108,15 @@ class StdioTransport(MCPTransport):
         if not self.process or not self.process.stdin:
             raise MCPConnectionError("Process stdin not available")
         
-        try:
-            # Add newline separator for line-based communication
-            self.process.stdin.write(message + b'\n')
-            await self.process.stdin.drain()
-            
-        except Exception as e:
-            logger.error(f"Failed to send message: {str(e)}")
-            raise MCPConnectionError(f"Failed to send message: {str(e)}")
+        async with self._write_lock:
+            try:
+                # Add newline separator for line-based communication
+                self.process.stdin.write(message + b'\n')
+                await self.process.stdin.drain()
+                
+            except Exception as e:
+                logger.error(f"Failed to send message: {str(e)}")
+                raise MCPConnectionError(f"Failed to send message: {str(e)}")
     
     async def receive(self) -> bytes:
         """Receive message from subprocess stdout."""
@@ -123,21 +126,22 @@ class StdioTransport(MCPTransport):
         if not self.process or not self.process.stdout:
             raise MCPConnectionError("Process stdout not available")
         
-        try:
-            # Read line from stdout
-            line = await self.process.stdout.readline()
-            
-            if not line:
-                # EOF reached - process likely terminated
-                self._connected = False
-                raise MCPConnectionError("Process terminated unexpectedly")
-            
-            # Remove trailing newline
-            return line.rstrip(b'\n')
-            
-        except Exception as e:
-            logger.error(f"Failed to receive message: {str(e)}")
-            raise MCPConnectionError(f"Failed to receive message: {str(e)}")
+        async with self._read_lock:
+            try:
+                # Read line from stdout
+                line = await self.process.stdout.readline()
+                
+                if not line:
+                    # EOF reached - process likely terminated
+                    self._connected = False
+                    raise MCPConnectionError("Process terminated unexpectedly")
+                
+                # Remove trailing newline
+                return line.rstrip(b'\n')
+                
+            except Exception as e:
+                logger.error(f"Failed to receive message: {str(e)}")
+                raise MCPConnectionError(f"Failed to receive message: {str(e)}")
     
     def is_connected(self) -> bool:
         """Check if transport is connected."""
@@ -157,38 +161,97 @@ class WebSocketTransport(MCPTransport):
     WebSocket transport for MCP communication.
     
     This transport is useful for MCP servers that provide WebSocket endpoints.
+    Can optionally start a server process before connecting.
     """
     
-    def __init__(self, url: str, headers: Dict[str, str] = None):
+    def __init__(self, url: str, headers: Dict[str, str] = None, command: list = None, args: list = None, env: Dict[str, str] = None):
         self.url = url
         self.headers = headers or {}
         self.websocket = None
         self._connected = False
+        
+        # Optional server process management
+        self.command = command
+        self.args = args or []
+        self.env = env
+        self.process: Optional[asyncio.subprocess.Process] = None
     
     async def connect(self) -> bool:
         """Establish WebSocket connection."""
         try:
             import websockets
             
+            # Start server process if command is provided
+            if self.command:
+                await self._start_server_process()
+                # Wait for server to start
+                await asyncio.sleep(2)
+            
             logger.info(f"Connecting to MCP server via WebSocket: {self.url}")
             
-            self.websocket = await websockets.connect(
-                self.url,
-                extra_headers=self.headers
-            )
-            
-            self._connected = True
-            logger.info("WebSocket connection established")
-            return True
+            # Try connecting with retries
+            max_retries = 5
+            for attempt in range(max_retries):
+                try:
+                    # Connect to WebSocket with headers if supported
+                    if self.headers:
+                        self.websocket = await websockets.connect(
+                            self.url,
+                            additional_headers=self.headers
+                        )
+                    else:
+                        self.websocket = await websockets.connect(self.url)
+                    self._connected = True
+                    logger.info("WebSocket connection established")
+                    return True
+                except Exception as e:
+                    if attempt < max_retries - 1:
+                        logger.info(f"WebSocket connection attempt {attempt + 1} failed, retrying...")
+                        await asyncio.sleep(1)
+                    else:
+                        raise e
             
         except ImportError:
             raise MCPConnectionError("websockets package not installed")
         except Exception as e:
             logger.error(f"WebSocket connection failed: {str(e)}")
             raise MCPConnectionError(f"Failed to connect via WebSocket: {str(e)}")
+            
+    async def _start_server_process(self) -> None:
+        """Start the server process if command is provided."""
+        if not self.command:
+            return
+            
+        try:
+            logger.info(f"Starting MCP WebSocket server: {' '.join(self.command + self.args)}")
+            
+            # Merge custom env with current environment
+            process_env = dict(os.environ) if self.env else None
+            if self.env:
+                process_env.update(self.env)
+            
+            self.process = await asyncio.create_subprocess_exec(
+                *self.command,
+                *self.args,
+                stdin=asyncio.subprocess.PIPE,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+                env=process_env
+            )
+            
+            # Check if process started successfully
+            if self.process.returncode is not None:
+                raise MCPConnectionError(f"WebSocket server process failed to start: {self.command[0]}")
+            
+            logger.info(f"MCP WebSocket server started successfully (PID: {self.process.pid})")
+            
+        except Exception as e:
+            logger.error(f"Failed to start MCP WebSocket server: {str(e)}")
+            raise MCPConnectionError(f"Failed to start WebSocket server: {str(e)}")
     
     async def disconnect(self) -> None:
-        """Close WebSocket connection."""
+        """Close WebSocket connection and terminate server process if needed."""
+        # Close WebSocket connection
         if self.websocket and self._connected:
             try:
                 await self.websocket.close()
@@ -198,6 +261,28 @@ class WebSocketTransport(MCPTransport):
             finally:
                 self._connected = False
                 self.websocket = None
+        
+        # Terminate server process if we started it
+        if self.process:
+            try:
+                logger.info("Shutting down MCP WebSocket server...")
+                
+                # Terminate the process
+                self.process.terminate()
+                try:
+                    await asyncio.wait_for(self.process.wait(), timeout=5.0)
+                except asyncio.TimeoutError:
+                    # Force kill if terminate doesn't work
+                    logger.warning("Graceful shutdown timeout, killing process")
+                    self.process.kill()
+                    await self.process.wait()
+                
+                logger.info("MCP WebSocket server shutdown complete")
+                
+            except Exception as e:
+                logger.error(f"Error during MCP WebSocket server shutdown: {str(e)}")
+            finally:
+                self.process = None
     
     async def send(self, message: bytes) -> None:
         """Send message via WebSocket."""
@@ -365,7 +450,10 @@ def create_transport(transport_type: str, config: Dict[str, Any]) -> MCPTranspor
     elif transport_type == "websocket":
         return WebSocketTransport(
             url=config["url"],
-            headers=config.get("headers", {})
+            headers=config.get("headers", {}),
+            command=config.get("command"),
+            args=config.get("args", []),
+            env=config.get("environment")
         )
     else:
         raise ValueError(f"Unsupported transport type: {transport_type}")

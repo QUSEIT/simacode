@@ -78,7 +78,28 @@ servers:
       max_execution_time: 30
       network_access: false
 
-  # Example HTTP/WebSocket MCP Server
+  # System Monitor MCP Server (Stdio)
+  system_monitor:
+    name: system_monitor
+    enabled: true  # Enable for system monitoring demo
+    type: stdio
+    command: ["python", "tools/mcp_system_monitor_stdio_server.py"]
+    args: []
+    environment: {}
+    working_directory: null
+    timeout: 30
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "read"
+        - "execute"
+      allowed_paths: ["/", "/tmp", "/var"]
+      forbidden_paths: []
+      max_execution_time: 30
+      network_access: true
+
+  # Example HTTP/WebSocket MCP Server Template
   web_server:
     name: web_server
     enabled: false  # Disabled by default

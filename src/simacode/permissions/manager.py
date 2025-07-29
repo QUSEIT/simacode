@@ -361,6 +361,31 @@ class PermissionManager:
         self._cache_permission(cache_key, result)
         return result
     
+    async def check_tool_permission(self, tool_name: str, input_data: Dict) -> bool:
+        """
+        Check if tool execution is permitted.
+        
+        Args:
+            tool_name: Name of the tool to execute
+            input_data: Input data for the tool
+            
+        Returns:
+            bool: True if tool execution is permitted
+        """
+        # For now, allow all tool executions
+        # This can be extended with more sophisticated permission logic
+        # based on tool_name, input_data, etc.
+        
+        # Check if there are any path-related restrictions
+        for key, value in input_data.items():
+            if isinstance(value, str) and ("path" in key.lower() or "file" in key.lower()):
+                # Check path permission
+                result = self.check_path_access(value, "access")
+                if not result.granted:
+                    return False
+        
+        return True
+    
     def get_allowed_paths(self) -> List[str]:
         """Get list of allowed paths."""
         return self.allowed_paths.copy()
