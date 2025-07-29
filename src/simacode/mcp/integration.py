@@ -7,6 +7,9 @@ SimaCode tool system, enabling unified tool management and execution.
 
 import asyncio
 import logging
+import json
+import os
+from datetime import datetime
 from typing import Dict, List, Optional, Any, AsyncGenerator, Type
 from pathlib import Path
 
@@ -18,6 +21,83 @@ from .tool_wrapper import MCPToolWrapper
 from .config import MCPConfigManager
 
 logger = logging.getLogger(__name__)
+
+
+class MCPStateManager:
+    """
+    Manages MCP initialization state persistence across CLI commands.
+    """
+    
+    def __init__(self, state_dir: Optional[Path] = None):
+        """Initialize state manager with optional custom state directory."""
+        if state_dir is None:
+            # Use user's config directory or fallback to temp
+            if os.getenv('XDG_CONFIG_HOME'):
+                base_dir = Path(os.getenv('XDG_CONFIG_HOME'))
+            elif os.getenv('HOME'):
+                base_dir = Path(os.getenv('HOME')) / '.config'
+            else:
+                base_dir = Path.cwd()
+            
+            self.state_dir = base_dir / 'simacode' / 'mcp'
+        else:
+            self.state_dir = state_dir
+        
+        self.state_dir.mkdir(parents=True, exist_ok=True)
+        self.state_file = self.state_dir / 'initialization_state.json'
+    
+    def save_initialization_state(self, config_path: Optional[Path] = None) -> None:
+        """Save MCP initialization state to disk."""
+        try:
+            state = {
+                'initialized': True,
+                'config_path': str(config_path) if config_path else None,
+                'timestamp': datetime.now().isoformat()
+            }
+            
+            with open(self.state_file, 'w') as f:
+                json.dump(state, f, indent=2)
+                
+            logger.debug(f"Saved MCP initialization state to {self.state_file}")
+            
+        except Exception as e:
+            logger.error(f"Failed to save MCP initialization state: {str(e)}")
+    
+    def load_initialization_state(self) -> Dict[str, Any]:
+        """Load MCP initialization state from disk."""
+        try:
+            if not self.state_file.exists():
+                return {'initialized': False}
+            
+            with open(self.state_file, 'r') as f:
+                state = json.load(f)
+            
+            logger.debug(f"Loaded MCP initialization state from {self.state_file}")
+            return state
+            
+        except Exception as e:
+            logger.error(f"Failed to load MCP initialization state: {str(e)}")
+            return {'initialized': False}
+    
+    def clear_initialization_state(self) -> None:
+        """Clear MCP initialization state."""
+        try:
+            if self.state_file.exists():
+                self.state_file.unlink()
+                logger.debug("Cleared MCP initialization state")
+        except Exception as e:
+            logger.error(f"Failed to clear MCP initialization state: {str(e)}")
+    
+    def is_initialized(self) -> bool:
+        """Check if MCP is initialized based on saved state."""
+        state = self.load_initialization_state()
+        return state.get('initialized', False)
+    
+    def get_config_path(self) -> Optional[Path]:
+        """Get the config path from saved state."""
+        state = self.load_initialization_state()
+        config_path_str = state.get('config_path')
+        return Path(config_path_str) if config_path_str else None
 
 
 class SimaCodeToolRegistry:
@@ -43,6 +123,31 @@ class SimaCodeToolRegistry:
         # Combined tool index
         self._tool_cache: Dict[str, Tool] = {}
         self._cache_dirty = True
+        
+        # State management
+        self.state_manager = MCPStateManager()
+        
+        # Auto-initialize MCP if previously initialized
+        self._auto_initialize_from_state()
+    
+    def _auto_initialize_from_state(self) -> None:
+        """Mark that MCP should be auto-initialized based on saved state."""
+        if self.state_manager.is_initialized():
+            logger.debug("Detected previous MCP initialization, will auto-initialize on first access")
+            # Don't initialize immediately, just mark for lazy loading
+    
+    async def _ensure_mcp_initialized(self) -> bool:
+        """Ensure MCP is initialized, auto-initializing if needed."""
+        if self.mcp_enabled:
+            return True
+        
+        # Check if we should auto-initialize
+        if self.state_manager.is_initialized():
+            logger.info("Auto-initializing MCP from saved state...")
+            config_path = self.state_manager.get_config_path()
+            return await self.initialize_mcp(config_path)
+        
+        return False
     
     async def initialize_mcp(self, config_path: Optional[Path] = None) -> bool:
         """
@@ -78,6 +183,9 @@ class SimaCodeToolRegistry:
             self.mcp_enabled = True
             self._invalidate_cache()
             
+            # Save initialization state
+            self.state_manager.save_initialization_state(config_path)
+            
             logger.info("MCP integration initialized successfully")
             return True
             
@@ -105,6 +213,9 @@ class SimaCodeToolRegistry:
             
             self.mcp_enabled = False
             self._invalidate_cache()
+            
+            # Clear initialization state
+            self.state_manager.clear_initialization_state()
             
         except Exception as e:
             logger.error(f"Error during MCP cleanup: {str(e)}")
@@ -161,7 +272,7 @@ class SimaCodeToolRegistry:
         self._refresh_cache_if_needed()
         return self._tool_cache.get(tool_name)
     
-    def list_tools(self, include_mcp: bool = True, include_builtin: bool = True) -> List[str]:
+    async def list_tools(self, include_mcp: bool = True, include_builtin: bool = True) -> List[str]:
         """
         List all available tools.
         
@@ -177,8 +288,12 @@ class SimaCodeToolRegistry:
         if include_builtin:
             tools.extend(self.builtin_tools.keys())
         
-        if include_mcp and self.mcp_enabled and self.mcp_tool_registry:
-            tools.extend(self.mcp_tool_registry.list_registered_tools())
+        if include_mcp:
+            # Ensure MCP is initialized if needed
+            await self._ensure_mcp_initialized()
+            
+            if self.mcp_enabled and self.mcp_tool_registry:
+                tools.extend(self.mcp_tool_registry.list_registered_tools())
         
         return sorted(tools)
     
@@ -224,7 +339,7 @@ class SimaCodeToolRegistry:
         keywords = category_keywords.get(category.lower(), [])
         return any(keyword in tool_name.lower() for keyword in keywords)
     
-    def get_tool_info(self, tool_name: str) -> Optional[Dict[str, Any]]:
+    async def get_tool_info(self, tool_name: str) -> Optional[Dict[str, Any]]:
         """
         Get detailed information about a tool.
         
@@ -244,6 +359,9 @@ class SimaCodeToolRegistry:
                 "type": "builtin",
                 "metadata": tool.metadata
             }
+        
+        # Ensure MCP is initialized for tool info lookup
+        await self._ensure_mcp_initialized()
         
         # Check MCP tools
         if self.mcp_enabled and self.mcp_tool_registry:
@@ -388,10 +506,15 @@ class SimaCodeToolRegistry:
     
     def get_registry_stats(self) -> Dict[str, Any]:
         """Get comprehensive registry statistics."""
+        # Calculate total tools without async call
+        total_tools = len(self.builtin_tools)
+        if self.mcp_enabled and self.mcp_tool_registry:
+            total_tools += len(self.mcp_tool_registry.registered_tools)
+        
         stats = {
             "builtin_tools": len(self.builtin_tools),
             "mcp_enabled": self.mcp_enabled,
-            "total_tools": len(self.list_tools())
+            "total_tools": total_tools
         }
         
         if self.mcp_enabled and self.mcp_tool_registry:
@@ -456,10 +579,10 @@ def get_tool(tool_name: str) -> Optional[Tool]:
     return registry.get_tool(tool_name)
 
 
-def list_tools(**kwargs) -> List[str]:
+async def list_tools(**kwargs) -> List[str]:
     """List all tools from the global registry."""
     registry = get_tool_registry()
-    return registry.list_tools(**kwargs)
+    return await registry.list_tools(**kwargs)
 
 
 async def execute_tool(tool_name: str, input_data: Dict[str, Any]) -> AsyncGenerator[ToolResult, None]:

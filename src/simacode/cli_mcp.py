@@ -83,8 +83,16 @@ def list(category: Optional[str], server: Optional[str], format: str) -> None:
     """List all available MCP tools."""
     
     try:
+        asyncio.run(_list_tools_async(category, server, format))
+    except Exception as e:
+        console.print(f"❌ [bold red]Error listing tools: {str(e)}[/bold red]")
+
+
+async def _list_tools_async(category: Optional[str], server: Optional[str], format: str) -> None:
+    """Async implementation of list tools."""
+    try:
         registry = SimaCodeToolRegistry()
-        tools = registry.list_tools()
+        tools = await registry.list_tools()
         
         if not tools:
             console.print("[yellow]No tools available. Initialize MCP first with 'simacode mcp init'[/yellow]")
@@ -100,11 +108,11 @@ def list(category: Optional[str], server: Optional[str], format: str) -> None:
             filtered_tools = [t for t in filtered_tools if server in t]
         
         if format == "json":
-            _output_tools_json(registry, filtered_tools)
+            await _output_tools_json_async(registry, filtered_tools)
         elif format == "simple":
             _output_tools_simple(filtered_tools)
         else:
-            _output_tools_table(registry, filtered_tools)
+            await _output_tools_table_async(registry, filtered_tools)
             
     except Exception as e:
         console.print(f"❌ [bold red]Error listing tools: {str(e)}[/bold red]")
@@ -226,25 +234,36 @@ def info(tool_name: str) -> None:
     """Show detailed information about a specific tool."""
     
     try:
+        asyncio.run(_info_tool_async(tool_name))
+    except Exception as e:
+        console.print(f"❌ [bold red]Error getting tool info: {str(e)}[/bold red]")
+
+
+async def _info_tool_async(tool_name: str) -> None:
+    """Async implementation of info command."""
+    try:
         registry = SimaCodeToolRegistry()
-        tool_info = registry.get_tool_info(tool_name)
+        tool_info = await registry.get_tool_info(tool_name)
         
         if not tool_info:
             console.print(f"❌ [red]Tool '{tool_name}' not found[/red]")
             return
         
         # Create info panel
+        tool_display_name = tool_info.get('wrapper_name', tool_info.get('name', tool_name))
         info_content = f"""
-[bold]Name:[/bold] {tool_info['name']}
+[bold]Name:[/bold] {tool_display_name}
 [bold]Type:[/bold] {tool_info.get('type', 'unknown')}
-[bold]Version:[/bold] {tool_info.get('version', 'unknown')}
-[bold]Description:[/bold] {tool_info.get('description', 'No description')}
+[bold]Description:[/bold] {tool_info.get('server_description', tool_info.get('description', 'No description'))}
 """
         
         if tool_info.get('type') == 'mcp':
             info_content += f"""
 [bold]Server:[/bold] {tool_info.get('server_name', 'unknown')}
 [bold]Namespace:[/bold] {tool_info.get('namespace', 'none')}
+[bold]Original Tool:[/bold] {tool_info.get('mcp_tool_name', 'unknown')}
+[bold]Health Status:[/bold] {'✅ Healthy' if tool_info.get('is_healthy', False) else '❌ Unhealthy'}
+[bold]Total Executions:[/bold] {tool_info.get('execution_stats', {}).get('total_executions', 0)}
 """
         
         panel = Panel(info_content, title=f"Tool Information: {tool_name}", expand=False)
@@ -259,6 +278,91 @@ def info(tool_name: str) -> None:
         
     except Exception as e:
         console.print(f"❌ [bold red]Error getting tool info: {str(e)}[/bold red]")
+
+
+@mcp_group.command()
+@click.option(
+    "--force",
+    "-f",
+    is_flag=True,
+    help="Force cleanup without confirmation",
+)
+@click.option(
+    "--verbose",
+    "-v",
+    is_flag=True,
+    help="Show detailed cleanup information",
+)
+def deinit(force: bool, verbose: bool) -> None:
+    """Deinitialize MCP integration and cleanup resources."""
+    
+    try:
+        if not force:
+            # Ask for confirmation
+            import click
+            if not click.confirm("This will shut down all MCP servers and clear tool registrations. Continue?"):
+                console.print("[yellow]Deinitialize cancelled[/yellow]")
+                return
+        
+        asyncio.run(_deinitialize_mcp(verbose))
+        
+    except Exception as e:
+        console.print(f"❌ [bold red]Error during MCP deinitialize: {str(e)}[/bold red]")
+
+
+async def _deinitialize_mcp(verbose: bool) -> None:
+    """Async implementation of MCP deinitialize."""
+    
+    with console.status("[bold red]Deinitializing MCP integration..."):
+        try:
+            registry = SimaCodeToolRegistry()
+            
+            if verbose:
+                console.print("🔍 [bold]Checking MCP status...[/bold]")
+            
+            # Check if MCP is currently initialized
+            if not registry.mcp_enabled and not registry.state_manager.is_initialized():
+                console.print("[yellow]MCP integration is not initialized[/yellow]")
+                return
+            
+            # Get current statistics before shutdown
+            if registry.mcp_enabled:
+                stats = registry.get_registry_stats()
+                tools_count = stats.get('mcp_tools', 0)
+                servers_count = stats.get('mcp_servers', 0)
+                
+                if verbose:
+                    console.print(f"📊 Found {tools_count} MCP tools from {servers_count} servers")
+            else:
+                tools_count = 0
+                servers_count = 0
+                if verbose:
+                    console.print("📊 MCP integration was previously initialized but not currently active")
+            
+            # Shutdown MCP integration
+            if verbose:
+                console.print("🛑 [bold]Shutting down MCP servers...[/bold]")
+            
+            await registry.shutdown_mcp()
+            
+            if verbose:
+                console.print("🧹 [bold]Clearing initialization state...[/bold]")
+            
+            # Ensure state is cleared
+            registry.state_manager.clear_initialization_state()
+            
+            console.print("✅ [bold green]MCP integration deinitialized successfully![/bold green]")
+            
+            if tools_count > 0 or servers_count > 0:
+                console.print(f"📋 Cleaned up {tools_count} tools from {servers_count} servers")
+            
+            console.print("💡 [dim]Use 'simacode mcp init' to reinitialize MCP integration[/dim]")
+            
+        except Exception as e:
+            console.print(f"❌ [bold red]Failed to deinitialize MCP: {str(e)}[/bold red]")
+            if verbose:
+                import traceback
+                console.print(f"[dim]Error details: {traceback.format_exc()}[/dim]")
 
 
 @mcp_group.command()
@@ -323,8 +427,8 @@ async def _initialize_mcp(config_path: Optional[Path], verbose: bool) -> bool:
         raise
 
 
-def _output_tools_table(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
-    """Output tools in table format."""
+async def _output_tools_table_async(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
+    """Output tools in table format (async version)."""
     
     if not tools:
         console.print("[yellow]No tools found[/yellow]")
@@ -337,7 +441,7 @@ def _output_tools_table(registry: SimaCodeToolRegistry, tools: List[str]) -> Non
     table.add_column("Description", style="white")
     
     for tool_name in tools:
-        tool_info = registry.get_tool_info(tool_name)
+        tool_info = await registry.get_tool_info(tool_name)
         if tool_info:
             table.add_row(
                 tool_name,
@@ -349,14 +453,54 @@ def _output_tools_table(registry: SimaCodeToolRegistry, tools: List[str]) -> Non
     console.print(table)
 
 
-def _output_tools_json(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
-    """Output tools in JSON format."""
+def _output_tools_table(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
+    """Output tools in table format (legacy sync version)."""
+    
+    if not tools:
+        console.print("[yellow]No tools found[/yellow]")
+        return
+    
+    table = Table(title="Available Tools")
+    table.add_column("Tool Name", style="cyan")
+    table.add_column("Type", style="green")
+    table.add_column("Version", style="magenta")
+    table.add_column("Description", style="white")
+    
+    for tool_name in tools:
+        # For sync version, we can't get full tool info from MCP tools
+        table.add_row(
+            tool_name,
+            "unknown",
+            "unknown", 
+            "Tool information requires async access"
+        )
+    
+    console.print(table)
+
+
+async def _output_tools_json_async(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
+    """Output tools in JSON format (async version)."""
     
     tools_data = []
     for tool_name in tools:
-        tool_info = registry.get_tool_info(tool_name)
+        tool_info = await registry.get_tool_info(tool_name)
         if tool_info:
             tools_data.append(tool_info)
+    
+    console.print(json.dumps(tools_data, indent=2))
+
+
+def _output_tools_json(registry: SimaCodeToolRegistry, tools: List[str]) -> None:
+    """Output tools in JSON format (legacy sync version)."""
+    
+    tools_data = []
+    for tool_name in tools:
+        # For sync version, we provide basic tool info only
+        tools_data.append({
+            "name": tool_name,
+            "type": "unknown",
+            "description": "Tool information requires async access"
+        })
     
     console.print(json.dumps(tools_data, indent=2))
 
