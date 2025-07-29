@@ -136,6 +136,11 @@ class MCPClient:
         if self.connection:
             try:
                 logger.info(f"Disconnecting from MCP server '{self.server_name}'")
+                
+                # Shutdown protocol first
+                if self.protocol:
+                    await self.protocol.shutdown()
+                
                 await self.connection.disconnect()
             except Exception as e:
                 logger.warning(f"Error during disconnect from '{self.server_name}': {str(e)}")

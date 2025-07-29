@@ -5,6 +5,7 @@ This module implements the Model Context Protocol message structures,
 protocol handling, and communication patterns.
 """
 
+import asyncio
 import json
 import uuid
 from abc import ABC, abstractmethod
@@ -205,6 +206,9 @@ class MCPProtocol:
     def __init__(self, transport: MCPTransport):
         self.transport = transport
         self._request_id_counter = 0
+        self._pending_requests: Dict[str, asyncio.Future] = {}
+        self._receive_task: Optional[asyncio.Task] = None
+        self._protocol_lock = asyncio.Lock()
         
     async def send_message(self, message: MCPMessage) -> None:
         """Send MCP message through transport."""
@@ -237,34 +241,46 @@ class MCPProtocol:
         Raises:
             MCPProtocolError: If method call fails
         """
-        # Generate unique request ID
-        request_id = self._generate_request_id()
-        
-        # Create request message
-        request = MCPMessage(
-            id=request_id,
-            method=method,
-            params=params
-        )
-        
-        # Send request
-        await self.send_message(request)
-        
-        # Wait for response
-        response = await self.receive_message()
-        
-        # Validate response
-        if response.id != request_id:
-            raise MCPProtocolError(f"Response ID mismatch: expected {request_id}, got {response.id}")
-        
-        if response.is_error():
-            error_info = response.error or {}
-            raise MCPProtocolError(
-                f"Method call failed: {error_info.get('message', 'Unknown error')}",
-                error_code=str(error_info.get('code', -1))
-            )
-        
-        return response.result
+        async with self._protocol_lock:
+            # Start message receiver if not already running
+            if self._receive_task is None or self._receive_task.done():
+                self._receive_task = asyncio.create_task(self._message_receiver_loop())
+            
+            # Generate unique request ID
+            request_id = self._generate_request_id()
+            
+            # Create future for response
+            future = asyncio.Future()
+            self._pending_requests[request_id] = future
+            
+            try:
+                # Create and send request message
+                request = MCPMessage(
+                    id=request_id,
+                    method=method,
+                    params=params
+                )
+                
+                await self.send_message(request)
+                
+                # Wait for response with timeout
+                response = await asyncio.wait_for(future, timeout=30.0)
+                
+                # Validate response
+                if response.is_error():
+                    error_info = response.error or {}
+                    raise MCPProtocolError(
+                        f"Method call failed: {error_info.get('message', 'Unknown error')}",
+                        error_code=str(error_info.get('code', -1))
+                    )
+                
+                return response.result
+                
+            except asyncio.TimeoutError:
+                raise MCPProtocolError(f"Method call timeout: {method}")
+            finally:
+                # Clean up pending request
+                self._pending_requests.pop(request_id, None)
     
     async def send_notification(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
         """
@@ -285,6 +301,51 @@ class MCPProtocol:
         """Generate unique request ID."""
         self._request_id_counter += 1
         return f"req_{self._request_id_counter}"
+    
+    async def _message_receiver_loop(self):
+        """Background task to receive and route messages."""
+        try:
+            while self.transport.is_connected():
+                try:
+                    message = await self.receive_message()
+                    
+                    # Handle responses to pending requests
+                    if message.is_response() and message.id in self._pending_requests:
+                        future = self._pending_requests[message.id]
+                        if not future.done():
+                            future.set_result(message)
+                    
+                    # Handle notifications (could be logged or processed)
+                    elif message.is_notification():
+                        # For now, just log notifications
+                        pass
+                        
+                except Exception as e:
+                    # If there's an error, complete all pending requests with the error
+                    for future in self._pending_requests.values():
+                        if not future.done():
+                            future.set_exception(MCPProtocolError(f"Message receiver error: {str(e)}"))
+                    break
+                    
+        except Exception:
+            # Clean up on exit
+            pass
+    
+    async def shutdown(self):
+        """Shutdown the protocol and clean up resources."""
+        if self._receive_task and not self._receive_task.done():
+            self._receive_task.cancel()
+            try:
+                await self._receive_task
+            except asyncio.CancelledError:
+                pass
+        
+        # Complete any remaining pending requests with cancellation
+        for future in self._pending_requests.values():
+            if not future.done():
+                future.cancel()
+        
+        self._pending_requests.clear()
 
 
 # MCP standard method constants

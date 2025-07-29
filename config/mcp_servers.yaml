@@ -46,7 +46,7 @@ servers:
     max_retries: 3
     retry_delay: 2.0
     security:
-      allowed_operations: 
+      allowed_operations:
         - "read_repository"
         - "list_issues"
         - "list_pull_requests"
@@ -99,11 +99,42 @@ servers:
       max_execution_time: 30
       network_access: true
 
+  # UI-TARS MCP Server (HTTP/WebSocket)
+  ui_tars:
+    name: ui_tars
+    enabled: true  # WebSocket compatibility fixed
+    type: websocket
+    url: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: ["python", "tools/ui_tars_mcp_server.py"]  # Optional: start server locally
+    args: ["--host", "localhost", "--port", "8080", "--api-key", "${AGENT_API_KEY}", "--provider", "${AGENT_PROVIDER:-volcengine}", "--model", "${AGENT_MODEL:-doubao-1-5-thinking-vision-pro-250428}"]
+    environment:
+      UI_TARS_MCP_URL: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
+      TARS_COMMAND: "${TARS_COMMAND:-agent-tars}"
+      AGENT_API_KEY: "${AGENT_API_KEY}"
+      AGENT_PROVIDER: "${AGENT_PROVIDER:-volcengine}"
+      AGENT_MODEL: "${AGENT_MODEL:-doubao-1-5-thinking-vision-pro-250428}"
+    working_directory: null
+    timeout: 300  # Longer timeout for UI operations
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "ui_automation"
+        - "web_interaction"
+        - "verification_handling"
+      allowed_paths: []
+      forbidden_paths: []
+      max_execution_time: 300
+      network_access: true
+
   # Example HTTP/WebSocket MCP Server Template
   web_server:
     name: web_server
     enabled: false  # Disabled by default
     type: websocket
+    url: "${MCP_SERVER_URL:-ws://localhost:8080/mcp}"
     command: []  # Not used for websocket type
     args: []
     environment:

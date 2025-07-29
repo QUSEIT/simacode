@@ -170,6 +170,10 @@ class WebSocketTransport(MCPTransport):
         self.websocket = None
         self._connected = False
         
+        # Concurrency control for WebSocket operations
+        self._send_lock = asyncio.Lock()
+        self._receive_lock = asyncio.Lock()
+        
         # Optional server process management
         self.command = command
         self.args = args or []
@@ -289,27 +293,40 @@ class WebSocketTransport(MCPTransport):
         if not self.is_connected():
             raise MCPConnectionError("WebSocket not connected")
         
-        try:
-            await self.websocket.send(message.decode('utf-8'))
-        except Exception as e:
-            logger.error(f"Failed to send WebSocket message: {str(e)}")
-            raise MCPConnectionError(f"Failed to send message: {str(e)}")
+        async with self._send_lock:
+            try:
+                await self.websocket.send(message.decode('utf-8'))
+            except Exception as e:
+                logger.error(f"Failed to send WebSocket message: {str(e)}")
+                raise MCPConnectionError(f"Failed to send message: {str(e)}")
     
     async def receive(self) -> bytes:
         """Receive message from WebSocket."""
         if not self.is_connected():
             raise MCPConnectionError("WebSocket not connected")
         
-        try:
-            message = await self.websocket.recv()
-            return message.encode('utf-8')
-        except Exception as e:
-            logger.error(f"Failed to receive WebSocket message: {str(e)}")
-            raise MCPConnectionError(f"Failed to receive message: {str(e)}")
+        async with self._receive_lock:
+            try:
+                message = await self.websocket.recv()
+                return message.encode('utf-8')
+            except Exception as e:
+                logger.error(f"Failed to receive WebSocket message: {str(e)}")
+                raise MCPConnectionError(f"Failed to receive message: {str(e)}")
     
     def is_connected(self) -> bool:
         """Check if WebSocket is connected."""
-        return self._connected and self.websocket and not self.websocket.closed
+        if not self._connected or not self.websocket:
+            return False
+        
+        # Handle compatibility between different websockets versions
+        if hasattr(self.websocket, 'closed'):
+            return not self.websocket.closed
+        elif hasattr(self.websocket, 'state'):
+            # websockets 15.0+ uses state enum
+            return self.websocket.state.name == 'OPEN'
+        else:
+            # Fallback
+            return True
 
 
 class MCPConnection:
