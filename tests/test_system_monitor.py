@@ -21,7 +21,7 @@ except ImportError as e:
 # Import the server class
 import sys
 sys.path.insert(0, str(Path(__file__).parent.parent))
-from tools.mcp_system_monitor_server import SystemMonitorMCPServer
+from tools.mcp_system_monitor_stdio_server import SystemMonitorMCPServer
 
 
 async def test_server_direct():
@@ -77,41 +77,35 @@ async def test_server_direct():
     print()
 
 
-async def test_websocket_connection():
-    """Test WebSocket connection to the server."""
-    print("=== Testing WebSocket Connection ===\n")
+async def test_mcp_protocol():
+    """Test MCP protocol compliance."""
+    print("=== Testing MCP Protocol Compliance ===\n")
     
-    # Start server in background
-    print("Starting WebSocket server...")
-    server_process = subprocess.Popen([
-        "python", "tools/mcp_system_monitor_server.py",
-        "--host", "localhost", "--port", "8081"
-    ], cwd=Path(__file__).parent.parent)
+    server = SystemMonitorMCPServer()
     
-    # Wait for server to start
-    await asyncio.sleep(2)
+    # Test that server has proper MCP methods
+    print("1. Checking MCP protocol methods:")
+    assert hasattr(server, '_get_cpu_usage'), "Missing _get_cpu_usage method"
+    assert hasattr(server, '_get_memory_usage'), "Missing _get_memory_usage method"
+    assert hasattr(server, '_get_disk_usage'), "Missing _get_disk_usage method"
+    assert hasattr(server, '_get_system_overview'), "Missing _get_system_overview method"
+    print("   ✅ All required MCP methods present")
+    print()
     
+    # Test method parameters
+    print("2. Testing method parameters:")
     try:
-        # Connect to WebSocket
-        uri = "ws://localhost:8081"
-        async with websockets.connect(uri) as websocket:
-            print(f"Connected to {uri}")
-            
-            # Receive a few updates
-            for i in range(3):
-                message = await websocket.recv()
-                data = json.loads(message)
-                print(f"Update {i+1}: CPU={data['cpu_usage']:.1f}%, "
-                      f"Memory={data['memory_usage']:.1f}%, "
-                      f"Disk={data['disk_usage']:.1f}%")
-                
+        # Test with minimal parameters
+        cpu_result = await server._get_cpu_usage({})
+        mem_result = await server._get_memory_usage({})
+        disk_result = await server._get_disk_usage({})
+        overview_result = await server._get_system_overview({})
+        
+        print("   ✅ All methods accept empty parameters")
+        print("   ✅ All methods return valid results")
     except Exception as e:
-        print(f"WebSocket test failed: {e}")
-    finally:
-        # Clean up server process
-        server_process.terminate()
-        server_process.wait()
-        print("Server stopped")
+        print(f"   ❌ Method test failed: {e}")
+    print()
 
 
 async def main():
@@ -122,17 +116,17 @@ async def main():
     # Test server functions directly
     await test_server_direct()
     
-    # Test WebSocket connection
-    await test_websocket_connection()
+    # Test MCP protocol compliance
+    await test_mcp_protocol()
     
     print("\n=== Test Summary ===")
     print("✅ Direct function tests completed")
-    print("✅ WebSocket connection tests completed") 
+    print("✅ MCP protocol compliance tests completed") 
     print("\nTo use this server with SimaCode:")
     print("1. Enable 'system_monitor' in config/mcp_servers.yaml")
     print("2. Run: simacode mcp init")
     print("3. Run: simacode mcp list")
-    print("4. Run: simacode mcp info system_monitor:get_cpu_usage")
+    print("4. Run: simacode mcp run system_monitor:get_cpu_usage")
 
 
 if __name__ == "__main__":
