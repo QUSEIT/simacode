@@ -15,7 +15,7 @@ servers:
   # File System Access Server
   filesystem:
     name: filesystem
-    enabled: true  # Enabled for project use
+    enabled: false  # Enabled for project use
     type: stdio
     command: ["python", "tools/mcp_filesystem_server.py"]
     args: ["--root", "."]
@@ -81,7 +81,7 @@ servers:
   # System Monitor MCP Server (Stdio)
   system_monitor:
     name: system_monitor
-    enabled: true  # Enable for system monitoring demo
+    enabled: false  # Enable for system monitoring demo
     type: stdio
     command: ["python", "tools/mcp_system_monitor_stdio_server.py"]
     args: []
@@ -107,7 +107,7 @@ servers:
     url: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
     headers:
       User-Agent: "SimaCode-MCP-Client/1.0"
-    command: ["python", "tools/ui_tars_mcp_server.py"]  # Optional: start server locally
+    command: ["python", "tools/mcp_ui_tars_server.py"]  # Optional: start server locally
     args: ["--host", "localhost", "--port", "8080", "--api-key", "${AGENT_API_KEY}", "--provider", "${AGENT_PROVIDER:-volcengine}", "--model", "${AGENT_MODEL:-doubao-1-5-thinking-vision-pro-250428}"]
     environment:
       UI_TARS_MCP_URL: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
