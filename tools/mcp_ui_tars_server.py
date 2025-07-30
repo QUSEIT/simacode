@@ -642,9 +642,17 @@ async def main():
             await asyncio.sleep(1)
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
+    except asyncio.CancelledError:
+        logger.info("Server cancelled, shutting down...")
     finally:
         await server.stop_server(runner)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped by user.")
+    except Exception as e:
+        print(f"Server error: {e}")
+        sys.exit(1)
