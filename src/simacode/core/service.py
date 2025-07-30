@@ -167,13 +167,39 @@ class SimaCodeService:
         if not self.react_service.is_running:
             await self.react_service.start()
     
+    async def _is_conversational_input(self, user_input: str) -> bool:
+        """
+        判断输入是否为对话性输入，复用ReAct引擎的预判断逻辑。
+        
+        Args:
+            user_input: 用户输入文本
+            
+        Returns:
+            bool: True if input is conversational, False if it requires task execution
+        """
+        try:
+            # 确保ReAct服务已启动
+            await self._ensure_react_service_started()
+            
+            # 复用ReAct引擎的输入预判断逻辑
+            return await self.react_service.react_engine._is_conversational_input(user_input)
+            
+        except Exception as e:
+            logger.warning(f"Failed to classify input with ReAct: {str(e)}, defaulting to task mode")
+            return False  # 默认为任务模式，避免遗漏
+    
     async def process_chat(
         self, 
         request: Union[ChatRequest, str], 
         session_id: Optional[str] = None
     ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """
-        Process chat message with optional streaming support.
+        Enhanced chat processing with ReAct capabilities.
+        
+        This method now automatically detects if the input requires task execution
+        and routes it appropriately:
+        - Conversational inputs: Traditional chat processing
+        - Task inputs: ReAct engine processing with tool execution
         
         Args:
             request: Chat request or message string
@@ -191,13 +217,46 @@ class SimaCodeService:
             )
         
         try:
-            logger.info(f"Processing chat message for session: {request.session_id}")
+            logger.info(f"Processing enhanced chat message for session: {request.session_id}")
             
             # Use session_id or generate new one
             if not request.session_id:
                 import uuid
                 request.session_id = str(uuid.uuid4())
             
+            # 🆕 智能输入预判断
+            # 检查是否强制指定模式
+            if hasattr(request, 'force_mode') and request.force_mode:
+                if request.force_mode == "chat":
+                    is_conversational = True
+                elif request.force_mode == "react":
+                    is_conversational = False
+                else:
+                    # 默认智能判断
+                    is_conversational = await self._is_conversational_input(request.message)
+            else:
+                is_conversational = await self._is_conversational_input(request.message)
+            
+            if is_conversational:
+                # 对话性输入：使用传统 chat 处理
+                logger.debug(f"Processing as conversational input: {request.message[:50]}...")
+                return await self._process_conversational_chat(request)
+            else:
+                # 任务性输入：使用 ReAct 引擎处理
+                logger.debug(f"Processing as task input: {request.message[:50]}...")
+                return await self._process_task_chat(request)
+                
+        except Exception as e:
+            logger.error(f"Error processing enhanced chat: {str(e)}")
+            return ChatResponse(
+                content="",
+                session_id=request.session_id or "unknown",
+                error=str(e)
+            )
+    
+    async def _process_conversational_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
+        """处理对话性输入（使用传统chat逻辑）"""
+        try:
             # Get or create current conversation
             conversation = self.conversation_manager.get_current_conversation()
             
@@ -206,7 +265,7 @@ class SimaCodeService:
             
             if request.stream:
                 # Return async generator for streaming
-                return self._stream_chat_response(request, conversation)
+                return self._stream_conversational_response(request, conversation)
             else:
                 # Regular chat response
                 ai_response = await self.ai_client.chat(conversation.get_messages())
@@ -220,16 +279,114 @@ class SimaCodeService:
                 return ChatResponse(
                     content=ai_response.content,
                     session_id=request.session_id,
-                    metadata={"mode": "chat"}
+                    metadata={
+                        "mode": "conversational", 
+                        "input_type": "chat",
+                        "processing_engine": "ai_client"
+                    }
                 )
                 
         except Exception as e:
-            logger.error(f"Error processing chat: {str(e)}")
+            logger.error(f"Error processing conversational chat: {str(e)}")
             return ChatResponse(
-                content="",
+                content="抱歉，处理您的消息时出现了问题。",
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )
+    
+    async def _process_task_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
+        """处理任务性输入（使用ReAct引擎）"""
+        try:
+            # 确保ReAct服务已启动
+            await self._ensure_react_service_started()
+            
+            # 将 ChatRequest 转换为 ReActRequest
+            react_request = ReActRequest(
+                task=request.message,
+                session_id=request.session_id,
+                context=request.context
+            )
+            
+            if request.stream:
+                # 流式任务处理
+                return self._stream_task_response(react_request)
+            else:
+                # 常规任务处理
+                react_response = await self.process_react(react_request)
+                
+                return ChatResponse(
+                    content=react_response.result,
+                    session_id=react_response.session_id,
+                    metadata={
+                        "mode": "task_execution", 
+                        "input_type": "task",
+                        "processing_engine": "react",
+                        "steps": react_response.steps,
+                        "tools_used": self._extract_tools_from_steps(react_response.steps)
+                    }
+                )
+                
+        except Exception as e:
+            logger.error(f"Error processing task chat: {str(e)}")
+            return ChatResponse(
+                content="抱歉，执行您的任务时出现了问题。",
+                session_id=request.session_id or "unknown",
+                error=str(e)
+            )
+    
+    def _extract_tools_from_steps(self, steps: List[Dict[str, Any]]) -> List[str]:
+        """从执行步骤中提取使用的工具列表"""
+        tools = set()
+        for step in steps:
+            if step.get("type") == "tool_execution" and "tool" in step:
+                tools.add(step["tool"])
+        return list(tools)
+    
+    async def _stream_conversational_response(
+        self, 
+        request: ChatRequest, 
+        conversation
+    ) -> AsyncGenerator[str, None]:
+        """生成对话性流式响应"""
+        try:
+            response_chunks = []
+            async for chunk in self.ai_client.chat_stream(conversation.get_messages()):
+                response_chunks.append(chunk)
+                yield chunk
+            
+            # After streaming, add complete response to conversation
+            complete_response = "".join(response_chunks)
+            conversation.add_assistant_message(complete_response)
+            self.conversation_manager._save_conversation(conversation)
+            
+        except Exception as e:
+            logger.error(f"Error in conversational streaming: {str(e)}")
+            yield f"Error: {str(e)}"
+    
+    async def _stream_task_response(self, react_request: ReActRequest) -> AsyncGenerator[str, None]:
+        """生成任务性流式响应"""
+        try:
+            async for update in await self.process_react(react_request, stream=True):
+                # 将 ReAct 更新转换为 Chat 流式格式
+                update_type = update.get("type", "")
+                content = update.get("content", "")
+                
+                if update_type == "conversational_response":
+                    yield content
+                elif update_type == "final_result":
+                    yield content
+                elif update_type == "task_result":
+                    yield content
+                elif update_type in ["tool_execution", "status_update"]:
+                    # 为工具执行和状态更新添加前缀标识
+                    yield f"[{update_type}] {content}"
+                elif update_type == "error":
+                    yield f"❌ {content}"
+                # 过滤掉其他内部类型的更新
+                
+        except Exception as e:
+            logger.error(f"Error in task streaming: {str(e)}")
+            yield f"Error: {str(e)}"
     
     async def _stream_chat_response(
         self, 

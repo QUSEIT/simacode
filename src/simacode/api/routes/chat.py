@@ -103,10 +103,29 @@ async def chat_stream(
                     # Streaming response
                     session_id = request.session_id or "new"
                     async for chunk in response_gen:
+                        # 识别chunk类型（基于内容前缀）
+                        chunk_type = "content"  # 默认类型
+                        chunk_content = chunk
+                        metadata = {}
+                        
+                        if chunk.startswith("[tool_execution]"):
+                            chunk_type = "tool_output"
+                            chunk_content = chunk[16:].strip()  # 移除前缀
+                            metadata = {"type": "tool_execution"}
+                        elif chunk.startswith("[status_update]"):
+                            chunk_type = "status"
+                            chunk_content = chunk[15:].strip()  # 移除前缀
+                            metadata = {"type": "status_update"}
+                        elif chunk.startswith("❌"):
+                            chunk_type = "error"
+                            metadata = {"type": "error"}
+                        
                         chunk_data = StreamingChatChunk(
-                            chunk=chunk,
+                            chunk=chunk_content,
                             session_id=session_id,
-                            finished=False
+                            finished=False,
+                            chunk_type=chunk_type,
+                            metadata=metadata
                         )
                         yield f"data: {chunk_data.model_dump_json()}\n\n"
                     
@@ -114,7 +133,9 @@ async def chat_stream(
                     final_chunk = StreamingChatChunk(
                         chunk="",
                         session_id=session_id,
-                        finished=True
+                        finished=True,
+                        chunk_type="completion",
+                        metadata={"stream_completed": True}
                     )
                     yield f"data: {final_chunk.model_dump_json()}\n\n"
                 else:
@@ -122,7 +143,9 @@ async def chat_stream(
                     chunk_data = StreamingChatChunk(
                         chunk=response_gen.content,
                         session_id=response_gen.session_id,
-                        finished=True
+                        finished=True,
+                        chunk_type="content",
+                        metadata=response_gen.metadata
                     )
                     yield f"data: {chunk_data.model_dump_json()}\n\n"
                     

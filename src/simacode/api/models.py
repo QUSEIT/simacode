@@ -11,11 +11,15 @@ from pydantic import BaseModel, Field
 
 # Request Models
 class ChatRequest(BaseModel):
-    """Request model for chat operations."""
+    """Enhanced chat request model with ReAct support."""
     message: str = Field(..., description="The user's message")
     session_id: Optional[str] = Field(None, description="Optional session ID")
     context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context")
     stream: Optional[bool] = Field(False, description="Enable streaming response")
+    
+    # 🆕 新增字段（可选，用于高级控制）
+    force_mode: Optional[str] = Field(None, description="Force processing mode: 'chat' or 'react'")
+    react_config: Optional[Dict[str, Any]] = Field(default_factory=dict, description="ReAct engine configuration")
 
 
 class ReActRequest(BaseModel):
@@ -74,7 +78,11 @@ class WebSocketMessage(BaseModel):
 
 
 class StreamingChatChunk(BaseModel):
-    """Streaming chat chunk model."""
+    """Enhanced streaming chat chunk with mode information."""
     chunk: str = Field(..., description="Text chunk")
     session_id: str = Field(..., description="Session identifier")
     finished: bool = Field(False, description="Whether this is the final chunk")
+    
+    # 🆕 新增字段
+    chunk_type: Optional[str] = Field("content", description="Chunk type: 'content', 'status', 'tool_output'")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Chunk metadata")

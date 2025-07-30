@@ -246,6 +246,54 @@ namespaces:
   auto_create_aliases: true      # create short aliases for tools
 ```
 
+### MCP Troubleshooting
+
+#### Network Proxy Issues
+
+⚠️ **Important Notice**: If you're using a network proxy (HTTP/HTTPS/SOCKS proxy), it may interfere with MCP WebSocket connections and cause initialization failures.
+
+**Common Error Symptoms:**
+- `simacode mcp init` fails with WebSocket connection errors
+- Error messages like "python-socks is required to use a SOCKS proxy"
+- MCP services show as "Disabled" in `simacode mcp status`
+
+**Solutions:**
+
+1. **Temporary Disable Proxy**: If possible, temporarily disable your proxy during MCP initialization:
+   ```bash
+   # Disable proxy temporarily
+   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+   
+   # Initialize MCP
+   simacode mcp init
+   
+   # Re-enable proxy if needed
+   export http_proxy=your_proxy_url
+   ```
+
+2. **Configure Proxy Bypass**: Add localhost and MCP service ports to your proxy bypass list:
+   ```bash
+   # For most proxy tools, add these to no_proxy
+   export no_proxy="localhost,127.0.0.1,*.local"
+   ```
+
+3. **Install Proxy Dependencies**: If you must use a SOCKS proxy, install the required dependency:
+   ```bash
+   pip install python-socks
+   ```
+
+4. **Check MCP Service Status**: After resolving proxy issues, verify MCP is working:
+   ```bash
+   simacode mcp status
+   simacode chat --react "Test MCP functionality"
+   ```
+
+**Why This Happens:**
+- MCP tools communicate via WebSocket connections to localhost
+- Proxies may intercept these local connections
+- Some proxy configurations require additional dependencies like `python-socks`
+- WebSocket protocols can be sensitive to proxy interference
+
 ### MCP Tool Examples
 
 #### File Operations
