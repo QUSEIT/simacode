@@ -15,7 +15,7 @@ servers:
   # File System Access Server
   filesystem:
     name: filesystem
-    enabled: true  # Enabled for project use
+    enabled: false  # Enabled for project use
     type: stdio
     command: ["python", "tools/mcp_filesystem_server.py"]
     args: ["--root", "."]
@@ -81,7 +81,7 @@ servers:
   # System Monitor MCP Server (Stdio)
   system_monitor:
     name: system_monitor
-    enabled: true  # Enable for system monitoring demo
+    enabled: false  # Enable for system monitoring demo
     type: stdio
     command: ["python", "tools/mcp_system_monitor_stdio_server.py"]
     args: []
@@ -100,21 +100,18 @@ servers:
       network_access: true
 
   # UI-TARS MCP Server (HTTP/WebSocket)
+  # Note: Server must be started manually using: python tools/mcp_ui_tars_server.py
   ui_tars:
     name: ui_tars
     enabled: true  # WebSocket compatibility fixed
     type: websocket
-    url: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
+    url: "${UI_TARS_MCP_URL:-ws://localhost:10001/mcp/ws}"
     headers:
       User-Agent: "SimaCode-MCP-Client/1.0"
-    command: ["python", "tools/ui_tars_mcp_server.py"]  # Optional: start server locally
-    args: ["--host", "localhost", "--port", "8080", "--api-key", "${AGENT_API_KEY}", "--provider", "${AGENT_PROVIDER:-volcengine}", "--model", "${AGENT_MODEL:-doubao-1-5-thinking-vision-pro-250428}"]
+    command: []  # No auto-start - server must be started manually
+    args: []
     environment:
-      UI_TARS_MCP_URL: "${UI_TARS_MCP_URL:-ws://localhost:8080/mcp/ws}"
-      TARS_COMMAND: "${TARS_COMMAND:-agent-tars}"
-      AGENT_API_KEY: "${AGENT_API_KEY}"
-      AGENT_PROVIDER: "${AGENT_PROVIDER:-volcengine}"
-      AGENT_MODEL: "${AGENT_MODEL:-doubao-1-5-thinking-vision-pro-250428}"
+      UI_TARS_MCP_URL: "${UI_TARS_MCP_URL:-ws://localhost:10001/mcp/ws}"
     working_directory: null
     timeout: 300  # Longer timeout for UI operations
     max_retries: 3

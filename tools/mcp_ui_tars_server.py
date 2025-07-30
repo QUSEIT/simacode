@@ -24,6 +24,14 @@ from typing import Any, Dict, List, Optional, AsyncGenerator
 from dataclasses import dataclass
 from datetime import datetime
 
+# Environment configuration support
+try:
+    from dotenv import load_dotenv
+    DOTENV_AVAILABLE = True
+except ImportError:
+    DOTENV_AVAILABLE = False
+    print("Warning: python-dotenv not available. Consider installing with: pip install python-dotenv", file=sys.stderr)
+
 # HTTP server support
 try:
     from aiohttp import web, WSMsgType
@@ -574,41 +582,42 @@ class UITARSMCPServer:
         logger.info("UI-TARS MCP Server stopped")
 
 
+def load_env_config():
+    """Load environment configuration from .env.mcp file."""
+    env_file = Path(__file__).parent.parent / ".env.mcp"
+    
+    if DOTENV_AVAILABLE and env_file.exists():
+        logger.info(f"Loading environment from: {env_file}")
+        load_dotenv(env_file)
+    elif env_file.exists():
+        logger.warning(f"Found {env_file} but python-dotenv not available. Install with: pip install python-dotenv")
+    else:
+        logger.info(f"No .env.mcp file found at: {env_file}")
+
+
 async def main():
     """Main entry point."""
     import argparse
     
+    # Load environment configuration first
+    load_env_config()
+    
     parser = argparse.ArgumentParser(description="UI-TARS MCP Server")
-    parser.add_argument("--host", default="0.0.0.0", help="Server host address")
-    parser.add_argument("--port", type=int, default=8080, help="Server port number")
-    parser.add_argument("--tars-command", default="agent-tars", help="UI-TARS base command (default: agent-tars)")
+    parser.add_argument("--host", default=os.getenv("UI_TARS_HOST", "0.0.0.0"), help="Server host address")
+    parser.add_argument("--port", type=int, default=int(os.getenv("UI_TARS_PORT", "8080")), help="Server port number")
+    parser.add_argument("--tars-command", default=os.getenv("TARS_COMMAND", "agent-tars"), help="UI-TARS base command (default: agent-tars)")
     
-    # UI-TARS configuration
-    parser.add_argument("--provider", default="volcengine", help="UI-TARS provider (default: volcengine)")
-    parser.add_argument("--model", default="doubao-1-5-thinking-vision-pro-250428", help="UI-TARS model")
-    parser.add_argument("--api-key", help="UI-TARS API key (required for functionality)")
-    
-    # Legacy support for agent-* parameters
-    parser.add_argument("--agent-provider", help="Legacy: use --provider instead")
-    parser.add_argument("--agent-model", help="Legacy: use --model instead")
-    parser.add_argument("--agent-api-key", help="Legacy: use --api-key instead")
+    # UI-TARS configuration (read from environment by default)
+    parser.add_argument("--provider", default=os.getenv("AGENT_PROVIDER", "volcengine"), help="UI-TARS provider (default: volcengine)")
+    parser.add_argument("--model", default=os.getenv("AGENT_MODEL", "doubao-1-5-thinking-vision-pro-250428"), help="UI-TARS model")
+    parser.add_argument("--api-key", default=os.getenv("AGENT_API_KEY"), help="UI-TARS API key (required for functionality)")
     
     args = parser.parse_args()
     
-    # Handle legacy parameters
+    # Configuration from command line (overrides environment)
     provider = args.provider
     model = args.model
     api_key = args.api_key
-    
-    if args.agent_provider:
-        provider = args.agent_provider
-        logger.warning("--agent-provider is deprecated, use --provider instead")
-    if args.agent_model:
-        model = args.agent_model
-        logger.warning("--agent-model is deprecated, use --model instead")
-    if args.agent_api_key:
-        api_key = args.agent_api_key
-        logger.warning("--agent-api-key is deprecated, use --api-key instead")
     
     # Create UI-TARS configuration
     ui_tars_config = UITARSConfig(
@@ -633,9 +642,17 @@ async def main():
             await asyncio.sleep(1)
     except KeyboardInterrupt:
         logger.info("Shutting down server...")
+    except asyncio.CancelledError:
+        logger.info("Server cancelled, shutting down...")
     finally:
         await server.stop_server(runner)
 
 
 if __name__ == "__main__":
-    asyncio.run(main())
+    try:
+        asyncio.run(main())
+    except KeyboardInterrupt:
+        print("\nServer stopped by user.")
+    except Exception as e:
+        print(f"Server error: {e}")
+        sys.exit(1)
