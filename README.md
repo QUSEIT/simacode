@@ -1,15 +1,21 @@
 # SimaCode
 
-A modern AI programming assistant built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and a sophisticated multi-agent system.
+A modern AI programming assistant built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and a sophisticated multi-agent system. SimaCode operates in dual modes: as an independent terminal AI Agent application for direct use, and as a backend API service providing RESTful API and WebSocket services for integration with frameworks like DevGenius Agent.
 
 ## 🚀 Features
 
+### Core Capabilities
 - **Intelligent Task Planning**: Advanced ReAct framework for understanding and executing complex programming tasks
 - **Multi-Agent System**: Planned specialized agents for different operations (files, code analysis, system commands)
 - **MCP Integration**: Full support for Model Context Protocol tools with seamless AI and direct command-line access
 - **Secure by Design**: Comprehensive permission system and safety checks
 - **Extensible Architecture**: Tool registry system with plugin support for custom capabilities and MCP tools
 - **Multi-Provider AI Support**: Currently supports OpenAI, with planned support for Anthropic and other providers
+
+### Dual-Mode Operation
+- **Terminal AI Agent Mode**: Direct command-line interaction for individual developers
+- **Backend API Service Mode**: RESTful API and WebSocket endpoints for enterprise integration
+- **DevGenius Agent Integration**: Seamless integration with DevGenius Agent framework through standardized APIs
 
 ## 📦 Installation
 
@@ -34,6 +40,7 @@ poetry install --with dev
 
 ### Quick Start
 
+#### Terminal AI Agent Mode
 ```bash
 # Initialize a new project
 simacode init
@@ -48,9 +55,21 @@ simacode chat "Create a Python function to calculate fibonacci numbers"
 simacode config
 ```
 
+#### Backend API Service Mode
+```bash
+# Start API server
+simacode serve --host 0.0.0.0 --port 8000
+
+# Start with custom configuration
+simacode api --config api_config.yaml
+
+# Check API status
+curl http://localhost:8000/health
+```
+
 ## 🎯 Usage
 
-### Basic Commands
+### Terminal AI Agent Mode
 
 ```bash
 # Display help
@@ -79,6 +98,55 @@ simacode chat --react --session-id <session_id>
 
 # Configuration management
 simacode config --check
+```
+
+### Backend API Service Mode
+
+```bash
+# Start API server
+simacode serve --host 0.0.0.0 --port 8000
+
+# Start with custom configuration
+simacode api --config api_config.yaml --workers 4
+
+# Start with specific AI provider
+simacode serve --ai-provider anthropic --model claude-3
+
+# Enable development mode with auto-reload
+simacode serve --dev --reload
+```
+
+#### API Endpoints
+
+Once the API server is running, you can access:
+
+```bash
+# Health check
+GET /health
+
+# Single chat completion
+POST /api/v1/chat/
+Content-Type: application/json
+{
+  "message": "Create a Python function to calculate fibonacci numbers",
+  "session_id": "optional-session-id"
+}
+
+# Streaming chat
+POST /api/v1/chat/stream/
+
+# ReAct task execution
+POST /api/v1/react/execute/
+{
+  "task": "Create a Python project with tests",
+  "context": {}
+}
+
+# WebSocket real-time chat
+WS /api/v1/chat/ws/
+
+# WebSocket ReAct execution
+WS /api/v1/react/ws/
 ```
 
 ## 🔧 MCP Tool Integration
@@ -177,6 +245,54 @@ namespaces:
   conflict_resolution: "suffix"  # how to resolve name conflicts
   auto_create_aliases: true      # create short aliases for tools
 ```
+
+### MCP Troubleshooting
+
+#### Network Proxy Issues
+
+⚠️ **Important Notice**: If you're using a network proxy (HTTP/HTTPS/SOCKS proxy), it may interfere with MCP WebSocket connections and cause initialization failures.
+
+**Common Error Symptoms:**
+- `simacode mcp init` fails with WebSocket connection errors
+- Error messages like "python-socks is required to use a SOCKS proxy"
+- MCP services show as "Disabled" in `simacode mcp status`
+
+**Solutions:**
+
+1. **Temporary Disable Proxy**: If possible, temporarily disable your proxy during MCP initialization:
+   ```bash
+   # Disable proxy temporarily
+   unset http_proxy https_proxy HTTP_PROXY HTTPS_PROXY
+   
+   # Initialize MCP
+   simacode mcp init
+   
+   # Re-enable proxy if needed
+   export http_proxy=your_proxy_url
+   ```
+
+2. **Configure Proxy Bypass**: Add localhost and MCP service ports to your proxy bypass list:
+   ```bash
+   # For most proxy tools, add these to no_proxy
+   export no_proxy="localhost,127.0.0.1,*.local"
+   ```
+
+3. **Install Proxy Dependencies**: If you must use a SOCKS proxy, install the required dependency:
+   ```bash
+   pip install python-socks
+   ```
+
+4. **Check MCP Service Status**: After resolving proxy issues, verify MCP is working:
+   ```bash
+   simacode mcp status
+   simacode chat --react "Test MCP functionality"
+   ```
+
+**Why This Happens:**
+- MCP tools communicate via WebSocket connections to localhost
+- Proxies may intercept these local connections
+- Some proxy configurations require additional dependencies like `python-socks`
+- WebSocket protocols can be sensitive to proxy interference
 
 ### MCP Tool Examples
 
@@ -328,7 +444,20 @@ logging:
 
 ## 🏗️ Architecture
 
-SimaCode follows a clean architecture with distinct layers:
+SimaCode follows a clean dual-mode architecture with distinct layers supporting both terminal and API operations:
+
+### Dual-Mode Architecture
+
+#### **Core Service Layer**
+- **Unified Business Logic**: Shared ReAct engine, tool system, and AI integration
+- **Configuration Management**: YAML-based configuration with Pydantic validation
+- **Session Management**: Multi-user session handling and persistence
+- **Security Framework**: Comprehensive permission-based access control
+
+#### **Interface Layers**
+- **CLI Layer**: Command-line interface with Click for terminal AI Agent mode
+- **API Layer**: FastAPI-based RESTful and WebSocket services for backend integration
+- **Both Modes Share**: Same core capabilities, ensuring functional consistency
 
 ### Core Components
 
@@ -349,19 +478,32 @@ SimaCode follows a clean architecture with distinct layers:
 - **Session Management**: Session handling and persistence
 
 #### 🚧 **Planned Components**
+- **API Layer**: FastAPI-based RESTful and WebSocket services
+- **Multi-User Support**: Concurrent session handling for API mode
+- **Async Task Processing**: Background task execution for long-running operations
 - **Multi-Agent System**: Specialized agents for different operations
 - **Multi-Provider AI**: Support for Anthropic, Azure, Google AI providers
 - **Advanced Security**: Enhanced sandboxed execution and resource limits
 
 ### Technology Stack
 
+#### **Core Technologies**
 - **Runtime**: Python 3.10+
 - **Package Management**: Poetry
-- **CLI Framework**: Click
 - **Configuration**: Pydantic + YAML
 - **Logging**: Rich + Python logging
 - **Testing**: pytest + pytest-asyncio
 - **Code Quality**: Black, isort, flake8, mypy
+
+#### **Terminal AI Agent Mode**
+- **CLI Framework**: Click
+- **Interactive UI**: Rich for enhanced terminal display
+
+#### **Backend API Service Mode**
+- **Web Framework**: FastAPI (planned)
+- **WebSocket**: Native FastAPI WebSocket support
+- **Async Processing**: asyncio + async queues
+- **API Documentation**: OpenAPI/Swagger auto-generation
 
 ## 🧪 Development
 
@@ -472,13 +614,13 @@ poetry run pytest -v
 - [x] Error handling
 - [x] Session management
 
-### Phase 5: Multi-Provider AI Support 🚧
-- [ ] Anthropic Claude client integration
-- [ ] Azure OpenAI client
-- [ ] Google Vertex AI client
-- [ ] Unified AI client interface
-- [ ] Provider-specific configuration
-- [ ] Fallback and load balancing
+### Phase 5: Dual-Mode Architecture 🚧 **High Priority**
+- [ ] **Core Service Layer Abstraction**: Extract unified business logic
+- [ ] **FastAPI Integration**: RESTful API endpoints
+- [ ] **WebSocket Support**: Real-time communication
+- [ ] **Multi-User Session Management**: Concurrent session handling
+- [ ] **Async Task Processing**: Background task execution
+- [ ] **API Documentation**: OpenAPI/Swagger integration
 
 ### Phase 6: Enhanced Tool System 🚧
 - [ ] Code analysis tools (AST parsing, syntax checking)
@@ -496,7 +638,15 @@ poetry run pytest -v
 - [ ] Third-party plugin registry
 - [ ] MCP (Model Context Protocol) integration
 
-### Phase 8: Multi-Agent System 🚧
+### Phase 8: Multi-Provider AI Support 🚧
+- [ ] Anthropic Claude client integration
+- [ ] Azure OpenAI client
+- [ ] Google Vertex AI client
+- [ ] Unified AI client interface
+- [ ] Provider-specific configuration
+- [ ] Fallback and load balancing
+
+### Phase 9: Multi-Agent System 🚧
 - [ ] Agent abstraction framework
 - [ ] Specialized agents (FileAgent, CodeAgent, SystemAgent)
 - [ ] Inter-agent communication protocol
@@ -504,7 +654,7 @@ poetry run pytest -v
 - [ ] Agent coordination strategies
 - [ ] Distributed execution support
 
-### Phase 9: Advanced Security & Production
+### Phase 10: Production & Security
 - [ ] Sandboxed execution environment
 - [ ] Resource limits (CPU, memory, network)
 - [ ] Audit logging and monitoring

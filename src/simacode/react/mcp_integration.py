@@ -88,9 +88,13 @@ class MCPReActIntegration:
                     # Register directly with ReAct engine's tool registry
                     # The ToolRegistry uses class methods, so we register the original tool
                     if hasattr(self.react_engine, 'tool_registry'):
-                        self.react_engine.tool_registry.register(tool)
-                        registered_count += 1
-                        logger.debug(f"Registered tool '{tool_name}' with ReAct engine")
+                        # Check if tool is already registered to avoid duplicates
+                        if tool_name not in self.react_engine.tool_registry._tools:
+                            self.react_engine.tool_registry.register(tool)
+                            registered_count += 1
+                            logger.debug(f"Registered tool '{tool_name}' with ReAct engine")
+                        else:
+                            logger.debug(f"Tool '{tool_name}' already registered, skipping")
             
             logger.info(f"Successfully registered {registered_count} tools with ReAct engine")
             
