@@ -208,6 +208,10 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                 
                 if update_type == "status_update":
                     console.print(f"[dim]• {content}[/dim]")
+                elif update_type == "conversational_response":
+                    # 对话性回复，直接显示内容，不显示额外标识
+                    console.print(f"[white]{content}[/white]")
+                    final_result = content
                 elif update_type == "task_result" or update_type == "final_result":
                     final_result = content
                     console.print(f"[bold green]✅ {content}[/bold green]")
@@ -252,6 +256,10 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                             
                             if update_type == "status_update":
                                 console.print(f"[dim]• {content}[/dim]")
+                            elif update_type == "conversational_response":
+                                # 对话性回复，直接显示内容，不显示额外标识
+                                console.print(f"[white]{content}[/white]")
+                                final_result = content
                             elif update_type == "task_result" or update_type == "final_result":
                                 final_result = content
                                 console.print(f"[bold green]✅ {content}[/bold green]")
