@@ -193,35 +193,16 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
     
     try:
         if not interactive and message:
-            # Single message mode with ReAct - use streaming for better UX
+            # Single message mode with ReAct
             request = ReActRequest(task=message, session_id=session_id)
+            response = await simacode_service.process_react(request)
             
-            console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {message}\n")
-            
-            final_result = None
-            step_count = 0
-            
-            async for update in await simacode_service.process_react(request, stream=True):
-                step_count += 1
-                update_type = update.get("type", "unknown")
-                content = update.get("content", "")
-                
-                if update_type == "status_update":
-                    console.print(f"[dim]• {content}[/dim]")
-                elif update_type == "task_result" or update_type == "final_result":
-                    final_result = content
-                    console.print(f"[bold green]✅ {content}[/bold green]")
-                elif update_type == "error":
-                    console.print(f"[red]❌ {content}[/red]")
-                elif update_type == "tool_execution":
-                    console.print(f"[blue]🔧 {content}[/blue]")
-                else:
-                    console.print(f"[cyan]{content}[/cyan]")
-            
-            if final_result:
-                console.print(f"\n[bold blue]Task Result:[/bold blue]\n{final_result}")
-            
-            console.print(f"\n[dim]Execution steps: {step_count}[/dim]")
+            if response.error:
+                console.print(f"[red]Error: {response.error}[/red]")
+            else:
+                console.print(f"[bold blue]Task Result:[/bold blue]\n{response.result}")
+                if response.steps:
+                    console.print(f"\n[dim]Execution steps: {len(response.steps)}[/dim]")
         else:
             # Interactive ReAct mode
             console.print("Type 'exit' or 'quit' to end the session.\n")
@@ -234,44 +215,13 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     
                     if user_input.strip():
                         request = ReActRequest(task=user_input, session_id=session_id)
+                        response = await simacode_service.process_react(request)
+                        session_id = response.session_id  # Update session_id
                         
-                        console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {user_input}\n")
-                        
-                        final_result = None
-                        step_count = 0
-                        current_session_id = session_id
-                        
-                        async for update in await simacode_service.process_react(request, stream=True):
-                            step_count += 1
-                            update_type = update.get("type", "unknown")
-                            content = update.get("content", "")
-                            
-                            # Update session ID if provided
-                            if update.get("session_id"):
-                                current_session_id = update["session_id"]
-                            
-                            if update_type == "status_update":
-                                console.print(f"[dim]• {content}[/dim]")
-                            elif update_type == "task_result" or update_type == "final_result":
-                                final_result = content
-                                console.print(f"[bold green]✅ {content}[/bold green]")
-                            elif update_type == "error":
-                                console.print(f"[red]❌ {content}[/red]")
-                            elif update_type == "tool_execution":
-                                console.print(f"[blue]🔧 {content}[/blue]")
-                            elif update_type == "reasoning":
-                                console.print(f"[magenta]🤔 {content}[/magenta]")
-                            elif update_type == "planning":
-                                console.print(f"[yellow]📋 {content}[/yellow]")
-                            else:
-                                console.print(f"[cyan]{content}[/cyan]")
-                        
-                        session_id = current_session_id  # Update session_id for next iteration
-                        
-                        if final_result:
-                            console.print(f"\n[bold green]Result:[/bold green]\n{final_result}\n")
+                        if response.error:
+                            console.print(f"[red]Error: {response.error}[/red]")
                         else:
-                            console.print(f"\n[dim]Completed {step_count} processing steps[/dim]\n")
+                            console.print(f"\n[bold green]Result:[/bold green]\n{response.result}\n")
                             
                 except KeyboardInterrupt:
                     console.print("\n[yellow]Interrupted by user[/yellow]")
