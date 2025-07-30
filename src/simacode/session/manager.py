@@ -54,10 +54,14 @@ class SessionManager:
         self.active_sessions: Dict[str, ReActSession] = {}
         self.auto_save_task: Optional[asyncio.Task] = None
         
-        # Ensure sessions directory exists
-        self.config.sessions_directory.mkdir(parents=True, exist_ok=True)
-        
+        # Directory will be created only when needed (on first session creation)
         logger.info(f"Session manager initialized with directory: {self.config.sessions_directory}")
+    
+    def _ensure_sessions_directory(self) -> None:
+        """Ensure sessions directory exists (create only when needed)."""
+        if not self.config.sessions_directory.exists():
+            self.config.sessions_directory.mkdir(parents=True, exist_ok=True)
+            logger.info(f"Created sessions directory: {self.config.sessions_directory}")
     
     async def create_session(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> ReActSession:
         """
@@ -84,6 +88,9 @@ class SessionManager:
         
         # Register session
         self.active_sessions[session.id] = session
+        
+        # Ensure directory exists before saving
+        self._ensure_sessions_directory()
         
         # Save initial session state
         await self.save_session(session.id)
@@ -129,6 +136,9 @@ class SessionManager:
             return False
         
         try:
+            # Ensure directory exists before saving
+            self._ensure_sessions_directory()
+            
             session_file = self.config.sessions_directory / f"{session_id}.json"
             
             # Create backup if enabled
@@ -266,6 +276,10 @@ class SessionManager:
             List[Dict[str, Any]]: List of session metadata
         """
         sessions = []
+        
+        # If directory doesn't exist, return empty list (no sessions)
+        if not self.config.sessions_directory.exists():
+            return sessions
         
         try:
             session_files = list(self.config.sessions_directory.glob("*.json"))
