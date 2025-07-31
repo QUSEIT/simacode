@@ -417,6 +417,20 @@ class UITARSMCPServer:
                 result={"pong": True}
             )
             
+        elif message.method == MCPMethods.RESOURCES_LIST:
+            # List available resources (none for UI TARS)
+            return MCPMessage(
+                id=message.id,
+                result={"resources": []}
+            )
+            
+        elif message.method == MCPMethods.PROMPTS_LIST:
+            # List available prompts (none for UI TARS)
+            return MCPMessage(
+                id=message.id,
+                result={"prompts": []}
+            )
+            
         else:
             # Method not found
             return MCPMessage(
