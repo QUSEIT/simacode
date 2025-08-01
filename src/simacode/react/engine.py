@@ -421,7 +421,7 @@ class ReActEngine:
                 async with semaphore:
                     task_results = []
                     async for update in self._execute_single_task(session, task):
-                        if update.get("type") == "task_result":
+                        if update.get("type") == "sub_task_result":
                             task_results.append(update)
                     return task_results
             
@@ -513,10 +513,10 @@ class ReActEngine:
                     task.update_status(TaskStatus.FAILED)
                     session.add_log_entry(f"Task {task.id} failed: {evaluation.reasoning}")
                 
-                # Yield task completion
+                # Yield sub-task completion
                 yield {
-                    "type": "task_result",
-                    "content": f"Task completed: {task.description}\n",
+                    "type": "sub_task_result",
+                    "content": f"Task completed: {task.description}",
                     "session_id": session.id,
                     "task_id": task.id,
                     "status": task.status.value,

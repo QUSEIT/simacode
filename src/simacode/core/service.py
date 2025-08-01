@@ -375,8 +375,8 @@ class SimaCodeService:
                     yield content
                 elif update_type == "final_result":
                     yield content
-                elif update_type == "task_result":
-                    yield content
+                #elif update_type == "sub_task_result":
+                #    yield content
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
                     yield f"[task_init] {content}"
