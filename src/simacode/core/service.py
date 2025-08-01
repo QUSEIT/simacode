@@ -375,8 +375,11 @@ class SimaCodeService:
                     yield content
                 elif update_type == "final_result":
                     yield content
-                elif update_type == "task_result":
-                    yield content
+                #elif update_type == "sub_task_result":
+                #    yield content
+                elif update_type == "task_init":
+                    # 🆕 Handle task_init message type
+                    yield f"[task_init] {content}"
                 elif update_type in ["tool_execution", "status_update"]:
                     # 为工具执行和状态更新添加前缀标识
                     yield f"[{update_type}] {content}"

@@ -119,7 +119,7 @@ def display_update(update: dict) -> None:
         else:
             print(f"     ⚙️  {content}")
     
-    elif update_type == "task_result":
+    elif update_type == "sub_task_result":
         task_status = update.get("status", "unknown")
         if task_status == "completed":
             print(f"   ✅ {content}")

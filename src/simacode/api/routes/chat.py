@@ -108,17 +108,24 @@ async def chat_stream(
                         chunk_content = chunk
                         metadata = {}
                         
-                        if chunk.startswith("[tool_execution]"):
+                        if chunk.startswith("[task_init]"):
+                            chunk_type = "task_init"
+                            chunk_content = chunk[11:].strip()  # 移除前缀
+                            metadata = {"type": "task_init", "message_type": "task_init"}
+                        elif chunk.startswith("[tool_execution]"):
                             chunk_type = "tool_output"
                             chunk_content = chunk[16:].strip()  # 移除前缀
-                            metadata = {"type": "tool_execution"}
+                            metadata = {"type": "tool_execution", "message_type": "tool_output"}
                         elif chunk.startswith("[status_update]"):
                             chunk_type = "status"
                             chunk_content = chunk[15:].strip()  # 移除前缀
-                            metadata = {"type": "status_update"}
+                            metadata = {"type": "status_update", "message_type": "status"}
                         elif chunk.startswith("❌"):
                             chunk_type = "error"
-                            metadata = {"type": "error"}
+                            metadata = {"type": "error", "message_type": "error"}
+                        else:
+                            # Default content type - add message_type
+                            metadata = {"message_type": "content"}
                         
                         chunk_data = StreamingChatChunk(
                             chunk=chunk_content,
@@ -135,17 +142,19 @@ async def chat_stream(
                         session_id=session_id,
                         finished=True,
                         chunk_type="completion",
-                        metadata={"stream_completed": True}
+                        metadata={"stream_completed": True, "message_type": "completion"}
                     )
                     yield f"data: {final_chunk.model_dump_json()}\n\n"
                 else:
                     # Non-streaming response (fallback)
+                    fallback_metadata = response_gen.metadata.copy()
+                    fallback_metadata["message_type"] = "content"
                     chunk_data = StreamingChatChunk(
                         chunk=response_gen.content,
                         session_id=response_gen.session_id,
                         finished=True,
                         chunk_type="content",
-                        metadata=response_gen.metadata
+                        metadata=fallback_metadata
                     )
                     yield f"data: {chunk_data.model_dump_json()}\n\n"
                     
@@ -154,7 +163,9 @@ async def chat_stream(
                 error_chunk = StreamingChatChunk(
                     chunk=f"Error: {str(e)}",
                     session_id=request.session_id or "error",
-                    finished=True
+                    finished=True,
+                    chunk_type="error",
+                    metadata={"message_type": "error"}
                 )
                 yield f"data: {error_chunk.model_dump_json()}\n\n"
         

@@ -162,7 +162,7 @@ class ReActService:
                 update["session_id"] = session.id
                 
                 # Auto-save session on significant updates
-                if update.get("type") in ["task_plan", "task_result", "final_result"]:
+                if update.get("type") in ["task_plan", "sub_task_result", "final_result"]:
                     await self.session_manager.save_session(session.id)
                 
                 yield update

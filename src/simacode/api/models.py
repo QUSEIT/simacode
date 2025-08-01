@@ -84,5 +84,5 @@ class StreamingChatChunk(BaseModel):
     finished: bool = Field(False, description="Whether this is the final chunk")
     
     # 🆕 新增字段
-    chunk_type: Optional[str] = Field("content", description="Chunk type: 'content', 'status', 'tool_output'")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Chunk metadata")
+    chunk_type: Optional[str] = Field("content", description="Chunk type: 'content', 'status', 'tool_output', 'task_init', 'error', 'completion'")
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Chunk metadata including message_type")
