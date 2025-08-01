@@ -147,8 +147,8 @@ class ReActEngine:
         
         # Engine configuration
         self.max_planning_retries = 3
-        self.max_execution_retries = 2
-        self.parallel_task_limit = 3
+        self.max_execution_retries = 3
+        self.parallel_task_limit = 5
         
         logger.info(f"ReAct engine initialized with {execution_mode.value} execution mode")
     
@@ -325,6 +325,25 @@ class ReActEngine:
                     "session_id": session.id,
                     "tasks": [task.to_dict() for task in tasks]
                 }
+                
+                # 🆕 Add task_init message for each task
+                for task_index, task in enumerate(tasks, 1):
+                    tools_list = [task.tool_name] if task.tool_name else []
+                    task_init_content = f"Task {task_index} initialized: {task.description} 将会通过调用 {tools_list} 来完成"
+                    
+                    yield {
+                        "type": "task_init",
+                        "content": task_init_content,
+                        "session_id": session.id,
+                        "task_id": task.id,
+                        "task_description": task.description,
+                        "task_index": task_index,
+                        "tools": tools_list,
+                        "metadata": {
+                            "task_type": "react_task",
+                            "initialization": True
+                        }
+                    }
                 
                 break
                 
@@ -558,8 +577,9 @@ class ReActEngine:
         }
     
     def _create_final_result(self, session: ReActSession) -> Dict[str, Any]:
-        """Create final result summary."""
+        """Create detailed final result summary with task-by-task breakdown."""
         successful_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.COMPLETED)
+        failed_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.FAILED)
         total_tasks = len(session.tasks)
         
         # Handle conversational inputs with no tasks
@@ -578,16 +598,82 @@ class ReActEngine:
                 }
             }
         
+        # Generate detailed task breakdown
+        task_results = []
+        content_lines = ["🔍 执行摘要：", ""]
+        
+        for i, task in enumerate(session.tasks, 1):
+            # Get task status and evaluation
+            evaluation = session.evaluations.get(task.id)
+            status_emoji = "✅" if task.status == TaskStatus.COMPLETED else "❌"
+            status_text = "成功" if task.status == TaskStatus.COMPLETED else "失败"
+            
+            # Get tools used
+            tools_used = [task.tool_name] if task.tool_name else []
+            tools_text = f"使用工具: {tools_used}" if tools_used else "无工具使用"
+            
+            # Add task summary
+            task_line = f"{status_emoji} 任务 {i}: {task.description} - {status_text}"
+            content_lines.append(task_line)
+            content_lines.append(f"   {tools_text}")
+            
+            # Add evaluation details if available
+            if evaluation:
+                if evaluation.reasoning:
+                    # Truncate long reasoning for readability
+                    reasoning = evaluation.reasoning[:100] + "..." if len(evaluation.reasoning) > 100 else evaluation.reasoning
+                    content_lines.append(f"   评估: {reasoning}")
+                
+                if evaluation.recommendations:
+                    # Show first recommendation if any
+                    first_rec = evaluation.recommendations[0] if evaluation.recommendations else ""
+                    if first_rec:
+                        rec_text = first_rec[:80] + "..." if len(first_rec) > 80 else first_rec
+                        content_lines.append(f"   建议: {rec_text}")
+            
+            content_lines.append("")  # Empty line for spacing
+            
+            # Store structured task result
+            task_results.append({
+                "task_index": i,
+                "task_id": task.id,
+                "description": task.description,
+                "status": task.status.value,
+                "success": task.status == TaskStatus.COMPLETED,
+                "tools_used": tools_used,
+                "evaluation": evaluation.to_dict() if evaluation else None
+            })
+        
+        # Overall result
+        overall_success = failed_tasks == 0 and successful_tasks > 0
+        if overall_success:
+            overall_emoji = "🎉"
+            overall_text = f"所有任务执行成功！共完成 {successful_tasks} 个任务"
+        elif successful_tasks > 0:
+            overall_emoji = "⚠️"
+            overall_text = f"部分任务完成：{successful_tasks} 个成功，{failed_tasks} 个失败"
+        else:
+            overall_emoji = "❌"
+            overall_text = f"所有任务都失败了：共 {failed_tasks} 个任务失败"
+        
+        content_lines.extend([
+            "📊 最终结果：",
+            f"{overall_emoji} {overall_text}",
+            f"⏱️ 总耗时: {(session.updated_at - session.created_at).total_seconds():.1f} 秒"
+        ])
+        
         return {
             "type": "final_result",
-            "content": f"ReAct processing completed: {successful_tasks}/{total_tasks} tasks successful",
+            "content": "\n".join(content_lines),
             "session_id": session.id,
             "session_data": session.to_dict(),
             "summary": {
                 "total_tasks": total_tasks,
                 "successful_tasks": successful_tasks,
-                "failed_tasks": total_tasks - successful_tasks,
-                "execution_time": (session.updated_at - session.created_at).total_seconds()
+                "failed_tasks": failed_tasks,
+                "execution_time": (session.updated_at - session.created_at).total_seconds(),
+                "overall_success": overall_success,
+                "task_results": task_results
             }
         }
     
