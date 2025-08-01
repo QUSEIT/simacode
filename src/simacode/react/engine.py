@@ -516,7 +516,7 @@ class ReActEngine:
                 # Yield task completion
                 yield {
                     "type": "task_result",
-                    "content": f"Task completed: {task.description}",
+                    "content": f"Task completed: {task.description}\n",
                     "session_id": session.id,
                     "task_id": task.id,
                     "status": task.status.value,
