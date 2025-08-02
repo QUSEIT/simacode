@@ -226,7 +226,13 @@ class ReActEngine:
         
         try:
             session.add_log_entry(f"Starting ReAct processing for input: {user_input[:100]}...")
-            yield self._create_status_update(session, f"任务已接受并开始启动：{user_input}")
+            yield {
+                "type": "task_init",
+                "content": f"任务已接受并开始启动：{user_input}",
+                "session_id": session.id,
+                "state": session.state.value,
+                "timestamp": datetime.now().isoformat()
+            }
             #yield self._create_status_update(session, "ReAct processing started")
             
             # 预判断：检查是否为对话性输入
@@ -337,7 +343,7 @@ class ReActEngine:
                     task_init_content = f"Task {task_index} initialized: {task.description} 将会通过调用 {tools_list} 来完成"
                     
                     yield {
-                        "type": "task_init",
+                        "type": "sub_task_init",
                         "content": task_init_content,
                         "session_id": session.id,
                         "task_id": task.id,
