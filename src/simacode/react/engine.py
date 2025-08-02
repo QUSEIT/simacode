@@ -226,7 +226,8 @@ class ReActEngine:
         
         try:
             session.add_log_entry(f"Starting ReAct processing for input: {user_input[:100]}...")
-            yield self._create_status_update(session, "ReAct processing started")
+            yield self._create_status_update(session, f"任务已接受并开始启动：{user_input}")
+            #yield self._create_status_update(session, "ReAct processing started")
             
             # 预判断：检查是否为对话性输入
             if await self._is_conversational_input(user_input):
@@ -316,7 +317,11 @@ class ReActEngine:
                 session.tasks = tasks
                 
                 session.add_log_entry(f"Successfully planned {len(tasks)} tasks")
-                yield self._create_status_update(session, f"Task plan created with {len(tasks)} tasks")
+                
+                # Create detailed task summary
+                task_descriptions = [f"任务{i+1}: {task.description}" for i, task in enumerate(tasks)]
+                task_summary = "\n".join(task_descriptions)
+                yield self._create_status_update(session, f"任务规划完成，共{len(tasks)}个任务:\n{task_summary}")
                 
                 # Yield task plan details
                 yield {
