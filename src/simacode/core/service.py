@@ -28,12 +28,14 @@ class ChatRequest:
         message: str,
         session_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        stream: bool = False
+        stream: bool = False,
+        force_mode: Optional[str] = None
     ):
         self.message = message
         self.session_id = session_id
         self.context = context or {}
         self.stream = stream
+        self.force_mode = force_mode  # "chat" to force conversational mode, "react" to force task mode
 
 
 class ChatResponse:
@@ -226,11 +228,13 @@ class SimaCodeService:
             
             # 🆕 智能输入预判断
             # 检查是否强制指定模式
-            if hasattr(request, 'force_mode') and request.force_mode:
+            if request.force_mode:
                 if request.force_mode == "chat":
                     is_conversational = True
+                    logger.debug("Force chat mode enabled - bypassing ReAct classification")
                 elif request.force_mode == "react":
                     is_conversational = False
+                    logger.debug("Force ReAct mode enabled - bypassing conversational classification")
                 else:
                     # 默认智能判断
                     is_conversational = await self._is_conversational_input(request.message)
