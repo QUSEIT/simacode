@@ -136,12 +136,19 @@ class ReActService:
             if session_id:
                 session = await self.session_manager.get_session(session_id)
                 if not session:
-                    raise ReActError(f"Session not found: {session_id}")
-                
-                # Update session with new input
-                session.user_input = user_input
-                if context:
-                    session.metadata.update(context)
+                    # Session doesn't exist, create a new one with the specified ID
+                    session = await self.session_manager.create_session(user_input, context)
+                    # Override the generated ID with the requested one
+                    session.id = session_id
+                    # Register the session with the correct ID
+                    self.session_manager.active_sessions[session_id] = session
+                    # Save with the correct ID
+                    await self.session_manager.save_session(session_id)
+                else:
+                    # Update existing session with new input
+                    session.user_input = user_input
+                    if context:
+                        session.metadata.update(context)
             else:
                 session = await self.session_manager.create_session(user_input, context)
             
@@ -156,8 +163,8 @@ class ReActService:
             if context:
                 service_context.update(context)
             
-            # Process through ReAct engine
-            async for update in self.react_engine.process_user_input(user_input, service_context):
+            # Process through ReAct engine with existing session
+            async for update in self.react_engine.process_user_input(user_input, service_context, session):
                 # Add session information to updates
                 update["session_id"] = session.id
                 

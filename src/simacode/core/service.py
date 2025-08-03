@@ -419,7 +419,7 @@ class SimaCodeService:
             
             async for result in self.react_service.process_user_request(
                 request.task,
-                session_id=None,  # Let ReActService create new session
+                session_id=request.session_id,  # Pass through session_id for continuity
                 context=request.context
             ):
                 # Pass through the result with session info
@@ -485,7 +485,7 @@ class SimaCodeService:
                 execution_results = []
                 async for result in self.react_service.process_user_request(
                     request.task,
-                    session_id=None,  # Let ReActService create new session
+                    session_id=request.session_id,  # Pass through session_id for continuity
                     context=request.context
                 ):
                     # Handle different result formats from ReActService

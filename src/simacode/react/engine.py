@@ -153,18 +153,32 @@ class ReActEngine:
         logger.info(f"ReAct engine initialized with {execution_mode.value} execution mode")
     
     
-    async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[Dict[str, Any], None]:
+    async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None, session: Optional[ReActSession] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Process user input through the complete ReAct cycle.
         
         Args:
             user_input: User's natural language input
             context: Additional context information
+            session: Existing session to continue, or None to create new one
             
         Yields:
             Dict[str, Any]: Status updates and results from each phase
         """
-        session = ReActSession(user_input=user_input)
+        # Use existing session or create new one
+        if session is None:
+            session = ReActSession(user_input=user_input)
+            # Add initial user input to conversation history for new sessions
+            from ..ai.conversation import Message
+            session.conversation_history.append(Message(role="user", content=user_input))
+        else:
+            # Update existing session with new input
+            session.user_input = user_input
+            session.updated_at = datetime.now()
+            
+            # Add new user input to conversation history for context continuity
+            from ..ai.conversation import Message
+            session.conversation_history.append(Message(role="user", content=user_input))
         
         if context:
             session.metadata.update(context)
@@ -194,7 +208,15 @@ class ReActEngine:
                 yield update
             
             session.update_state(ReActState.COMPLETED)
-            yield self._create_final_result(session)
+            final_result = self._create_final_result(session)
+            
+            # Add AI response to conversation history for context continuity
+            if session.conversation_history and len(session.conversation_history) > 0:
+                from ..ai.conversation import Message
+                ai_response_content = final_result.get("content", "Task completed")
+                session.conversation_history.append(Message(role="assistant", content=ai_response_content))
+            
+            yield final_result
             
         except Exception as e:
             session.update_state(ReActState.FAILED)
@@ -319,6 +341,11 @@ class ReActEngine:
                 # Fallback: Create a conversational response using the AI client
                 response = await self._generate_conversational_response(session)
                 session.add_log_entry("Generated fallback conversational response")
+            
+            # Add conversational response to conversation history
+            if session.conversation_history:
+                from ..ai.conversation import Message
+                session.conversation_history.append(Message(role="assistant", content=response))
             
             yield {
                 "type": "conversational_response",

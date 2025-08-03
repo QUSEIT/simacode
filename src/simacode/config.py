@@ -155,6 +155,38 @@ class SessionConfig(BaseModel):
         return path
 
 
+class ConversationContextConfig(BaseModel):
+    """Conversation context configuration model."""
+    
+    strategy: str = Field(
+        default="adaptive",
+        description="Context strategy: full, compressed, adaptive"
+    )
+    
+    # Full context settings
+    max_messages: int = Field(default=100, description="Maximum messages to preserve")
+    max_tokens: int = Field(default=8000, description="Maximum tokens limit")
+    preserve_all: bool = Field(default=False, description="Preserve all messages")
+    
+    # Compressed context settings
+    recent_messages: int = Field(default=5, description="Recent messages to preserve fully")
+    medium_recent: int = Field(default=10, description="Medium recent messages count")
+    compression_ratio: float = Field(default=0.3, ge=0.1, le=1.0, description="Compression ratio")
+    preserve_topics: bool = Field(default=True, description="Preserve topic summaries")
+    
+    # Adaptive context settings
+    token_budget: int = Field(default=4000, description="Token budget for adaptive mode")
+    min_recent: int = Field(default=3, description="Minimum recent messages to preserve")
+    auto_summarize: bool = Field(default=True, description="Auto-summarize old conversations")
+    
+    @validator('strategy')
+    def validate_strategy(cls, v: str) -> str:
+        valid_strategies = {'full', 'compressed', 'adaptive'}
+        if v.lower() not in valid_strategies:
+            raise ValueError(f"Invalid strategy: {v}. Must be one of {valid_strategies}")
+        return v.lower()
+
+
 class Config(BaseModel):
     """Main configuration model for SimaCode."""
     
@@ -177,6 +209,10 @@ class Config(BaseModel):
     session: SessionConfig = Field(
         default_factory=SessionConfig,
         description="Session management configuration"
+    )
+    conversation_context: ConversationContextConfig = Field(
+        default_factory=ConversationContextConfig,
+        description="Conversation context management configuration"
     )
     
     @classmethod
