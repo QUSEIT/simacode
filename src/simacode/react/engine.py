@@ -152,61 +152,6 @@ class ReActEngine:
         
         logger.info(f"ReAct engine initialized with {execution_mode.value} execution mode")
     
-    async def _is_conversational_input(self, user_input: str) -> bool:
-        """
-        判断输入是否为对话性输入（问候、感谢等），不需要工具执行。
-        
-        Args:
-            user_input: 用户输入文本
-            
-        Returns:
-            bool: True if input is conversational, False if it requires task execution
-        """
-        user_input_clean = user_input.strip()
-        
-        # 快速模式匹配常见对话性输入
-        conversational_patterns = [
-            # 中文问候
-            r'^(你好|您好|嗨|嗯|哦|啊)([！!。.]*)$',
-            # 英文问候  
-            r'^(hi|hello|hey|hm|oh|ah)([！!。.]*)$',
-            # 感谢表达
-            r'^(谢谢|感谢|thanks?|thank you)([！!。.]*)$',
-            # 简单确认/回应
-            r'^(好的|可以|行|ok|okay|yes|no|是的|不是)([！!。.]*)$',
-            # 简单疑问
-            r'^(什么|why|how|怎么样|如何)([？?。.]*)$',
-        ]
-        
-        # 检查是否匹配常见模式
-        for pattern in conversational_patterns:
-            if re.match(pattern, user_input_clean, re.IGNORECASE):
-                logger.debug(f"Input '{user_input}' matched conversational pattern: {pattern}")
-                return True
-        
-        # 对于不匹配模式的输入，使用AI进行智能判断
-        try:
-            classification_prompt = f"""判断以下用户输入是否为纯对话性内容还是需要执行具体任务的请求。
-
-对话性内容包括：问候、感谢、简单确认、闲聊等，不需要使用任何工具。
-任务性内容包括：文件操作、搜索查询、代码分析、网站操作等，需要使用工具完成。
-
-用户输入："{user_input}"
-
-请只回复以下之一：
-- CONVERSATIONAL (如果是对话性内容)
-- TASK (如果需要执行任务)"""
-            
-            messages = [Message(role=Role.USER, content=classification_prompt)]
-            response = await self.ai_client.chat(messages)
-            
-            is_conversational = "CONVERSATIONAL" in response.content.upper()
-            logger.debug(f"AI classification for '{user_input}': {'CONVERSATIONAL' if is_conversational else 'TASK'}")
-            return is_conversational
-            
-        except Exception as e:
-            logger.warning(f"Failed to classify input with AI: {str(e)}, defaulting to task mode")
-            return False  # 默认为任务模式，避免遗漏需要处理的任务
     
     async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -235,39 +180,6 @@ class ReActEngine:
             }
             #yield self._create_status_update(session, "ReAct processing started")
             
-            # 预判断：检查是否为对话性输入
-            if await self._is_conversational_input(user_input):
-                session.add_log_entry("Input identified as conversational, providing direct response")
-                yield self._create_status_update(session, "Providing conversational response")
-                
-                # 直接使用AI客户端回复，不进入任务规划
-                try:
-                    conversational_messages = [
-                        Message(role=Role.SYSTEM, content="你是一个友好的AI助手。用自然、简洁的方式回复用户的问候、感谢或简单对话。"),
-                        Message(role=Role.USER, content=user_input)
-                    ]
-                    response = await self.ai_client.chat(conversational_messages)
-                    
-                    session.update_state(ReActState.COMPLETED)
-                    session.add_log_entry("Conversational response completed")
-                    
-                    # 返回对话性回复结果
-                    yield {
-                        "type": "conversational_response",
-                        "content": response.content,
-                        "session_id": session.id,
-                        "is_final": True,
-                        "metadata": {
-                            "input_type": "conversational",
-                            "response_time": (datetime.now() - session.created_at).total_seconds()
-                        }
-                    }
-                    return
-                    
-                except Exception as e:
-                    logger.error(f"Failed to generate conversational response: {str(e)}")
-                    # 如果对话回复失败，继续正常的ReAct流程
-                    session.add_log_entry(f"Conversational response failed: {str(e)}, falling back to task mode", "WARNING")
             
             # Phase 1: Reasoning and Planning
             async for update in self._reasoning_and_planning_phase(session):
@@ -322,38 +234,59 @@ class ReActEngine:
                 tasks = await self.task_planner.plan_tasks(planning_context)
                 session.tasks = tasks
                 
-                session.add_log_entry(f"Successfully planned {len(tasks)} tasks")
-                
-                # Create detailed task summary
-                task_descriptions = [f"任务{i+1}: {task.description}" for i, task in enumerate(tasks)]
-                task_summary = "\n".join(task_descriptions)
-                yield self._create_status_update(session, f"任务规划完成，共{len(tasks)}个任务:\n{task_summary}")
-                
-                # Yield task plan details
-                yield {
-                    "type": "task_plan",
-                    "content": "Task plan created",
-                    "session_id": session.id,
-                    "tasks": [task.to_dict() for task in tasks]
+                # Store planning context in session metadata for later use
+                session.metadata["planning_context"] = {
+                    "constraints": planning_context.constraints
                 }
                 
-                # 🆕 Add task_init message for each task
-                for task_index, task in enumerate(tasks, 1):
-                    tools_list = [task.tool_name] if task.tool_name else []
-                    task_init_content = f"Task {task_index} initialized: {task.description} 将会通过调用 {tools_list} 来完成"
-                    
+                session.add_log_entry(f"Successfully planned {len(tasks)} tasks")
+                
+                # Create detailed task summary or conversational indication
+                if tasks:
+                    task_descriptions = [f"任务{i+1}: {task.description}" for i, task in enumerate(tasks)]
+                    task_summary = "\n".join(task_descriptions)
+                    yield self._create_status_update(session, f"任务规划完成，共{len(tasks)}个任务:\n{task_summary}")
+                else:
+                    # Check if it's a conversational response
+                    if planning_context.constraints.get("conversational_response"):
+                        yield self._create_status_update(session, "识别为对话性输入，将直接回复")
+                    else:
+                        yield self._create_status_update(session, "未识别出具体任务，将提供对话式回复")
+                
+                # Yield task plan details
+                if tasks:
                     yield {
-                        "type": "sub_task_init",
-                        "content": task_init_content,
+                        "type": "task_plan",
+                        "content": "Task plan created",
                         "session_id": session.id,
-                        "task_id": task.id,
-                        "task_description": task.description,
-                        "task_index": task_index,
-                        "tools": tools_list,
-                        "metadata": {
-                            "task_type": "react_task",
-                            "initialization": True
+                        "tasks": [task.to_dict() for task in tasks]
+                    }
+                    
+                    # 🆕 Add task_init message for each task
+                    for task_index, task in enumerate(tasks, 1):
+                        tools_list = [task.tool_name] if task.tool_name else []
+                        task_init_content = f"Task {task_index} initialized: {task.description} 将会通过调用 {tools_list} 来完成"
+                        
+                        yield {
+                            "type": "sub_task_init",
+                            "content": task_init_content,
+                            "session_id": session.id,
+                            "task_id": task.id,
+                            "task_description": task.description,
+                            "task_index": task_index,
+                            "tools": tools_list,
+                            "metadata": {
+                                "task_type": "react_task",
+                                "initialization": True
+                            }
                         }
+                else:
+                    # For conversational inputs, yield a conversational plan indicator
+                    yield {
+                        "type": "conversational_plan",
+                        "content": "Conversational input detected",
+                        "session_id": session.id,
+                        "tasks": []
                     }
                 
                 break
@@ -375,8 +308,18 @@ class ReActEngine:
             session.add_log_entry("No tasks to execute - treating as conversational input")
             yield self._create_status_update(session, "No specific tasks identified - providing conversational response")
             
-            # Create a conversational response using the AI client
-            response = await self._generate_conversational_response(session)
+            # Check if planner provided a conversational response
+            conversational_response = session.metadata.get("planning_context", {}).get("constraints", {}).get("conversational_response")
+            
+            if conversational_response:
+                # Use the conversational response from the planner
+                response = conversational_response
+                session.add_log_entry("Using conversational response from planner")
+            else:
+                # Fallback: Create a conversational response using the AI client
+                response = await self._generate_conversational_response(session)
+                session.add_log_entry("Generated fallback conversational response")
+            
             yield {
                 "type": "conversational_response",
                 "content": response,

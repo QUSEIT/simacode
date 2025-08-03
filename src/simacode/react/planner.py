@@ -133,36 +133,64 @@ class TaskPlanner:
         self.PLANNING_SYSTEM_PROMPT = """
 You are a task planning expert for an AI programming assistant. Your role is to:
 
-1. Analyze user requests and break them down into executable tasks
-2. Select appropriate tools for each task
-3. Create a logical execution order considering dependencies
-4. Provide clear task descriptions and expected outcomes
+1. FIRST: Determine if the user input is conversational or task-oriented
+2. If conversational: Respond directly with helpful conversation
+3. If task-oriented: Break down into executable tasks with appropriate tools
+
+## INPUT CLASSIFICATION ##
+
+CONVERSATIONAL inputs include:
+- Greetings: "你好", "hello", "hi", "嗨"
+- Gratitude: "谢谢", "thanks", "thank you", "感谢"
+- Simple confirmations: "好的", "可以", "ok", "yes", "no", "确认", "取消"
+- Social pleasantries: "怎么样", "如何", "最近好吗"
+- General questions without specific tasks: "什么", "why", "how"
+- Small talk or casual conversation
+
+TASK-ORIENTED inputs include:
+- File operations: "读取文件", "创建文件", "修改代码"
+- System commands: "运行测试", "启动服务", "检查状态"
+- Code analysis: "分析代码", "查找函数", "检查错误"
+- Search operations: "搜索", "查找", "定位"
+- Any request requiring tool execution
+
+## RESPONSE FORMAT ##
+
+For CONVERSATIONAL inputs, respond with:
+{{
+  "type": "conversational_response",
+  "content": "Your natural, helpful response to the user"
+}}
+
+For TASK-ORIENTED inputs, respond with:
+{{
+  "type": "task_plan",
+  "tasks": [
+    {{
+      "type": "file_operation",
+      "description": "Read the contents of config.py", 
+      "tool_name": "file_read",
+      "tool_input": {{"file_path": "config.py"}},
+      "expected_outcome": "File contents successfully retrieved",
+      "dependencies": [],
+      "priority": 1
+    }}
+  ]
+}}
 
 Available tools:
 {available_tools}
 
-For each task, you must specify:
+For tasks, specify:
 - Task type (file_operation, command_execution, code_analysis, search_query, composite)
 - Tool name from available tools
-- Tool input parameters
+- Tool input parameters  
 - Expected outcome description
 - Dependencies on other tasks (if any)
 - Priority level (1-5, where 1 is highest)
 
-Respond with a JSON array of task objects in the following format:
-[
-  {{
-    "type": "file_operation",
-    "description": "Read the contents of config.py",
-    "tool_name": "file_read",
-    "tool_input": {{"file_path": "config.py"}},
-    "expected_outcome": "File contents successfully retrieved",
-    "dependencies": [],
-    "priority": 1
-  }}
-]
-
 Be specific and actionable. Consider edge cases and error handling.
+Always classify the input type first, then respond appropriately.
 """
     
     async def plan_tasks(self, context: PlanningContext) -> List[Task]:
@@ -173,7 +201,7 @@ Be specific and actionable. Consider edge cases and error handling.
             context: Planning context containing user input and environment info
             
         Returns:
-            List[Task]: Ordered list of tasks to execute
+            List[Task]: Ordered list of tasks to execute. Empty list for conversational inputs.
             
         Raises:
             PlanningError: If task planning fails
@@ -201,10 +229,16 @@ Be specific and actionable. Consider edge cases and error handling.
             # Get AI response
             response = await self.ai_client.chat(messages)
             
-            # Parse tasks from response
-            tasks = await self._parse_tasks_from_response(response.content)
+            # Parse response - could be tasks or conversational
+            result = await self._parse_planning_response(response.content)
             
-            # Validate and enhance tasks
+            if result["type"] == "conversational_response":
+                # Store conversational response in context for the engine to use
+                context.constraints["conversational_response"] = result["content"]
+                return []  # Return empty task list for conversational inputs
+            
+            # Parse and validate tasks for task-oriented inputs
+            tasks = result["tasks"]
             validated_tasks = await self._validate_and_enhance_tasks(tasks, context)
             
             return validated_tasks
@@ -288,8 +322,8 @@ Respond with a JSON array of alternative task objects.
         
         return "\n".join(summary_parts)
     
-    async def _parse_tasks_from_response(self, response_content: str) -> List[Task]:
-        """Parse task list from AI response."""
+    async def _parse_planning_response(self, response_content: str) -> Dict[str, Any]:
+        """Parse planning response that can be either conversational or task-oriented."""
         try:
             # Extract JSON from response
             response_content = response_content.strip()
@@ -305,35 +339,68 @@ Respond with a JSON array of alternative task objects.
                 response_content = response_content[start:end].strip()
             
             # Parse JSON
-            task_data = json.loads(response_content)
+            parsed_data = json.loads(response_content)
             
-            if not isinstance(task_data, list):
-                raise ValueError("Response must be a JSON array of tasks")
-            
-            tasks = []
-            for i, task_dict in enumerate(task_data):
-                try:
-                    task = Task()
-                    task.type = TaskType(task_dict.get("type", "file_operation"))
-                    task.description = task_dict.get("description", f"Task {i+1}")
-                    task.tool_name = task_dict.get("tool_name", "")
-                    task.tool_input = task_dict.get("tool_input", {})
-                    task.expected_outcome = task_dict.get("expected_outcome", "")
-                    task.dependencies = task_dict.get("dependencies", [])
-                    task.priority = task_dict.get("priority", 1)
-                    task.status = TaskStatus.READY
-                    
-                    tasks.append(task)
-                    
-                except Exception as e:
-                    raise InvalidTaskError(f"Invalid task definition at index {i}: {str(e)}")
-            
-            return tasks
+            if parsed_data.get("type") == "conversational_response":
+                return {
+                    "type": "conversational_response",
+                    "content": parsed_data.get("content", "")
+                }
+            elif parsed_data.get("type") == "task_plan":
+                # Parse task list
+                task_data = parsed_data.get("tasks", [])
+                tasks = await self._parse_task_list(task_data)
+                return {
+                    "type": "task_plan", 
+                    "tasks": tasks
+                }
+            else:
+                # Legacy format - assume it's a task list
+                if isinstance(parsed_data, list):
+                    tasks = await self._parse_task_list(parsed_data)
+                    return {
+                        "type": "task_plan",
+                        "tasks": tasks
+                    }
+                else:
+                    raise ValueError("Invalid response format")
             
         except json.JSONDecodeError as e:
             raise PlanningError(f"Failed to parse JSON response: {str(e)}")
         except Exception as e:
-            raise PlanningError(f"Failed to parse tasks: {str(e)}")
+            raise PlanningError(f"Failed to parse planning response: {str(e)}")
+    
+    async def _parse_task_list(self, task_data: List[Dict[str, Any]]) -> List[Task]:
+        """Parse a list of task dictionaries into Task objects."""
+        if not isinstance(task_data, list):
+            raise ValueError("Task data must be a JSON array")
+        
+        tasks = []
+        for i, task_dict in enumerate(task_data):
+            try:
+                task = Task()
+                task.type = TaskType(task_dict.get("type", "file_operation"))
+                task.description = task_dict.get("description", f"Task {i+1}")
+                task.tool_name = task_dict.get("tool_name", "")
+                task.tool_input = task_dict.get("tool_input", {})
+                task.expected_outcome = task_dict.get("expected_outcome", "")
+                task.dependencies = task_dict.get("dependencies", [])
+                task.priority = task_dict.get("priority", 1)
+                task.status = TaskStatus.READY
+                
+                tasks.append(task)
+                
+            except Exception as e:
+                raise InvalidTaskError(f"Invalid task definition at index {i}: {str(e)}")
+        
+        return tasks
+
+    async def _parse_tasks_from_response(self, response_content: str) -> List[Task]:
+        """Parse task list from AI response (legacy method for compatibility)."""
+        result = await self._parse_planning_response(response_content)
+        if result["type"] == "conversational_response":
+            return []  # No tasks for conversational responses
+        return result["tasks"]
     
     async def _validate_and_enhance_tasks(self, tasks: List[Task], context: PlanningContext) -> List[Task]:
         """Validate task definitions and enhance with additional information."""
