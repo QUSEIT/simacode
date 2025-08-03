@@ -227,6 +227,18 @@ class SessionManager:
         tasks_data = session_data.get("tasks", [])
         session.tasks = [Task.from_dict(task_data) for task_data in tasks_data]
         
+        # Reconstruct conversation history for continuous context
+        from ..ai.conversation import Message
+        conversation_data = session_data.get("conversation_history", [])
+        session.conversation_history = []
+        for msg_data in conversation_data:
+            if isinstance(msg_data, dict):
+                message = Message(
+                    role=msg_data.get("role", "user"),
+                    content=msg_data.get("content", "")
+                )
+                session.conversation_history.append(message)
+        
         # Note: tool_results and evaluations are not reconstructed as they
         # would require importing and reconstructing complex objects
         # They can be rebuilt by re-executing if needed

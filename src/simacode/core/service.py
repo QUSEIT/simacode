@@ -375,8 +375,11 @@ class SimaCodeService:
                     yield content
                 elif update_type == "final_result":
                     yield content
-                elif update_type == "task_result":
-                    yield content
+                #elif update_type == "sub_task_result":
+                #    yield content
+                elif update_type == "task_init":
+                    # 🆕 Handle task_init message type
+                    yield f"[task_init] {content}"
                 elif update_type in ["tool_execution", "status_update"]:
                     # 为工具执行和状态更新添加前缀标识
                     yield f"[{update_type}] {content}"
@@ -416,7 +419,7 @@ class SimaCodeService:
             
             async for result in self.react_service.process_user_request(
                 request.task,
-                session_id=None,  # Let ReActService create new session
+                session_id=request.session_id,  # Pass through session_id for continuity
                 context=request.context
             ):
                 # Pass through the result with session info
@@ -482,7 +485,7 @@ class SimaCodeService:
                 execution_results = []
                 async for result in self.react_service.process_user_request(
                     request.task,
-                    session_id=None,  # Let ReActService create new session
+                    session_id=request.session_id,  # Pass through session_id for continuity
                     context=request.context
                 ):
                     # Handle different result formats from ReActService

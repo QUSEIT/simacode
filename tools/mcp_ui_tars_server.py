@@ -247,25 +247,6 @@ class UITARSMCPServer:
                     },
                     "required": ["url"]
                 }
-            },
-            "ui_automation": {
-                "name": "ui_automation",
-                "description": "Execute general UI automation tasks using natural language instructions",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "instruction": {
-                            "type": "string",
-                            "description": "Natural language instruction for UI automation"
-                        },
-                        "timeout": {
-                            "type": "number",
-                            "description": "Timeout in seconds for the operation",
-                            "default": 300
-                        }
-                    },
-                    "required": ["instruction"]
-                }
             }
         }
         
@@ -417,6 +398,20 @@ class UITARSMCPServer:
                 result={"pong": True}
             )
             
+        elif message.method == MCPMethods.RESOURCES_LIST:
+            # List available resources (none for UI TARS)
+            return MCPMessage(
+                id=message.id,
+                result={"resources": []}
+            )
+            
+        elif message.method == MCPMethods.PROMPTS_LIST:
+            # List available prompts (none for UI TARS)
+            return MCPMessage(
+                id=message.id,
+                result={"prompts": []}
+            )
+            
         else:
             # Method not found
             return MCPMessage(
@@ -446,8 +441,6 @@ class UITARSMCPServer:
             # Execute the appropriate tool
             if tool_name == "open_website_with_verification":
                 result = await self._open_website_with_verification(arguments)
-            elif tool_name == "ui_automation":
-                result = await self._ui_automation(arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -515,40 +508,6 @@ class UITARSMCPServer:
             "timestamp": datetime.now().isoformat()
         }
     
-    async def _ui_automation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """
-        Execute general UI automation tasks using natural language instructions.
-        
-        Args:
-            arguments: Tool arguments containing instruction and timeout
-            
-        Returns:
-            Dict containing execution results
-        """
-        instruction = arguments.get("instruction")
-        timeout = arguments.get("timeout", 300)
-        
-        if not instruction:
-            return {
-                "success": False,
-                "error": "Instruction parameter is required",
-                "timestamp": datetime.now().isoformat()
-            }
-        
-        logger.info(f"Executing UI automation: {instruction}")
-        
-        # Execute UI-TARS command
-        result = await self.ui_tars.execute_instruction(instruction, timeout)
-        
-        return {
-            "success": result.success,
-            "instruction": instruction,
-            "output": result.output,
-            "error": result.error,
-            "execution_time": result.execution_time,
-            "command_executed": result.command,
-            "timestamp": datetime.now().isoformat()
-        }
     
     async def start_server(self):
         """Start the HTTP server."""
