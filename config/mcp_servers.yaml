@@ -118,7 +118,6 @@ servers:
     retry_delay: 2.0
     security:
       allowed_operations:
-        - "ui_automation"
         - "web_interaction"
         - "verification_handling"
       allowed_paths: []
