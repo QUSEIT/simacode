@@ -605,6 +605,12 @@ class ReActEngine:
                     reasoning = evaluation.reasoning[:100] + "..." if len(evaluation.reasoning) > 100 else evaluation.reasoning
                     content_lines.append(f"   评估: {reasoning}")
                 
+                # Show detailed error information for failed tasks
+                if task.status == TaskStatus.FAILED and evaluation.evidence:
+                    for evidence in evaluation.evidence[:2]:  # Show up to 2 error messages
+                        error_text = evidence[:120] + "..." if len(evidence) > 120 else evidence
+                        content_lines.append(f"   错误: {error_text}")
+                
                 if evaluation.recommendations:
                     # Show first recommendation if any
                     first_rec = evaluation.recommendations[0] if evaluation.recommendations else ""
@@ -612,9 +618,24 @@ class ReActEngine:
                         rec_text = first_rec[:80] + "..." if len(first_rec) > 80 else first_rec
                         content_lines.append(f"   建议: {rec_text}")
             
+            # Fallback: Extract error info directly from task results if no evaluation available
+            elif task.status == TaskStatus.FAILED and task.id in session.task_results:
+                error_results = [r for r in session.task_results[task.id] if r.type == ToolResultType.ERROR]
+                for error_result in error_results[:2]:  # Show up to 2 error messages
+                    error_text = error_result.content[:120] + "..." if len(error_result.content) > 120 else error_result.content
+                    content_lines.append(f"   错误: {error_text}")
+            
             content_lines.append("")  # Empty line for spacing
             
             # Store structured task result
+            error_details = []
+            if task.status == TaskStatus.FAILED:
+                if evaluation and evaluation.evidence:
+                    error_details.extend(evaluation.evidence[:2])
+                elif task.id in session.task_results:
+                    error_results = [r for r in session.task_results[task.id] if r.type == ToolResultType.ERROR]
+                    error_details.extend([r.content for r in error_results[:2]])
+            
             task_results.append({
                 "task_index": i,
                 "task_id": task.id,
@@ -622,7 +643,8 @@ class ReActEngine:
                 "status": task.status.value,
                 "success": task.status == TaskStatus.COMPLETED,
                 "tools_used": tools_used,
-                "evaluation": evaluation.to_dict() if evaluation else None
+                "evaluation": evaluation.to_dict() if evaluation else None,
+                "error_details": error_details
             })
         
         # Overall result

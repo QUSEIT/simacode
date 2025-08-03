@@ -353,42 +353,118 @@ Respond with a JSON array of alternative task objects.
         return self._ensure_token_limit(formatted_context, config.max_tokens)
     
     def _get_compressed_conversation_context(self, history: List[Message], config) -> str:
-        """使用配置的压缩策略处理上下文"""
+        """智能分层压缩：根据重要性和token预算智能分层处理对话历史"""
+        if not history:
+            return "No prior conversation"
+        
         if len(history) <= config.recent_messages:
             # 消息较少时保留所有
             return self._format_all_messages(history)
         
+        # 使用精简的智能分层压缩算法
+        return self._adaptive_context_compression(history, config)
+    
+    def _adaptive_context_compression(self, history: List[Message], config) -> str:
+        """自适应上下文压缩，根据token预算智能分层"""
+        
+        # 按重要性分层
+        layers = self._categorize_messages_by_importance(history)
+        
         context_parts = []
+        used_tokens = 0
+        token_budget = getattr(config, 'token_budget', 4000)  # 默认4000
         
-        # 最近消息完整保留
-        recent_messages = history[-config.recent_messages:]
-        for msg in recent_messages:
-            role_label = "User" if msg.role == "user" else "Assistant"
-            context_parts.append(f"{role_label}: {msg.content}")
+        # 优先级1: 最近3条消息（完整保留）
+        for msg in layers['critical'][-3:]:
+            if used_tokens < token_budget * 0.6:  # 60%预算给最近消息
+                role_label = "User" if msg.role == "user" else "Assistant"
+                formatted_msg = f"{role_label}: {msg.content}"
+                context_parts.append(formatted_msg)
+                used_tokens += len(msg.content) // 4  # 粗略token估算
         
-        # 中等最近消息压缩处理
-        if len(history) > config.recent_messages:
-            medium_start = max(0, len(history) - config.medium_recent)
-            medium_end = len(history) - config.recent_messages
-            medium_messages = history[medium_start:medium_end]
-            
-            if medium_messages:
-                for msg in medium_messages:
-                    role_label = "User" if msg.role == "user" else "Assistant"
-                    # 按压缩比例截断内容
-                    max_length = int(len(msg.content) * config.compression_ratio)
-                    content = msg.content[:max_length] + "..." if len(msg.content) > max_length else msg.content
-                    context_parts.insert(-config.recent_messages, f"{role_label}: {content}")
+        # 优先级2: 重要决策点和关键信息
+        for msg in layers['important']:
+            if used_tokens < token_budget * 0.9:  # 90%预算
+                compressed = self._compress_message(msg, compression_level=0.5)
+                context_parts.append(compressed)
+                used_tokens += len(compressed) // 4
         
-        # 更老的消息生成话题摘要
-        if config.preserve_topics and len(history) > config.medium_recent:
-            older_messages = history[:-config.medium_recent]
-            topic_summary = self._compress_older_messages(older_messages)
+        # 优先级3: 话题摘要
+        if used_tokens < token_budget:
+            topic_summary = self._extract_topic_summary(layers['background'])
             if topic_summary:
-                context_parts.insert(0, f"[Earlier conversation summary]: {topic_summary}")
+                context_parts.insert(0, f"[Session Summary]: {topic_summary}")
         
-        formatted_context = "\n".join(context_parts)
-        return self._ensure_token_limit(formatted_context, config.max_tokens)
+        return "\n".join(context_parts)
+    
+    def _categorize_messages_by_importance(self, history: List[Message]) -> Dict[str, List[Message]]:
+        """按重要性对消息分层"""
+        layers = {
+            'critical': [],    # 最近的消息
+            'important': [],   # 包含关键决策的消息
+            'background': []   # 背景信息
+        }
+        
+        for i, msg in enumerate(history):
+            # 最近的消息标记为关键
+            if i >= len(history) - 5:
+                layers['critical'].append(msg)
+            # 包含特定关键词的消息标记为重要
+            elif any(keyword in msg.content.lower() for keyword in [
+                'decision', 'important', 'error', 'problem', 'solution', 
+                '决定', '重要', '错误', '问题', '解决'
+            ]):
+                layers['important'].append(msg)
+            else:
+                layers['background'].append(msg)
+        
+        return layers
+    
+    def _compress_message(self, msg: Message, compression_level: float) -> str:
+        """压缩单条消息"""
+        role_label = "User" if msg.role == "user" else "Assistant"
+        max_length = int(len(msg.content) * compression_level)
+        
+        if len(msg.content) <= max_length:
+            return f"{role_label}: {msg.content}"
+        
+        # 简单截断并添加省略号
+        content = msg.content[:max_length] + "..."
+        return f"{role_label}: {content}"
+    
+    def _extract_topic_summary(self, messages: List[Message]) -> str:
+        """提取话题摘要"""
+        if not messages:
+            return ""
+        
+        # 提取关键主题词汇
+        topics = self._extract_topics_from_messages(messages)
+        
+        if not topics:
+            return ""
+        
+        # 构建简洁的话题摘要
+        topic_list = list(topics)[:3]  # 最多3个话题
+        return f"Discussion topics: {', '.join(topic_list)}"
+    
+    def _extract_topics_from_messages(self, messages: List[Message]) -> set:
+        """从消息中提取关键话题（精简版）"""
+        topics = set()
+        
+        for msg in messages:
+            content = msg.content.lower()
+            
+            # 简化的话题识别
+            if any(keyword in content for keyword in ["code", "function", "class", "代码", "函数"]):
+                topics.add("代码开发")
+            if any(keyword in content for keyword in ["error", "problem", "fix", "错误", "问题", "修复"]):
+                topics.add("问题解决")
+            if any(keyword in content for keyword in ["create", "build", "implement", "创建", "构建", "实现"]):
+                topics.add("功能实现")
+            if any(keyword in content for keyword in ["config", "setup", "install", "配置", "设置", "安装"]):
+                topics.add("系统配置")
+        
+        return topics
     
     def _format_all_messages(self, messages: List[Message]) -> str:
         """格式化所有消息为完整上下文"""
@@ -557,153 +633,3 @@ Respond with a JSON array of alternative task objects.
         
         return sorted_tasks
     
-    def _categorize_messages_by_importance(self, messages: List[Message]) -> Dict[str, List[Message]]:
-        """
-        按重要性对消息分层：
-        - critical: 包含错误、决策、问题解决的消息
-        - important: 包含关键操作、功能实现的消息  
-        - background: 一般性对话和背景信息
-        """
-        categories = {
-            'critical': [],
-            'important': [],
-            'background': []
-        }
-        
-        for msg in messages:
-            content = msg.content.lower()
-            importance_score = self._calculate_message_importance(content)
-            
-            if importance_score >= 0.8:
-                categories['critical'].append(msg)
-            elif importance_score >= 0.5:
-                categories['important'].append(msg)
-            else:
-                categories['background'].append(msg)
-        
-        return categories
-    
-    def _calculate_message_importance(self, content: str) -> float:
-        """
-        计算消息的重要性得分 (0.0 - 1.0)
-        基于关键词、消息类型和内容特征
-        """
-        importance_score = 0.0
-        
-        # 高重要性关键词 (+0.4)
-        critical_keywords = [
-            'error', 'failed', 'problem', 'issue', 'bug', 'critical', 'urgent',
-            'decision', 'important', 'solution', 'fix', 'resolve',
-            '错误', '失败', '问题', '故障', '关键', '重要', '决定', '解决'
-        ]
-        for keyword in critical_keywords:
-            if keyword in content:
-                importance_score += 0.4
-                break
-        
-        # 中等重要性关键词 (+0.3)
-        important_keywords = [
-            'implement', 'create', 'modify', 'update', 'configure', 'setup',
-            'function', 'class', 'method', 'api', 'database', 'deploy',
-            '实现', '创建', '修改', '更新', '配置', '设置', '部署'
-        ]
-        for keyword in important_keywords:
-            if keyword in content:
-                importance_score += 0.3
-                break
-        
-        # 任务导向关键词 (+0.2)
-        task_keywords = [
-            'task', 'todo', 'need to', 'should', 'must', 'will', 'plan',
-            '任务', '需要', '应该', '必须', '计划', '打算'
-        ]
-        for keyword in task_keywords:
-            if keyword in content:
-                importance_score += 0.2
-                break
-        
-        # 问题提问模式 (+0.2)
-        question_patterns = ['how to', 'what is', 'why', 'where', '如何', '什么是', '为什么', '在哪里']
-        if any(pattern in content for pattern in question_patterns):
-            importance_score += 0.2
-        
-        # 代码相关内容 (+0.15)
-        code_indicators = ['function', 'class', 'def ', 'import', 'from ', '```', 'code']
-        if any(indicator in content for indicator in code_indicators):
-            importance_score += 0.15
-        
-        # 长消息通常更重要 (+0.1 for >200 chars)
-        if len(content) > 200:
-            importance_score += 0.1
-        
-        return min(importance_score, 1.0)  # 确保不超过1.0
-    
-    def _extract_topics_from_messages(self, messages: List[Message]) -> set:
-        """从消息中提取关键话题"""
-        topics = set()
-        
-        for msg in messages:
-            content = msg.content.lower()
-            
-            # 技术话题识别
-            if any(keyword in content for keyword in ["file", "code", "function", "class", "variable", "代码", "文件", "函数"]):
-                topics.add("代码开发")
-            if any(keyword in content for keyword in ["test", "debug", "error", "fix", "测试", "调试", "错误", "修复"]):
-                topics.add("测试调试")
-            if any(keyword in content for keyword in ["search", "find", "locate", "grep", "搜索", "查找", "定位"]):
-                topics.add("搜索操作")
-            if any(keyword in content for keyword in ["create", "write", "add", "new", "创建", "写入", "添加", "新建"]):
-                topics.add("创建操作")
-            if any(keyword in content for keyword in ["config", "setup", "install", "deploy", "配置", "设置", "安装", "部署"]):
-                topics.add("系统配置")
-            if any(keyword in content for keyword in ["api", "service", "server", "client", "服务", "接口"]):
-                topics.add("服务开发")
-            if any(keyword in content for keyword in ["database", "data", "sql", "query", "数据库", "数据", "查询"]):
-                topics.add("数据处理")
-        
-        return topics
-    
-    def _compress_older_messages(self, older_messages: List[Message]) -> str:
-        """
-        Compress older messages to key themes and topics with priority handling.
-        
-        Args:
-            older_messages: Messages from earlier in conversation
-            
-        Returns:
-            str: Compressed summary of key themes with priority
-        """
-        if not older_messages:
-            return ""
-        
-        # Categorize messages by importance
-        categorized = self._categorize_messages_by_importance(older_messages)
-        
-        # Build compressed summary prioritizing important information
-        summary_parts = []
-        
-        # High priority: Critical decisions and errors
-        critical_messages = categorized['critical']
-        if critical_messages:
-            critical_summary = []
-            for msg in critical_messages[-2:]:  # Last 2 critical messages
-                if msg.role == "user":
-                    summary = msg.content[:80] + "..." if len(msg.content) > 80 else msg.content
-                    critical_summary.append(f"Critical: {summary}")
-            if critical_summary:
-                summary_parts.extend(critical_summary)
-        
-        # Medium priority: Important topics and actions
-        important_messages = categorized['important']
-        if important_messages:
-            topics = self._extract_topics_from_messages(important_messages)
-            if topics:
-                summary_parts.append(f"Key topics: {', '.join(sorted(topics))}")
-        
-        # Low priority: General conversation themes
-        if categorized['background']:
-            general_topics = self._extract_topics_from_messages(categorized['background'])
-            if general_topics and len(summary_parts) < 3:  # Only if we have space
-                summary_parts.append(f"Background: {', '.join(list(general_topics)[:3])}")
-        
-        return " | ".join(summary_parts) if summary_parts else "General conversation"
