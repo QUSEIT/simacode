@@ -45,3 +45,17 @@ session:
   session_dir: "~/.simacode/sessions"
   max_sessions: 100
   auto_cleanup: true
+
+# Conversation context management
+conversation_context:
+  strategy: "compressed"  # Default to intelligent layered compression
+  max_messages: 100
+  max_tokens: 8000
+  preserve_all: false
+  recent_messages: 5
+  medium_recent: 10
+  compression_ratio: 0.3
+  preserve_topics: true
+  token_budget: 4000
+  min_recent: 3
+  auto_summarize: true

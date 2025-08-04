@@ -311,22 +311,40 @@ Respond with a JSON array of alternative task objects.
         if not history:
             return "No prior conversation"
         
-        # Try to get configuration (fallback to default if not available)
+        # 获取配置，使用安全的默认值处理
+        context_config = self._get_safe_context_config()
+        
+        # 统一使用智能压缩作为默认策略
+        if context_config.strategy == "full":
+            return self._get_full_conversation_context(history, context_config)
+        else:  # compressed, adaptive, 或任何其他值都使用智能压缩
+            return self._get_compressed_conversation_context(history, context_config)
+    
+    def _get_safe_context_config(self):
+        """安全获取配置，确保总是有有效的默认值"""
         try:
             from ..config import Config
             config = Config.load()
             context_config = config.conversation_context
-        except Exception:
-            # Fallback to default behavior if config loading fails
-            return self._compact_conversation_with_recency_bias(history)
-        
-        # Apply strategy based on configuration
-        if context_config.strategy == "full":
-            return self._get_full_conversation_context(history, context_config)
-        elif context_config.strategy == "compressed":
-            return self._get_compressed_conversation_context(history, context_config)
-        else:  # adaptive
-            return self._compact_conversation_with_recency_bias(history)
+            
+            # 确保 strategy 有有效值
+            if not hasattr(context_config, 'strategy') or not context_config.strategy:
+                context_config.strategy = "compressed"  # 默认使用智能压缩
+            
+            # 记录使用的策略
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.debug(f"Using conversation context strategy: {context_config.strategy}")
+            
+            return context_config
+        except Exception as e:
+            # 创建最小可用配置
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"Failed to load conversation context config: {e}, using default compressed strategy")
+            
+            from ..config import ConversationContextConfig
+            return ConversationContextConfig(strategy="compressed")
     
     def _get_full_conversation_context(self, history: List[Message], config) -> str:
         """保留完整对话上下文，只在必要时截断"""
