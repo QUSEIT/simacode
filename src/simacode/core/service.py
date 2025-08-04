@@ -587,3 +587,15 @@ class SimaCodeService:
                 "status": "unhealthy",
                 "error": str(e)
             }
+    
+    def submit_confirmation(self, response) -> bool:
+        """提交用户确认响应的便捷方法"""
+        try:
+            if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
+                return self.react_service.react_engine.submit_confirmation(response)
+            else:
+                logger.warning("ReAct engine not available for confirmation submission")
+                return False
+        except Exception as e:
+            logger.error(f"Error submitting confirmation: {e}")
+            return False

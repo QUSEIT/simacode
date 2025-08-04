@@ -208,6 +208,11 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                 
                 if update_type == "status_update":
                     console.print(f"[dim]• {content}[/dim]")
+                elif update_type == "confirmation_request":
+                    # 🆕 处理确认请求
+                    await _handle_confirmation_request(update, simacode_service)
+                elif update_type == "confirmation_timeout":
+                    console.print(f"[red]⏰ {content}[/red]")
                 elif update_type == "conversational_response":
                     # 对话性回复，直接显示内容，不显示额外标识
                     console.print(f"[white]{content}[/white]")
@@ -256,6 +261,11 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                             
                             if update_type == "status_update":
                                 console.print(f"[dim]• {content}[/dim]")
+                            elif update_type == "confirmation_request":
+                                # 🆕 处理确认请求
+                                await _handle_confirmation_request(update, simacode_service)
+                            elif update_type == "confirmation_timeout":
+                                console.print(f"[red]⏰ {content}[/red]")
                             elif update_type == "conversational_response":
                                 # 对话性回复，直接显示内容，不显示额外标识
                                 console.print(f"[white]{content}[/white]")
@@ -289,6 +299,94 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     
     except Exception as e:
         console.print(f"[red]ReAct mode error: {e}[/red]")
+
+
+async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeService):
+    """处理确认请求"""
+    
+    confirmation_request = update.get("confirmation_request", {})
+    tasks_summary = update.get("tasks_summary", {})
+    session_id = update.get("session_id")
+    
+    # 显示任务计划
+    console.print(f"\n[bold yellow]📋 任务执行计划确认[/bold yellow]")
+    console.print(f"会话ID: {session_id}")
+    console.print(f"计划任务数: {tasks_summary.get('total_tasks', 0)}")
+    console.print(f"风险等级: {tasks_summary.get('risk_level', 'unknown')}")
+    console.print()
+    
+    # 显示任务详情
+    tasks = tasks_summary.get("tasks", [])
+    for task in tasks:
+        console.print(f"[cyan]{task['index']}.[/cyan] {task['description']}")
+        console.print(f"   工具: {task['tool']} | 优先级: {task['priority']}")
+        console.print(f"   预期结果: {task['expected_outcome']}")
+        console.print()
+    
+    # 用户选择
+    while True:
+        try:
+            console.print("[bold blue]请选择操作:[/bold blue]")
+            console.print("1. 确认执行")
+            console.print("2. 修改计划")
+            console.print("3. 取消执行")
+            
+            choice = console.input("请输入选择 [1-3]: ").strip()
+            
+            if choice in ["1", "2", "3"]:
+                break
+            else:
+                console.print("[red]无效选择，请输入 1、2 或 3[/red]")
+        except (KeyboardInterrupt, EOFError):
+            choice = "3"  # Default to cancel
+            break
+    
+    # 构建响应
+    from .api.models import TaskConfirmationResponse
+    
+    if choice == "1":
+        response = TaskConfirmationResponse(
+            session_id=session_id,
+            action="confirm"
+        )
+        console.print("[green]✅ 已确认执行计划[/green]\n")
+    elif choice == "2":
+        # 简化版修改 - 可以后续扩展为更复杂的交互
+        try:
+            user_message = console.input("请描述需要如何修改计划: ")
+        except (KeyboardInterrupt, EOFError):
+            user_message = ""
+        
+        response = TaskConfirmationResponse(
+            session_id=session_id,
+            action="modify",
+            user_message=user_message
+        )
+        console.print("[yellow]📝 已请求修改计划[/yellow]\n")
+    else:  # choice == "3"
+        response = TaskConfirmationResponse(
+            session_id=session_id,
+            action="cancel"
+        )
+        console.print("[red]❌ 已取消执行[/red]\n")
+    
+    # 提交确认响应
+    if hasattr(simacode_service, 'submit_confirmation'):
+        success = simacode_service.submit_confirmation(response)
+        if not success:
+            console.print("[red]❌ 提交确认响应失败[/red]")
+    else:
+        # 尝试通过引擎提交
+        try:
+            react_service = getattr(simacode_service, 'react_service', None)
+            if react_service and hasattr(react_service, 'react_engine'):
+                engine = react_service.react_engine
+                if hasattr(engine, 'confirmation_manager'):
+                    success = engine.confirmation_manager.submit_confirmation(session_id, response)
+                    if not success:
+                        console.print("[red]❌ 提交确认响应失败[/red]")
+        except Exception as e:
+            console.print(f"[red]❌ 提交确认响应时出错: {e}[/red]")
 
 
 async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str]) -> None:

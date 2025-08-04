@@ -31,6 +31,7 @@ class ReActState(Enum):
     IDLE = "idle"
     REASONING = "reasoning"
     PLANNING = "planning"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"  # 🆕 新增状态
     EXECUTING = "executing"
     EVALUATING = "evaluating"
     REPLANNING = "replanning"
@@ -131,27 +132,39 @@ class ReActEngine:
     5. Replanning: Adjusting plans based on results
     """
     
-    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE):
+    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None):
         """
         Initialize the ReAct engine.
         
         Args:
             ai_client: AI client for reasoning and evaluation
             execution_mode: How to execute tasks (sequential, parallel, adaptive)
+            config: Configuration object with ReAct settings
         """
         self.ai_client = ai_client
         self.execution_mode = execution_mode
         self.task_planner = TaskPlanner(ai_client)
         self.result_evaluator = ResultEvaluator(ai_client)
         self.tool_registry = ToolRegistry()
+        self.config = config
         
         # Engine configuration
         self.max_planning_retries = 3
         self.max_execution_retries = 3
         self.parallel_task_limit = 5
         
+        # Confirmation manager (lazy initialization)
+        self._confirmation_manager = None
+        
         logger.info(f"ReAct engine initialized with {execution_mode.value} execution mode")
     
+    @property
+    def confirmation_manager(self):
+        """Lazy initialization of confirmation manager"""
+        if self._confirmation_manager is None:
+            from .confirmation_manager import ConfirmationManager
+            self._confirmation_manager = ConfirmationManager()
+        return self._confirmation_manager
     
     async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None, session: Optional[ReActSession] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -274,6 +287,11 @@ class ReActEngine:
                         yield self._create_status_update(session, "识别为对话性输入，将直接回复")
                     else:
                         yield self._create_status_update(session, "未识别出具体任务，将提供对话式回复")
+                
+                # 🆕 检查是否需要人工确认
+                if tasks and self._should_request_confirmation(session, tasks):
+                    async for confirmation_update in self._handle_human_confirmation(session, tasks):
+                        yield confirmation_update
                 
                 # Yield task plan details
                 if tasks:
@@ -702,3 +720,160 @@ class ReActEngine:
             logger.warning(f"Failed to generate conversational response: {str(e)}")
             # Fallback response
             return f"I understand you said: '{session.user_input}'. How can I help you with your development tasks?"
+    
+    def _should_request_confirmation(self, session: ReActSession, tasks: List[Task]) -> bool:
+        """判断是否需要请求人工确认"""
+        
+        # 检查配置
+        if not self.config or not hasattr(self.config, 'react'):
+            return False
+        
+        react_config = self.config.react
+        if not react_config.confirm_by_human:
+            return False
+        
+        # 检查是否有需要确认的任务
+        if not tasks:
+            return False
+        
+        # 检查是否有危险任务（可选的智能判断）
+        if react_config.auto_confirm_safe_tasks:
+            dangerous_tasks = self._identify_dangerous_tasks(tasks)
+            return len(dangerous_tasks) > 0
+        
+        return True
+
+    async def _handle_human_confirmation(
+        self, 
+        session: ReActSession, 
+        tasks: List[Task]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """处理人工确认流程"""
+        
+        session.update_state(ReActState.AWAITING_CONFIRMATION)
+        
+        # 获取配置的超时时间
+        timeout = getattr(self.config.react, 'confirmation_timeout', 300) if self.config else 300
+        
+        try:
+            # 发起确认请求
+            confirmation_request = await self.confirmation_manager.request_confirmation(
+                session.id, tasks, timeout
+            )
+            
+            # 发送确认请求给客户端
+            yield {
+                "type": "confirmation_request",
+                "content": f"规划了 {len(tasks)} 个任务，请确认是否执行",
+                "session_id": session.id,
+                "confirmation_request": confirmation_request.model_dump(),
+                "tasks_summary": self._create_tasks_summary(tasks)
+            }
+            
+            # 等待用户确认
+            yield self._create_status_update(session, f"等待用户确认执行计划（超时：{timeout}秒）")
+            
+            confirmation_response = await self.confirmation_manager.wait_for_confirmation(
+                session.id, timeout
+            )
+            
+            # 处理用户响应
+            await self._process_confirmation_response(session, confirmation_response)
+            
+        except TimeoutError:
+            yield {
+                "type": "confirmation_timeout",
+                "content": "用户确认超时，取消任务执行",
+                "session_id": session.id
+            }
+            session.update_state(ReActState.FAILED)
+            from .exceptions import ReActError
+            raise ReActError("User confirmation timeout")
+        except Exception as e:
+            yield {
+                "type": "confirmation_error", 
+                "content": f"确认过程出现错误：{str(e)}",
+                "session_id": session.id
+            }
+            raise
+
+    async def _process_confirmation_response(
+        self, 
+        session: ReActSession, 
+        response
+    ):
+        """处理确认响应"""
+        
+        if response.action == "cancel":
+            session.update_state(ReActState.FAILED)
+            from .exceptions import ReActError
+            raise ReActError("User cancelled task execution")
+        
+        elif response.action == "modify":
+            if response.modified_tasks:
+                # 用户直接提供了修改后的任务
+                modified_tasks = []
+                for task_dict in response.modified_tasks:
+                    task = Task.from_dict(task_dict)
+                    modified_tasks.append(task)
+                session.tasks = modified_tasks
+                session.add_log_entry(f"Tasks modified by user: {len(modified_tasks)} tasks")
+            elif response.user_message:
+                # 🆕 用户提供了修改建议，需要重新规划任务
+                session.add_log_entry(f"User requested task modification: {response.user_message}")
+                await self._replan_tasks_with_user_feedback(session, response.user_message)
+            else:
+                session.add_log_entry("User requested modification but no modification details provided")
+        
+        elif response.action == "confirm":
+            session.add_log_entry("Tasks confirmed by user")
+        
+        # 恢复执行状态
+        session.update_state(ReActState.PLANNING)
+
+    def _create_tasks_summary(self, tasks: List[Task]) -> Dict[str, Any]:
+        """创建任务摘要用于确认界面"""
+        
+        return {
+            "total_tasks": len(tasks),
+            "tasks": [
+                {
+                    "index": i + 1,
+                    "description": task.description,
+                    "tool": task.tool_name,
+                    "type": task.type.value,
+                    "priority": task.priority,
+                    "expected_outcome": task.expected_outcome
+                }
+                for i, task in enumerate(tasks)
+            ],
+            "estimated_duration": "未知",  # 可以后续添加估算逻辑
+            "risk_level": self._assess_task_risk_level(tasks)
+        }
+
+    def _assess_task_risk_level(self, tasks: List[Task]) -> str:
+        """评估任务风险等级"""
+        
+        # 简单的风险评估逻辑
+        dangerous_tools = {"file_write", "bash", "system_command"}
+        
+        for task in tasks:
+            if task.tool_name in dangerous_tools:
+                return "high"
+        
+        return "low"
+    
+    def _identify_dangerous_tasks(self, tasks: List[Task]) -> List[Task]:
+        """识别危险任务"""
+        dangerous_tools = {"file_write", "bash", "system_command", "delete", "execute"}
+        dangerous_tasks = []
+        
+        for task in tasks:
+            if task.tool_name in dangerous_tools:
+                dangerous_tasks.append(task)
+        
+        return dangerous_tasks
+    
+    def submit_confirmation(self, response) -> bool:
+        """提交用户确认响应的便捷方法"""
+        return self.confirmation_manager.submit_confirmation(response.session_id, response)

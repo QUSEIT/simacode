@@ -47,7 +47,7 @@ class ReActService:
         
         # Initialize ReAct engine
         execution_mode = ExecutionMode.ADAPTIVE  # Default to adaptive mode
-        self.react_engine = ReActEngine(self.ai_client, execution_mode)
+        self.react_engine = ReActEngine(self.ai_client, execution_mode, config)
         
         # Initialize session manager
         sessions_dir = Path.cwd() / ".simacode" / "sessions"

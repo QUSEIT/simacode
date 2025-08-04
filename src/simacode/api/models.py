@@ -5,6 +5,7 @@ This module defines Pydantic models for API requests and responses,
 ensuring proper validation and documentation.
 """
 
+from datetime import datetime
 from typing import Any, Dict, List, Optional
 from pydantic import BaseModel, Field
 
@@ -86,3 +87,42 @@ class StreamingChatChunk(BaseModel):
     # 🆕 新增字段
     chunk_type: Optional[str] = Field("content", description="Chunk type: 'content', 'status', 'tool_output', 'task_init', 'error', 'completion'")
     metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Chunk metadata including message_type")
+
+
+# Human in Loop Confirmation Models
+class TaskConfirmationRequest(BaseModel):
+    """任务确认请求模型"""
+    
+    session_id: str = Field(description="Session identifier")
+    tasks: List[Dict[str, Any]] = Field(description="Planned tasks for confirmation")
+    message: str = Field(default="请确认执行计划", description="Confirmation message")
+    options: List[str] = Field(
+        default=["confirm", "modify", "cancel"],
+        description="Available confirmation options"
+    )
+    timeout_seconds: int = Field(default=300, description="Confirmation timeout")
+
+
+class TaskConfirmationResponse(BaseModel):
+    """任务确认响应模型"""
+    
+    session_id: str = Field(description="Session identifier")
+    action: str = Field(description="User action: confirm, modify, cancel")
+    modified_tasks: Optional[List[Dict[str, Any]]] = Field(
+        None, 
+        description="Modified task list if action is 'modify'"
+    )
+    user_message: Optional[str] = Field(
+        None, 
+        description="Additional user message or modification instructions"
+    )
+
+
+class ConfirmationStatus(BaseModel):
+    """确认状态模型"""
+    
+    session_id: str
+    status: str  # "pending", "confirmed", "modified", "cancelled", "timeout"
+    created_at: datetime
+    expires_at: datetime
+    user_response: Optional[TaskConfirmationResponse] = None

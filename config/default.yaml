@@ -59,3 +59,10 @@ conversation_context:
   token_budget: 4000
   min_recent: 3
   auto_summarize: true
+
+# ReAct 引擎配置
+react:
+  confirm_by_human: true  # 默认禁用人工确认
+  confirmation_timeout: 300  # 确认超时时间（秒）
+  allow_task_modification: true  # 允许用户修改任务
+  auto_confirm_safe_tasks: false  # 自动确认安全任务
