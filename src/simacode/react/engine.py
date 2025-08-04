@@ -21,7 +21,7 @@ from ..ai.conversation import Message
 from ..tools import ToolRegistry, execute_tool, ToolResult, ToolResultType
 from .planner import TaskPlanner, Task, TaskStatus, PlanningContext
 from .evaluator import ResultEvaluator, EvaluationResult, EvaluationOutcome, EvaluationContext
-from .exceptions import ReActError, ExecutionError, MaxRetriesExceededError
+from .exceptions import ReActError, ExecutionError, MaxRetriesExceededError, ReplanningRequiresConfirmationError
 
 logger = logging.getLogger(__name__)
 
@@ -756,30 +756,61 @@ class ReActEngine:
         timeout = getattr(self.config.react, 'confirmation_timeout', 300) if self.config else 300
         
         try:
-            # 发起确认请求
-            confirmation_request = await self.confirmation_manager.request_confirmation(
-                session.id, tasks, timeout
-            )
+            # 🆕 允许多轮确认以支持任务修改
+            max_confirmation_rounds = 3  # 防止无限循环
+            confirmation_round = 0
             
-            # 发送确认请求给客户端
-            yield {
-                "type": "confirmation_request",
-                "content": f"规划了 {len(tasks)} 个任务，请确认是否执行",
-                "session_id": session.id,
-                "confirmation_request": confirmation_request.model_dump(),
-                "tasks_summary": self._create_tasks_summary(tasks)
-            }
-            
-            # 等待用户确认
-            yield self._create_status_update(session, f"等待用户确认执行计划（超时：{timeout}秒）")
-            
-            confirmation_response = await self.confirmation_manager.wait_for_confirmation(
-                session.id, timeout
-            )
-            
-            # 处理用户响应
-            await self._process_confirmation_response(session, confirmation_response)
-            
+            while confirmation_round < max_confirmation_rounds:
+                confirmation_round += 1
+                current_tasks = session.tasks  # 使用当前的任务列表
+                
+                try:
+                    # 发起确认请求
+                    confirmation_request = await self.confirmation_manager.request_confirmation(
+                        session.id, current_tasks, timeout
+                    )
+                    
+                    # 发送确认请求给客户端
+                    round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
+                    yield {
+                        "type": "confirmation_request",
+                        "content": f"规划了 {len(current_tasks)} 个任务{round_info}，请确认是否执行",
+                        "session_id": session.id,
+                        "confirmation_request": confirmation_request.model_dump(),
+                        "tasks_summary": self._create_tasks_summary(current_tasks),
+                        "confirmation_round": confirmation_round
+                    }
+                    
+                    # 等待用户确认
+                    yield self._create_status_update(session, f"等待用户确认执行计划{round_info}（超时：{timeout}秒）")
+                    
+                    confirmation_response = await self.confirmation_manager.wait_for_confirmation(
+                        session.id, timeout
+                    )
+                    
+                    # 处理用户响应
+                    await self._process_confirmation_response(session, confirmation_response)
+                    
+                    # 如果到这里没有异常，说明确认完成，退出循环
+                    break
+                    
+                except ReplanningRequiresConfirmationError:
+                    # 🆕 用户请求了修改，需要继续下一轮确认
+                    yield {
+                        "type": "task_replanned",
+                        "content": f"任务已根据用户建议重新规划，共{len(session.tasks)}个任务",
+                        "session_id": session.id,
+                        "new_task_count": len(session.tasks)
+                    }
+                    continue  # 继续下一轮确认
+                    
+            if confirmation_round >= max_confirmation_rounds:
+                yield {
+                    "type": "confirmation_error",
+                    "content": "达到最大确认轮数限制，使用当前任务计划继续执行",
+                    "session_id": session.id
+                }
+                
         except TimeoutError:
             yield {
                 "type": "confirmation_timeout",
@@ -822,6 +853,13 @@ class ReActEngine:
                 # 🆕 用户提供了修改建议，需要重新规划任务
                 session.add_log_entry(f"User requested task modification: {response.user_message}")
                 await self._replan_tasks_with_user_feedback(session, response.user_message)
+                
+                # 🆕 重新规划后，需要再次请求用户确认新计划
+                if session.tasks:  # 如果重新规划成功产生了新任务
+                    session.add_log_entry("Requesting confirmation for replanned tasks")
+                    # 将状态重置为等待确认，以便再次请求确认
+                    session.update_state(ReActState.AWAITING_CONFIRMATION)
+                    raise ReplanningRequiresConfirmationError("Tasks replanned, confirmation required for new plan")
             else:
                 session.add_log_entry("User requested modification but no modification details provided")
         
@@ -877,3 +915,60 @@ class ReActEngine:
     def submit_confirmation(self, response) -> bool:
         """提交用户确认响应的便捷方法"""
         return self.confirmation_manager.submit_confirmation(response.session_id, response)
+    
+    async def _replan_tasks_with_user_feedback(self, session: ReActSession, user_feedback: str):
+        """根据用户反馈重新规划任务"""
+        
+        logger.info(f"Replanning tasks based on user feedback: {user_feedback}")
+        
+        try:
+            # 构建包含用户反馈的规划上下文
+            original_tasks_summary = "\n".join([
+                f"- {task.description} (using {task.tool_name})"
+                for task in session.tasks
+            ])
+            
+            # 创建增强的规划上下文，包含原始任务和用户反馈
+            enhanced_user_input = f"""
+原始请求: {session.user_input}
+
+原始规划的任务:
+{original_tasks_summary}
+
+用户修改要求: {user_feedback}
+
+请根据用户的修改要求，重新规划任务列表。
+"""
+            
+            from .planner import PlanningContext
+            planning_context = PlanningContext(
+                user_input=enhanced_user_input,
+                conversation_history=session.conversation_history,
+                available_tools=self.tool_registry.list_tools(),
+                project_context=session.metadata.get("project_context", {}),
+                constraints=session.metadata.get("planning_context", {}).get("constraints", {})
+            )
+            
+            # 重新规划任务
+            session.update_state(ReActState.PLANNING)
+            session.add_log_entry("Replanning tasks based on user feedback")
+            
+            new_tasks = await self.task_planner.plan_tasks(planning_context)
+            
+            if new_tasks:
+                # 更新任务列表
+                old_task_count = len(session.tasks)
+                session.tasks = new_tasks
+                session.add_log_entry(f"Tasks replanned: {old_task_count} -> {len(new_tasks)} tasks")
+                
+                logger.info(f"Successfully replanned tasks: {len(new_tasks)} new tasks generated")
+            else:
+                # 如果重新规划失败，保留原任务但记录警告
+                session.add_log_entry("Task replanning produced no tasks, keeping original plan")
+                logger.warning("Task replanning produced no tasks, keeping original plan")
+                
+        except Exception as e:
+            # 重新规划失败时的错误处理
+            session.add_log_entry(f"Task replanning failed: {str(e)}, keeping original plan")
+            logger.error(f"Task replanning failed: {str(e)}")
+            # 不抛出异常，继续使用原始任务计划

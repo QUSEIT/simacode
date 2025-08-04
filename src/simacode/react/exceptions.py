@@ -59,3 +59,8 @@ class MaxRetriesExceededError(ReActError):
         super().__init__(message, context)
         self.max_retries = max_retries
         self.attempts = attempts
+
+
+class ReplanningRequiresConfirmationError(ReActError):
+    """Raised when task replanning is complete and requires user confirmation again."""
+    pass

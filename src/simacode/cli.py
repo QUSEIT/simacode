@@ -213,6 +213,8 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     await _handle_confirmation_request(update, simacode_service)
                 elif update_type == "confirmation_timeout":
                     console.print(f"[red]⏰ {content}[/red]")
+                elif update_type == "task_replanned":
+                    console.print(f"[blue]🔄 {content}[/blue]")
                 elif update_type == "conversational_response":
                     # 对话性回复，直接显示内容，不显示额外标识
                     console.print(f"[white]{content}[/white]")
@@ -266,6 +268,8 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                                 await _handle_confirmation_request(update, simacode_service)
                             elif update_type == "confirmation_timeout":
                                 console.print(f"[red]⏰ {content}[/red]")
+                            elif update_type == "task_replanned":
+                                console.print(f"[blue]🔄 {content}[/blue]")
                             elif update_type == "conversational_response":
                                 # 对话性回复，直接显示内容，不显示额外标识
                                 console.print(f"[white]{content}[/white]")
@@ -307,12 +311,17 @@ async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeS
     confirmation_request = update.get("confirmation_request", {})
     tasks_summary = update.get("tasks_summary", {})
     session_id = update.get("session_id")
+    confirmation_round = update.get("confirmation_round", 1)
     
     # 显示任务计划
-    console.print(f"\n[bold yellow]📋 任务执行计划确认[/bold yellow]")
+    round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
+    console.print(f"\n[bold yellow]📋 任务执行计划确认{round_info}[/bold yellow]")
     console.print(f"会话ID: {session_id}")
     console.print(f"计划任务数: {tasks_summary.get('total_tasks', 0)}")
     console.print(f"风险等级: {tasks_summary.get('risk_level', 'unknown')}")
+    
+    if confirmation_round > 1:
+        console.print(f"[dim]※ 这是根据您的修改建议重新规划的任务计划[/dim]")
     console.print()
     
     # 显示任务详情
