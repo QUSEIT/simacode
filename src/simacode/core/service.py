@@ -120,18 +120,20 @@ class SimaCodeService:
     different interaction patterns.
     """
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, api_mode: bool = True):
         """
         Initialize the SimaCode service.
         
         Args:
             config: Application configuration
+            api_mode: Whether running in API mode (True) or CLI mode (False)
         """
         self.config = config
+        self.api_mode = api_mode
         
         # Initialize core services (reuse existing components)
-        # SimaCodeService总是在API模式下运行
-        self.react_service = ReActService(config, api_mode=True)
+        # 根据运行模式初始化ReActService
+        self.react_service = ReActService(config, api_mode=api_mode)
         
         # Initialize AI client for direct chat operations
         self.ai_client = AIClientFactory.create_client(config.ai.model_dump())
@@ -351,6 +353,9 @@ class SimaCodeService:
                     yield content
                 #elif update_type == "sub_task_result":
                 #    yield content
+                elif update_type == "confirmation_request":
+                    # 🆕 处理确认请求类型
+                    yield content
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
                     yield f"[task_init] {content}"
@@ -593,7 +598,13 @@ class SimaCodeService:
         """提交用户确认响应的便捷方法"""
         try:
             if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
-                return self.react_service.react_engine.submit_confirmation(response)
+                # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
+                if not self.api_mode:
+                    logger.info("CLI mode: confirmation handled synchronously")
+                    return True
+                else:
+                    # API模式下才使用ConfirmationManager
+                    return self.react_service.react_engine.submit_confirmation(response)
             else:
                 logger.warning("ReAct engine not available for confirmation submission")
                 return False

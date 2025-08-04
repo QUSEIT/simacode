@@ -170,8 +170,8 @@ async def _run_chat(ctx: click.Context, message: Optional[str], interactive: boo
     config_obj = ctx.obj["config"]
     
     try:
-        # Initialize unified service
-        simacode_service = SimaCodeService(config_obj)
+        # Initialize unified service in CLI mode
+        simacode_service = SimaCodeService(config_obj, api_mode=False)
         
         if react:
             # Use ReAct mode for intelligent task planning and execution
@@ -209,7 +209,7 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                 if update_type == "status_update":
                     console.print(f"[dim]• {content}[/dim]")
                 elif update_type == "confirmation_request":
-                    # 🆕 处理确认请求
+                    # CLI模式下确认请求现在在engine内部同步处理，这里只显示信息
                     await _handle_confirmation_request(update, simacode_service)
                 elif update_type == "confirmation_timeout":
                     console.print(f"[red]⏰ {content}[/red]")
@@ -264,7 +264,7 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                             if update_type == "status_update":
                                 console.print(f"[dim]• {content}[/dim]")
                             elif update_type == "confirmation_request":
-                                # 🆕 处理确认请求
+                                # CLI模式下确认请求现在在engine内部同步处理，这里只显示信息
                                 await _handle_confirmation_request(update, simacode_service)
                             elif update_type == "confirmation_timeout":
                                 console.print(f"[red]⏰ {content}[/red]")
@@ -306,14 +306,13 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
 
 
 async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeService):
-    """处理确认请求"""
+    """处理确认请求 - 简化版，实际确认逻辑在engine.py中"""
     
-    confirmation_request = update.get("confirmation_request", {})
     tasks_summary = update.get("tasks_summary", {})
     session_id = update.get("session_id")
     confirmation_round = update.get("confirmation_round", 1)
     
-    # 显示任务计划
+    # 显示任务计划头部信息
     round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
     console.print(f"\n[bold yellow]📋 任务执行计划确认{round_info}[/bold yellow]")
     console.print(f"会话ID: {session_id}")
@@ -324,78 +323,8 @@ async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeS
         console.print(f"[dim]※ 这是根据您的修改建议重新规划的任务计划[/dim]")
     console.print()
     
-    # 显示任务详情
-    tasks = tasks_summary.get("tasks", [])
-    for task in tasks:
-        console.print(f"[cyan]{task['index']}.[/cyan] {task['description']}")
-        console.print(f"   工具: {task['tool']} | 优先级: {task['priority']}")
-        console.print(f"   预期结果: {task['expected_outcome']}")
-        console.print()
-    
-    # 用户选择
-    while True:
-        try:
-            console.print("[bold blue]请选择操作:[/bold blue]")
-            console.print("1. 确认执行")
-            console.print("2. 修改计划")
-            console.print("3. 取消执行")
-            
-            choice = console.input("请输入选择 [1-3]: ").strip()
-            
-            if choice in ["1", "2", "3"]:
-                break
-            else:
-                console.print("[red]无效选择，请输入 1、2 或 3[/red]")
-        except (KeyboardInterrupt, EOFError):
-            choice = "3"  # Default to cancel
-            break
-    
-    # 构建响应
-    from .api.models import TaskConfirmationResponse
-    
-    if choice == "1":
-        response = TaskConfirmationResponse(
-            session_id=session_id,
-            action="confirm"
-        )
-        console.print("[green]✅ 已确认执行计划[/green]\n")
-    elif choice == "2":
-        # 简化版修改 - 可以后续扩展为更复杂的交互
-        try:
-            user_message = console.input("请描述需要如何修改计划: ")
-        except (KeyboardInterrupt, EOFError):
-            user_message = ""
-        
-        response = TaskConfirmationResponse(
-            session_id=session_id,
-            action="modify",
-            user_message=user_message
-        )
-        console.print("[yellow]📝 已请求修改计划[/yellow]\n")
-    else:  # choice == "3"
-        response = TaskConfirmationResponse(
-            session_id=session_id,
-            action="cancel"
-        )
-        console.print("[red]❌ 已取消执行[/red]\n")
-    
-    # 提交确认响应
-    if hasattr(simacode_service, 'submit_confirmation'):
-        success = simacode_service.submit_confirmation(response)
-        if not success:
-            console.print("[red]❌ 提交确认响应失败[/red]")
-    else:
-        # 尝试通过引擎提交
-        try:
-            react_service = getattr(simacode_service, 'react_service', None)
-            if react_service and hasattr(react_service, 'react_engine'):
-                engine = react_service.react_engine
-                if hasattr(engine, 'confirmation_manager'):
-                    success = engine.confirmation_manager.submit_confirmation(session_id, response)
-                    if not success:
-                        console.print("[red]❌ 提交确认响应失败[/red]")
-        except Exception as e:
-            console.print(f"[red]❌ 提交确认响应时出错: {e}[/red]")
+    # 注意：实际的确认界面交互逻辑现在在engine.py的handle_cli_confirmation方法中处理
+    # 这里只是显示头部信息，具体的用户交互会在engine的CLI模式分支中处理
 
 
 async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str]) -> None:

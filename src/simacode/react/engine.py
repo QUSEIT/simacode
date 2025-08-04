@@ -567,6 +567,16 @@ class ReActEngine:
             "evaluation": overall_evaluation.to_dict()
         }
     
+    def _create_status_confirmation(self, session: ReActSession, message: str) -> Dict[str, Any]:
+        """Create a status confirmation """
+        return {
+            "type": "confirmation_request",
+            "content": message,
+            "session_id": session.id,
+            "state": session.state.value,
+            "timestamp": datetime.now().isoformat()
+        }
+    
     def _create_status_update(self, session: ReActSession, message: str) -> Dict[str, Any]:
         """Create a status update dictionary."""
         return {
@@ -767,31 +777,47 @@ class ReActEngine:
                 current_tasks = session.tasks  # 使用当前的任务列表
                 
                 try:
-                    # 发起确认请求
-                    confirmation_request = await self.confirmation_manager.request_confirmation(
-                        session.id, current_tasks, timeout
-                    )
-                    
-                    # 发送确认请求给客户端
                     round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
-                    yield {
-                        "type": "confirmation_request",
-                        "content": f"规划了 {len(current_tasks)} 个任务{round_info}，请确认是否执行",
-                        "session_id": session.id,
-                        "confirmation_request": confirmation_request.model_dump(),
-                        "tasks_summary": self._create_tasks_summary(current_tasks),
-                        "confirmation_round": confirmation_round
-                    }
+                    tasks_summary = self._create_tasks_summary(current_tasks)
                     
-                    # 等待用户确认
-                    yield self._create_status_update(session, f"等待用户确认执行计划{round_info}（超时：{timeout}秒）")
-                    
-                    confirmation_response = await self.confirmation_manager.wait_for_confirmation(
-                        session.id, timeout
-                    )
-                    
-                    # 处理用户响应
-                    await self._process_confirmation_response(session, confirmation_response)
+                    if self.api_mode:
+                        # API模式：使用异步确认流程
+                        # 发起确认请求
+                        confirmation_request = await self.confirmation_manager.request_confirmation(
+                            session.id, current_tasks, timeout
+                        )
+                        
+                        # 发送确认请求给客户端
+                        yield {
+                            "type": "confirmation_request",
+                            "content": f"规划了 {len(current_tasks)} 个任务{round_info}，请确认是否执行",
+                            "session_id": session.id,
+                            "confirmation_request": confirmation_request.model_dump(),
+                            "tasks_summary": tasks_summary,
+                            "confirmation_round": confirmation_round
+                        }
+                        
+                        # 等待用户确认
+                        yield self._create_status_confirmation(session, f"等待用户确认执行计划{round_info}（超时：{timeout}秒）")
+                        
+                        confirmation_response = await self.confirmation_manager.wait_for_confirmation(
+                            session.id, timeout
+                        )
+                        
+                        # 处理用户响应
+                        await self._process_confirmation_response(session, confirmation_response)
+                        
+                    else:
+                        # CLI模式：直接使用同步确认界面
+                        yield self._create_status_update(session, f"请确认执行计划{round_info}")
+                        
+                        # 直接调用CLI确认界面
+                        confirmation_response = self.handle_cli_confirmation(
+                            session.id, tasks_summary, confirmation_round
+                        )
+                        
+                        # 在CLI模式下直接处理用户响应，不通过ConfirmationManager
+                        await self._process_confirmation_response(session, confirmation_response)
                     
                     # 如果到这里没有异常，说明确认完成，退出循环
                     break
@@ -916,7 +942,88 @@ class ReActEngine:
     
     def submit_confirmation(self, response) -> bool:
         """提交用户确认响应的便捷方法"""
-        return self.confirmation_manager.submit_confirmation(response.session_id, response)
+        # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
+        if not self.api_mode:
+            logger.info("CLI mode: confirmation handled synchronously")
+            return True
+        else:
+            # API模式下才使用ConfirmationManager
+            return self.confirmation_manager.submit_confirmation(response.session_id, response)
+    
+    def handle_cli_confirmation(self, session_id: str, tasks_summary: Dict[str, Any], confirmation_round: int = 1):
+        """
+        处理CLI模式的确认界面交互
+        
+        Args:
+            session_id: 会话ID
+            tasks_summary: 任务摘要信息
+            confirmation_round: 确认轮数
+            
+        Returns:
+            TaskConfirmationResponse: 用户的确认响应
+        """
+        from rich.console import Console
+        from ..api.models import TaskConfirmationResponse
+        
+        console = Console()
+        
+        # 显示任务详情
+        tasks = tasks_summary.get("tasks", [])
+        for task in tasks:
+            console.print(f"[cyan]{task['index']}.[/cyan] {task['description']}")
+            console.print(f"   工具: {task['tool']} | 优先级: {task['priority']}")
+            console.print(f"   预期结果: {task['expected_outcome']}")
+            console.print()
+        
+        # 用户选择循环
+        while True:
+            try:
+                console.print("[bold blue]请选择操作:[/bold blue]")
+                console.print("1. 确认执行")
+                console.print("2. 修改计划")
+                console.print("3. 取消执行")
+                
+                choice = console.input("请输入选择 [1-3]: ").strip()
+                
+                if choice in ["1", "2", "3"]:
+                    break
+                else:
+                    console.print("[red]无效选择，请输入 1、2 或 3[/red]")
+            except (KeyboardInterrupt, EOFError):
+                choice = "3"  # Default to cancel
+                break
+        
+        # 构建响应
+        if choice == "1":
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="confirm"
+            )
+            console.print("[green]✅ 已确认执行计划[/green]\n")
+            
+        elif choice == "2":
+            # 获取用户修改建议
+            try:
+                user_message = console.input("请描述需要如何修改计划: ")
+            except (KeyboardInterrupt, EOFError):
+                user_message = ""
+            
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="modify",
+                user_message=user_message
+            )
+            console.print("[yellow]📝 已请求修改计划[/yellow]\n")
+            
+        else:  # choice == "3"
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="cancel"
+            )
+            console.print("[red]❌ 已取消执行[/red]\n")
+        
+        # CLI模式下不需要通过ConfirmationManager提交，直接返回响应
+        return response
     
     async def _replan_tasks_with_user_feedback(self, session: ReActSession, user_feedback: str):
         """根据用户反馈重新规划任务"""
