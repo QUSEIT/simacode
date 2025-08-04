@@ -130,7 +130,8 @@ class SimaCodeService:
         self.config = config
         
         # Initialize core services (reuse existing components)
-        self.react_service = ReActService(config)
+        # SimaCodeService总是在API模式下运行
+        self.react_service = ReActService(config, api_mode=True)
         
         # Initialize AI client for direct chat operations
         self.ai_client = AIClientFactory.create_client(config.ai.model_dump())

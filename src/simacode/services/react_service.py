@@ -33,21 +33,24 @@ class ReActService:
     - Providing service-level error handling and logging
     """
     
-    def __init__(self, config: Config):
+    def __init__(self, config: Config, api_mode: bool = False):
         """
         Initialize the ReAct service.
         
         Args:
             config: Application configuration
+            api_mode: Whether running in API mode
         """
         self.config = config
+        self.api_mode = api_mode
         
         # Initialize AI client
         self.ai_client = AIClientFactory.create_client(config.ai.model_dump())
         
         # Initialize ReAct engine
         execution_mode = ExecutionMode.ADAPTIVE  # Default to adaptive mode
-        self.react_engine = ReActEngine(self.ai_client, execution_mode, config)
+        logger.info(f"Initializing ReAct engine with api_mode={self.api_mode}")
+        self.react_engine = ReActEngine(self.ai_client, execution_mode, config, self.api_mode)
         
         # Initialize session manager
         sessions_dir = Path.cwd() / ".simacode" / "sessions"

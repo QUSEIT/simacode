@@ -79,14 +79,22 @@ class WebSocketMessage(BaseModel):
 
 
 class StreamingChatChunk(BaseModel):
-    """Enhanced streaming chat chunk with mode information."""
-    chunk: str = Field(..., description="Text chunk")
-    session_id: str = Field(..., description="Session identifier")
-    finished: bool = Field(False, description="Whether this is the final chunk")
+    """扩展的流式聊天块模型 - 支持确认功能"""
+    chunk: str = Field(..., description="文本内容")
+    session_id: str = Field(..., description="会话标识")
+    finished: bool = Field(False, description="是否为最终块")
     
-    # 🆕 新增字段
-    chunk_type: Optional[str] = Field("content", description="Chunk type: 'content', 'status', 'tool_output', 'task_init', 'error', 'completion'")
-    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Chunk metadata including message_type")
+    # 扩展字段
+    chunk_type: Optional[str] = Field(
+        "content", 
+        description="块类型: 'content', 'status', 'tool_output', 'task_init', 'error', 'completion', 'confirmation_request', 'confirmation_received'"
+    )
+    metadata: Optional[Dict[str, Any]] = Field(default_factory=dict, description="元数据")
+    
+    # 🆕 确认相关字段
+    confirmation_data: Optional[Dict[str, Any]] = Field(None, description="确认请求数据")
+    requires_response: Optional[bool] = Field(False, description="是否需要用户响应")
+    stream_paused: Optional[bool] = Field(False, description="流是否暂停等待响应")
 
 
 # Human in Loop Confirmation Models

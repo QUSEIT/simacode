@@ -132,7 +132,7 @@ class ReActEngine:
     5. Replanning: Adjusting plans based on results
     """
     
-    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None):
+    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None, api_mode: bool = False):
         """
         Initialize the ReAct engine.
         
@@ -140,6 +140,7 @@ class ReActEngine:
             ai_client: AI client for reasoning and evaluation
             execution_mode: How to execute tasks (sequential, parallel, adaptive)
             config: Configuration object with ReAct settings
+            api_mode: Whether running in API mode (uses chat stream confirmation)
         """
         self.ai_client = ai_client
         self.execution_mode = execution_mode
@@ -147,6 +148,7 @@ class ReActEngine:
         self.result_evaluator = ResultEvaluator(ai_client)
         self.tool_registry = ToolRegistry()
         self.config = config
+        self.api_mode = api_mode  # 🆕 明确的模式标识
         
         # Engine configuration
         self.max_planning_retries = 3
