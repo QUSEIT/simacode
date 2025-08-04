@@ -298,8 +298,8 @@ async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional
     
     try:
         if not interactive and message:
-            # Single message mode
-            request = ChatRequest(message=message, session_id=session_id)
+            # Single message mode - force pure chat mode (no ReAct)
+            request = ChatRequest(message=message, session_id=session_id, force_mode="chat")
             response = await simacode_service.process_chat(request)
             
             if response.error:
@@ -317,7 +317,8 @@ async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional
                         break
                     
                     if user_input.strip():
-                        request = ChatRequest(message=user_input, session_id=session_id)
+                        # Interactive mode - force pure chat mode (no ReAct)
+                        request = ChatRequest(message=user_input, session_id=session_id, force_mode="chat")
                         response = await simacode_service.process_chat(request)
                         session_id = response.session_id  # Update session_id
                         
