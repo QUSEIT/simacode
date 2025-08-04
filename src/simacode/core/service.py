@@ -169,26 +169,8 @@ class SimaCodeService:
         if not self.react_service.is_running:
             await self.react_service.start()
     
-    async def _is_conversational_input(self, user_input: str) -> bool:
-        """
-        判断输入是否为对话性输入，复用ReAct引擎的预判断逻辑。
-        
-        Args:
-            user_input: 用户输入文本
-            
-        Returns:
-            bool: True if input is conversational, False if it requires task execution
-        """
-        try:
-            # 确保ReAct服务已启动
-            await self._ensure_react_service_started()
-            
-            # 复用ReAct引擎的输入预判断逻辑
-            return await self.react_service.react_engine._is_conversational_input(user_input)
-            
-        except Exception as e:
-            logger.warning(f"Failed to classify input with ReAct: {str(e)}, defaulting to task mode")
-            return False  # 默认为任务模式，避免遗漏
+    # 🗑️ 已删除 _is_conversational_input 方法
+    # 现在统一使用 ReAct 引擎处理所有请求，让 TaskPlanner 内部进行分类
     
     async def process_chat(
         self, 
@@ -226,29 +208,17 @@ class SimaCodeService:
                 import uuid
                 request.session_id = str(uuid.uuid4())
             
-            # 🆕 智能输入预判断
-            # 检查是否强制指定模式
-            if request.force_mode:
-                if request.force_mode == "chat":
-                    is_conversational = True
-                    logger.debug("Force chat mode enabled - bypassing ReAct classification")
-                elif request.force_mode == "react":
-                    is_conversational = False
-                    logger.debug("Force ReAct mode enabled - bypassing conversational classification")
-                else:
-                    # 默认智能判断
-                    is_conversational = await self._is_conversational_input(request.message)
-            else:
-                is_conversational = await self._is_conversational_input(request.message)
-            
-            if is_conversational:
-                # 对话性输入：使用传统 chat 处理
-                logger.debug(f"Processing as conversational input: {request.message[:50]}...")
+            # 🆕 统一使用 ReAct 引擎处理所有请求
+            # 检查是否强制指定纯对话模式
+            if request.force_mode == "chat":
+                # 强制纯对话模式：使用传统 chat 处理
+                logger.debug("Force chat mode enabled - using traditional conversational processing")
                 return await self._process_conversational_chat(request)
             else:
-                # 任务性输入：使用 ReAct 引擎处理
-                logger.debug(f"Processing as task input: {request.message[:50]}...")
-                return await self._process_task_chat(request)
+                # 默认使用 ReAct 引擎处理（包括对话和任务）
+                # ReAct 引擎内部会通过 TaskPlanner 智能判断输入类型
+                logger.debug(f"Processing with ReAct engine: {request.message[:50]}...")
+                return await self._process_with_react_engine(request)
                 
         except Exception as e:
             logger.error(f"Error processing enhanced chat: {str(e)}")
@@ -298,32 +268,31 @@ class SimaCodeService:
                 error=str(e)
             )
     
-    async def _process_task_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
-        """处理任务性输入（使用ReAct引擎）"""
+    async def _process_with_react_engine(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
+        """使用ReAct引擎处理请求（完全复用 chat --react 模式的逻辑）"""
         try:
             # 确保ReAct服务已启动
             await self._ensure_react_service_started()
             
-            # 将 ChatRequest 转换为 ReActRequest
+            # 🔄 完全复用 chat --react 模式的逻辑
+            # 创建 ReActRequest（与 CLI 中 chat --react 模式完全相同）
             react_request = ReActRequest(
                 task=request.message,
-                session_id=request.session_id,
-                context=request.context
+                session_id=request.session_id
             )
             
             if request.stream:
-                # 流式任务处理
+                # 流式处理 - 复用现有的流式逻辑
                 return self._stream_task_response(react_request)
             else:
-                # 常规任务处理
+                # 非流式处理 - 复用 process_react 逻辑
                 react_response = await self.process_react(react_request)
                 
                 return ChatResponse(
                     content=react_response.result,
                     session_id=react_response.session_id,
                     metadata={
-                        "mode": "task_execution", 
-                        "input_type": "task",
+                        "mode": "react_engine", 
                         "processing_engine": "react",
                         "steps": react_response.steps,
                         "tools_used": self._extract_tools_from_steps(react_response.steps)
@@ -331,9 +300,9 @@ class SimaCodeService:
                 )
                 
         except Exception as e:
-            logger.error(f"Error processing task chat: {str(e)}")
+            logger.error(f"Error processing with ReAct engine: {str(e)}")
             return ChatResponse(
-                content="抱歉，执行您的任务时出现了问题。",
+                content="抱歉，处理您的请求时出现了问题。",
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )

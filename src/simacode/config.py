@@ -159,7 +159,7 @@ class ConversationContextConfig(BaseModel):
     """Conversation context configuration model."""
     
     strategy: str = Field(
-        default="adaptive",
+        default="compressed",
         description="Context strategy: full, compressed, adaptive"
     )
     
@@ -179,11 +179,13 @@ class ConversationContextConfig(BaseModel):
     min_recent: int = Field(default=3, description="Minimum recent messages to preserve")
     auto_summarize: bool = Field(default=True, description="Auto-summarize old conversations")
     
-    @validator('strategy')
+    @validator('strategy', pre=True, always=True)
     def validate_strategy(cls, v: str) -> str:
-        valid_strategies = {'full', 'compressed', 'adaptive'}
-        if v.lower() not in valid_strategies:
-            raise ValueError(f"Invalid strategy: {v}. Must be one of {valid_strategies}")
+        """确保策略值总是有效的"""
+        if v is None or v == "":
+            return "compressed"  # 默认策略
+        if v.lower() not in {'full', 'compressed', 'adaptive'}:
+            return "compressed"  # 未知策略回退到压缩模式
         return v.lower()
 
 
