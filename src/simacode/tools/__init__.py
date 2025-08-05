@@ -17,6 +17,7 @@ from .base import Tool, ToolResult, ToolInput, ToolRegistry, ToolResultType, exe
 from .bash import BashTool
 from .file_read import FileReadTool
 from .file_write import FileWriteTool
+from .universal_ocr import UniversalOCRTool
 
 __all__ = [
     "Tool",
@@ -28,4 +29,5 @@ __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
+    "UniversalOCRTool",
 ]
