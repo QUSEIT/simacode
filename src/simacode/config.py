@@ -155,6 +155,27 @@ class SessionConfig(BaseModel):
         return path
 
 
+class ReactConfig(BaseModel):
+    """ReAct 引擎配置模型"""
+    
+    confirm_by_human: bool = Field(
+        default=False, 
+        description="Enable human confirmation before task execution"
+    )
+    confirmation_timeout: int = Field(
+        default=300, 
+        description="Confirmation timeout in seconds"
+    )
+    allow_task_modification: bool = Field(
+        default=True, 
+        description="Allow users to modify tasks during confirmation"
+    )
+    auto_confirm_safe_tasks: bool = Field(
+        default=False,
+        description="Auto-confirm tasks that are considered safe"
+    )
+
+
 class ConversationContextConfig(BaseModel):
     """Conversation context configuration model."""
     
@@ -215,6 +236,10 @@ class Config(BaseModel):
     conversation_context: ConversationContextConfig = Field(
         default_factory=ConversationContextConfig,
         description="Conversation context management configuration"
+    )
+    react: ReactConfig = Field(
+        default_factory=ReactConfig,
+        description="ReAct engine configuration"
     )
     
     @classmethod

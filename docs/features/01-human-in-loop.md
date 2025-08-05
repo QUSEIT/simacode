@@ -1,8 +1,3 @@
 # 实现human in loop特性
 在.simacode/config.yaml中增加一个控制选项react=>confirm_by_human, 默认为false，如果设置为true,
-在使用react对话模式的时候，如果AI规划出来了子任务，则通过content发送已规划的子任务详情给用户并
-等待用户确认或者更改计划，之后再根据用户确认和更改后的计划来进行执行
-
-
-## 提供连续的session上下文来支持连续性对话
-在和AI对话时，如果一开始没有传入session标识，则系统会自动创建一个session，我需要你在用户给出出答复后，自动将当前session的所有问答内容进行Compacting conversation操作传递给AI（距离会话最近的内容压缩量越低)，以此来确保AI获得足够多的上下文，由此能进行正常的工作。
+在使用react对话模式的时候，如果AI规划出来了子任务（engine.py 266行开始），则告知用户详情并等待用户确认或者更改计划，之后再根据用户确认和更改后的计划来继续执行

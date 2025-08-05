@@ -170,8 +170,8 @@ async def _run_chat(ctx: click.Context, message: Optional[str], interactive: boo
     config_obj = ctx.obj["config"]
     
     try:
-        # Initialize unified service
-        simacode_service = SimaCodeService(config_obj)
+        # Initialize unified service in CLI mode
+        simacode_service = SimaCodeService(config_obj, api_mode=False)
         
         if react:
             # Use ReAct mode for intelligent task planning and execution
@@ -208,6 +208,13 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                 
                 if update_type == "status_update":
                     console.print(f"[dim]• {content}[/dim]")
+                elif update_type == "confirmation_request":
+                    # CLI模式下确认请求现在在engine内部同步处理，这里只显示信息
+                    await _handle_confirmation_request(update, simacode_service)
+                elif update_type == "confirmation_timeout":
+                    console.print(f"[red]⏰ {content}[/red]")
+                elif update_type == "task_replanned":
+                    console.print(f"[blue]🔄 {content}[/blue]")
                 elif update_type == "conversational_response":
                     # 对话性回复，直接显示内容，不显示额外标识
                     console.print(f"[white]{content}[/white]")
@@ -256,6 +263,13 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                             
                             if update_type == "status_update":
                                 console.print(f"[dim]• {content}[/dim]")
+                            elif update_type == "confirmation_request":
+                                # CLI模式下确认请求现在在engine内部同步处理，这里只显示信息
+                                await _handle_confirmation_request(update, simacode_service)
+                            elif update_type == "confirmation_timeout":
+                                console.print(f"[red]⏰ {content}[/red]")
+                            elif update_type == "task_replanned":
+                                console.print(f"[blue]🔄 {content}[/blue]")
                             elif update_type == "conversational_response":
                                 # 对话性回复，直接显示内容，不显示额外标识
                                 console.print(f"[white]{content}[/white]")
@@ -289,6 +303,28 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     
     except Exception as e:
         console.print(f"[red]ReAct mode error: {e}[/red]")
+
+
+async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeService):
+    """处理确认请求 - 简化版，实际确认逻辑在engine.py中"""
+    
+    tasks_summary = update.get("tasks_summary", {})
+    session_id = update.get("session_id")
+    confirmation_round = update.get("confirmation_round", 1)
+    
+    # 显示任务计划头部信息
+    round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
+    console.print(f"\n[bold yellow]📋 任务执行计划确认{round_info}[/bold yellow]")
+    console.print(f"会话ID: {session_id}")
+    console.print(f"计划任务数: {tasks_summary.get('total_tasks', 0)}")
+    console.print(f"风险等级: {tasks_summary.get('risk_level', 'unknown')}")
+    
+    if confirmation_round > 1:
+        console.print(f"[dim]※ 这是根据您的修改建议重新规划的任务计划[/dim]")
+    console.print()
+    
+    # 注意：实际的确认界面交互逻辑现在在engine.py的handle_cli_confirmation方法中处理
+    # 这里只是显示头部信息，具体的用户交互会在engine的CLI模式分支中处理
 
 
 async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str]) -> None:

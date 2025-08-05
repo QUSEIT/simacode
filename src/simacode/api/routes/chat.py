@@ -1,9 +1,11 @@
 """
 Chat endpoints for SimaCode API.
 
-Provides REST and WebSocket endpoints for AI chat functionality.
+Provides REST and WebSocket endpoints for AI chat functionality,
+including support for human-in-loop confirmation via chat stream.
 """
 
+import json
 import logging
 from typing import AsyncGenerator
 
@@ -17,6 +19,7 @@ except ImportError:
 
 from ..dependencies import get_simacode_service
 from ..models import ChatRequest, ChatResponse, ErrorResponse, StreamingChatChunk
+from ..chat_confirmation import chat_confirmation_manager
 from ...core.service import SimaCodeService, ChatRequest as CoreChatRequest
 
 logger = logging.getLogger(__name__)
@@ -76,7 +79,8 @@ async def chat_stream(
     service: SimaCodeService = Depends(get_simacode_service)
 ):
     """
-    Process a chat message with streaming response.
+    处理聊天流请求，支持确认流程
+    按照设计文档实现统一的确认交互体验
     
     Args:
         request: Chat request containing message and optional session ID
@@ -86,7 +90,11 @@ async def chat_stream(
         Streaming response with chat chunks
     """
     try:
-        # Convert API request to core request
+        # 检查是否为确认响应
+        if request.message.startswith("CONFIRM_ACTION:"):
+            return await handle_confirmation_response(request, service)
+        
+        # 正常聊天流程
         core_request = CoreChatRequest(
             message=request.message,
             session_id=request.session_id,
@@ -96,77 +104,69 @@ async def chat_stream(
         
         async def generate_chunks():
             try:
-                # Get streaming response from service
+                # 获取流式响应
                 response_gen = await service.process_chat(core_request)
                 
                 if hasattr(response_gen, '__aiter__'):
-                    # Streaming response
+                    # 流式响应处理
                     session_id = request.session_id or "new"
                     async for chunk in response_gen:
-                        # 识别chunk类型（基于内容前缀）
-                        chunk_type = "content"  # 默认类型
-                        chunk_content = chunk
-                        metadata = {}
+                        # 处理确认请求
+                        if chunk.startswith("[confirmation_request]"):
+                            confirmation_chunk = await handle_confirmation_request(
+                                request.session_id, chunk, service
+                            )
+                            yield f"data: {confirmation_chunk.model_dump_json()}\n\n"
+                            
+                            # 等待用户确认
+                            confirmation_response = await chat_confirmation_manager.wait_for_confirmation(
+                                request.session_id
+                            )
+                            
+                            if confirmation_response and confirmation_response.action != "cancel":
+                                # 处理确认结果和继续流式响应
+                                await service.submit_chat_confirmation(
+                                    confirmation_response.session_id,
+                                    confirmation_response.action,
+                                    confirmation_response.user_message
+                                )
+                                
+                                # 发送确认接收消息
+                                received_chunk = create_confirmation_received_chunk(
+                                    session_id, confirmation_response
+                                )
+                                yield f"data: {received_chunk.model_dump_json()}\n\n"
+                                
+                                # 继续处理（ReAct引擎将继续）
+                                continue
+                            else:
+                                # 取消或超时
+                                cancel_reason = "用户取消" if confirmation_response and confirmation_response.action == "cancel" else "确认超时"
+                                cancel_chunk = create_error_chunk(f"任务已取消：{cancel_reason}", session_id, cancel_reason)
+                                yield f"data: {cancel_chunk.model_dump_json()}\n\n"
+                                return
                         
-                        if chunk.startswith("[task_init]"):
-                            chunk_type = "task_init"
-                            chunk_content = chunk[11:].strip()  # 移除前缀
-                            metadata = {"type": "task_init", "message_type": "task_init"}
-                        elif chunk.startswith("[tool_execution]"):
-                            chunk_type = "tool_output"
-                            chunk_content = chunk[16:].strip()  # 移除前缀
-                            metadata = {"type": "tool_execution", "message_type": "tool_output"}
-                        elif chunk.startswith("[status_update]"):
-                            chunk_type = "status"
-                            chunk_content = chunk[15:].strip()  # 移除前缀
-                            metadata = {"type": "status_update", "message_type": "status"}
-                        elif chunk.startswith("❌"):
-                            chunk_type = "error"
-                            metadata = {"type": "error", "message_type": "error"}
+                        # 处理常规chunks
                         else:
-                            # Default content type - add message_type
-                            metadata = {"message_type": "content"}
-                        
-                        chunk_data = StreamingChatChunk(
-                            chunk=chunk_content,
-                            session_id=session_id,
-                            finished=False,
-                            chunk_type=chunk_type,
-                            metadata=metadata
-                        )
-                        yield f"data: {chunk_data.model_dump_json()}\n\n"
+                            chunk_data = process_regular_chunk(chunk, session_id)
+                            yield f"data: {chunk_data.model_dump_json()}\n\n"
                     
-                    # Send finished signal
-                    final_chunk = StreamingChatChunk(
-                        chunk="",
-                        session_id=session_id,
-                        finished=True,
-                        chunk_type="completion",
-                        metadata={"stream_completed": True, "message_type": "completion"}
-                    )
+                    # 发送完成信号
+                    final_chunk = create_completion_chunk(session_id)
                     yield f"data: {final_chunk.model_dump_json()}\n\n"
                 else:
-                    # Non-streaming response (fallback)
-                    fallback_metadata = response_gen.metadata.copy()
-                    fallback_metadata["message_type"] = "content"
-                    chunk_data = StreamingChatChunk(
-                        chunk=response_gen.content,
-                        session_id=response_gen.session_id,
+                    # 非流式响应（回退）
+                    fallback_chunk = create_content_chunk(
+                        response_gen.content, 
+                        response_gen.session_id, 
                         finished=True,
-                        chunk_type="content",
-                        metadata=fallback_metadata
+                        metadata=response_gen.metadata
                     )
-                    yield f"data: {chunk_data.model_dump_json()}\n\n"
+                    yield f"data: {fallback_chunk.model_dump_json()}\n\n"
                     
             except Exception as e:
-                logger.error(f"Streaming error: {e}")
-                error_chunk = StreamingChatChunk(
-                    chunk=f"Error: {str(e)}",
-                    session_id=request.session_id or "error",
-                    finished=True,
-                    chunk_type="error",
-                    metadata={"message_type": "error"}
-                )
+                logger.error(f"流式处理错误: {e}")
+                error_chunk = create_error_chunk(str(e), request.session_id or "error")
                 yield f"data: {error_chunk.model_dump_json()}\n\n"
         
         return StreamingResponse(
@@ -249,3 +249,214 @@ async def chat_websocket(
             await websocket.close()
         except:
             pass
+
+
+# ==================== 确认流程辅助函数 ====================
+# 按照设计文档规范实现
+
+async def handle_confirmation_request(
+    session_id: str, 
+    chunk: str, 
+    service: SimaCodeService
+) -> StreamingChatChunk:
+    """
+    处理确认请求chunk - 按照设计文档规范实现
+    
+    Args:
+        session_id: 会话ID
+        chunk: 确认请求chunk内容 格式: [confirmation_request]{json_data}
+        service: 服务实例
+        
+    Returns:
+        标准化的确认请求StreamingChatChunk
+    """
+    try:
+        # 解析确认请求数据
+        confirmation_data_str = chunk[len("[confirmation_request]"):].strip()
+        confirmation_data = json.loads(confirmation_data_str)
+        
+        # 通过确认管理器创建确认请求
+        await chat_confirmation_manager.request_confirmation(
+            session_id=session_id,
+            tasks=confirmation_data.get("tasks", []),
+            timeout_seconds=confirmation_data.get("timeout_seconds", 300)
+        )
+        
+        # 按照设计文档格式化确认消息
+        tasks = confirmation_data.get("tasks", [])
+        task_descriptions = []
+        for task in tasks:
+            task_descriptions.append(f"{task.get('index', '?')}. {task.get('description', '未知任务')}")
+        
+        confirmation_message = f"请确认执行以下{len(tasks)}个任务：\n" + "\n".join(task_descriptions)
+        
+        # 创建标准化的确认请求chunk
+        return StreamingChatChunk(
+            chunk=confirmation_message,
+            session_id=session_id,
+            finished=False,
+            chunk_type="confirmation_request",
+            confirmation_data=confirmation_data,
+            requires_response=True,
+            stream_paused=True,
+            metadata={
+                "total_tasks": len(tasks),
+                "risk_level": confirmation_data.get("risk_level", "unknown"),
+                "timeout_seconds": confirmation_data.get("timeout_seconds", 300),
+                "confirmation_round": confirmation_data.get("confirmation_round", 1)
+            }
+        )
+        
+    except Exception as e:
+        logger.error(f"Error handling confirmation request: {e}")
+        return create_error_chunk(f"确认请求处理错误: {str(e)}", session_id)
+
+
+async def handle_confirmation_response(
+    request: ChatRequest, 
+    service: SimaCodeService
+) -> StreamingResponse:
+    """
+    处理确认响应 - 按照设计文档规范实现
+    
+    Args:
+        request: 包含确认响应的聊天请求
+        service: 服务实例
+        
+    Returns:
+        流式响应
+    """
+    try:
+        # 解析确认动作 - 按照设计文档格式 CONFIRM_ACTION:action:message
+        action_part = request.message[len("CONFIRM_ACTION:"):].strip()
+        parts = action_part.split(":", 1)
+        action = parts[0].strip()
+        user_message = parts[1].strip() if len(parts) > 1 else None
+        
+        session_id = request.session_id or "unknown"
+        
+        # 验证动作
+        if action not in ["confirm", "modify", "cancel"]:
+            raise ValueError(f"无效的确认动作: {action}")
+        
+        # 提交确认响应
+        success = await chat_confirmation_manager.submit_confirmation(
+            session_id, action, user_message
+        )
+        
+        async def generate_response():
+            if success:
+                # 成功响应
+                response_chunk = create_confirmation_received_chunk(session_id, action, user_message)
+            else:
+                # 失败响应
+                response_chunk = create_error_chunk(
+                    "确认提交失败，可能会话已过期或不存在待确认的请求", 
+                    session_id
+                )
+            
+            yield f"data: {response_chunk.model_dump_json()}\n\n"
+        
+        return StreamingResponse(
+            generate_response(),
+            media_type="text/plain",
+            headers={"Cache-Control": "no-cache"}
+        )
+        
+    except Exception as e:
+        logger.error(f"确认响应处理错误: {e}")
+        
+        async def error_response():
+            error_chunk = create_error_chunk(f"确认格式错误: {str(e)}", request.session_id or "error")
+            yield f"data: {error_chunk.model_dump_json()}\n\n"
+        
+        return StreamingResponse(
+            error_response(),
+            media_type="text/plain",
+            headers={"Cache-Control": "no-cache"}
+        )
+
+
+def process_regular_chunk(chunk: str, session_id: str) -> StreamingChatChunk:
+    """
+    处理常规chunk - 按照设计文档规范实现
+    
+    Args:
+        chunk: chunk内容
+        session_id: 会话ID
+        
+    Returns:
+        处理后的StreamingChatChunk
+    """
+    # 识别chunk类型（基于内容前缀）
+    if chunk.startswith("[task_init]"):
+        return create_chunk("task_init", chunk[11:].strip(), session_id)
+    elif chunk.startswith("[tool_execution]"):
+        return create_chunk("tool_output", chunk[16:].strip(), session_id)
+    elif chunk.startswith("[status_update]"):
+        return create_chunk("status", chunk[15:].strip(), session_id)
+    elif chunk.startswith("[task_replanned]"):
+        return create_chunk("task_replanned", chunk[16:].strip(), session_id)
+    elif chunk.startswith("❌"):
+        return create_chunk("error", chunk, session_id)
+    else:
+        # 默认内容类型
+        return create_chunk("content", chunk, session_id)
+
+
+# ==================== Chunk创建辅助函数 ====================
+
+def create_chunk(chunk_type: str, content: str, session_id: str, **kwargs) -> StreamingChatChunk:
+    """创建标准化的StreamingChatChunk"""
+    return StreamingChatChunk(
+        chunk=content,
+        session_id=session_id,
+        finished=kwargs.get('finished', False),
+        chunk_type=chunk_type,
+        metadata=kwargs.get('metadata', {}),
+        confirmation_data=kwargs.get('confirmation_data'),
+        requires_response=kwargs.get('requires_response', False),
+        stream_paused=kwargs.get('stream_paused', False)
+    )
+
+
+def create_content_chunk(content: str, session_id: str, finished: bool = False, metadata: dict = None) -> StreamingChatChunk:
+    """创建内容chunk"""
+    return create_chunk("content", content, session_id, finished=finished, metadata=metadata or {})
+
+
+def create_error_chunk(error_message: str, session_id: str, reason: str = None) -> StreamingChatChunk:
+    """创建错误chunk"""
+    metadata = {"error": True}
+    if reason:
+        metadata["reason"] = reason
+    return create_chunk("error", f"❌ {error_message}", session_id, finished=True, metadata=metadata)
+
+
+def create_completion_chunk(session_id: str) -> StreamingChatChunk:
+    """创建完成chunk"""
+    return create_chunk(
+        "completion", 
+        "", 
+        session_id, 
+        finished=True, 
+        metadata={"stream_completed": True}
+    )
+
+
+def create_confirmation_received_chunk(session_id: str, action: str, user_message: str = None) -> StreamingChatChunk:
+    """创建确认接收chunk"""
+    message = f"✅ 确认已接收，动作: {action}"
+    if user_message:
+        message += f" - {user_message}"
+    
+    return create_chunk(
+        "confirmation_received",
+        message,
+        session_id,
+        finished=True,
+        metadata={
+            "action": action,
+            "user_message": user_message
+        }
+    )

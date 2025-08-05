@@ -21,7 +21,7 @@ from ..ai.conversation import Message
 from ..tools import ToolRegistry, execute_tool, ToolResult, ToolResultType
 from .planner import TaskPlanner, Task, TaskStatus, PlanningContext
 from .evaluator import ResultEvaluator, EvaluationResult, EvaluationOutcome, EvaluationContext
-from .exceptions import ReActError, ExecutionError, MaxRetriesExceededError
+from .exceptions import ReActError, ExecutionError, MaxRetriesExceededError, ReplanningRequiresConfirmationError
 
 logger = logging.getLogger(__name__)
 
@@ -31,6 +31,7 @@ class ReActState(Enum):
     IDLE = "idle"
     REASONING = "reasoning"
     PLANNING = "planning"
+    AWAITING_CONFIRMATION = "awaiting_confirmation"  # 🆕 新增状态
     EXECUTING = "executing"
     EVALUATING = "evaluating"
     REPLANNING = "replanning"
@@ -131,27 +132,41 @@ class ReActEngine:
     5. Replanning: Adjusting plans based on results
     """
     
-    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE):
+    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None, api_mode: bool = False):
         """
         Initialize the ReAct engine.
         
         Args:
             ai_client: AI client for reasoning and evaluation
             execution_mode: How to execute tasks (sequential, parallel, adaptive)
+            config: Configuration object with ReAct settings
+            api_mode: Whether running in API mode (uses chat stream confirmation)
         """
         self.ai_client = ai_client
         self.execution_mode = execution_mode
         self.task_planner = TaskPlanner(ai_client)
         self.result_evaluator = ResultEvaluator(ai_client)
         self.tool_registry = ToolRegistry()
+        self.config = config
+        self.api_mode = api_mode  # 🆕 明确的模式标识
         
         # Engine configuration
         self.max_planning_retries = 3
         self.max_execution_retries = 3
         self.parallel_task_limit = 5
         
+        # Confirmation manager (lazy initialization)
+        self._confirmation_manager = None
+        
         logger.info(f"ReAct engine initialized with {execution_mode.value} execution mode")
     
+    @property
+    def confirmation_manager(self):
+        """Lazy initialization of confirmation manager"""
+        if self._confirmation_manager is None:
+            from .confirmation_manager import ConfirmationManager
+            self._confirmation_manager = ConfirmationManager()
+        return self._confirmation_manager
     
     async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None, session: Optional[ReActSession] = None) -> AsyncGenerator[Dict[str, Any], None]:
         """
@@ -274,6 +289,11 @@ class ReActEngine:
                         yield self._create_status_update(session, "识别为对话性输入，将直接回复")
                     else:
                         yield self._create_status_update(session, "未识别出具体任务，将提供对话式回复")
+                
+                # 🆕 检查是否需要人工确认
+                if tasks and self._should_request_confirmation(session, tasks):
+                    async for confirmation_update in self._handle_human_confirmation(session, tasks):
+                        yield confirmation_update
                 
                 # Yield task plan details
                 if tasks:
@@ -547,6 +567,16 @@ class ReActEngine:
             "evaluation": overall_evaluation.to_dict()
         }
     
+    def _create_status_confirmation(self, session: ReActSession, message: str) -> Dict[str, Any]:
+        """Create a status confirmation """
+        return {
+            "type": "confirmation_request",
+            "content": message,
+            "session_id": session.id,
+            "state": session.state.value,
+            "timestamp": datetime.now().isoformat()
+        }
+    
     def _create_status_update(self, session: ReActSession, message: str) -> Dict[str, Any]:
         """Create a status update dictionary."""
         return {
@@ -702,3 +732,352 @@ class ReActEngine:
             logger.warning(f"Failed to generate conversational response: {str(e)}")
             # Fallback response
             return f"I understand you said: '{session.user_input}'. How can I help you with your development tasks?"
+    
+    def _should_request_confirmation(self, session: ReActSession, tasks: List[Task]) -> bool:
+        """判断是否需要请求人工确认"""
+        
+        # 检查配置
+        if not self.config or not hasattr(self.config, 'react'):
+            return False
+        
+        react_config = self.config.react
+        if not react_config.confirm_by_human:
+            return False
+        
+        # 检查是否有需要确认的任务
+        if not tasks:
+            return False
+        
+        # 检查是否有危险任务（可选的智能判断）
+        if react_config.auto_confirm_safe_tasks:
+            dangerous_tasks = self._identify_dangerous_tasks(tasks)
+            return len(dangerous_tasks) > 0
+        
+        return True
+
+    async def _handle_human_confirmation(
+        self, 
+        session: ReActSession, 
+        tasks: List[Task]
+    ) -> AsyncGenerator[Dict[str, Any], None]:
+        """处理人工确认流程"""
+        
+        session.update_state(ReActState.AWAITING_CONFIRMATION)
+        
+        # 获取配置的超时时间
+        timeout = getattr(self.config.react, 'confirmation_timeout', 300) if self.config else 300
+        
+        try:
+            # 🆕 允许多轮确认以支持任务修改
+            max_confirmation_rounds = 3  # 防止无限循环
+            confirmation_round = 0
+            
+            while confirmation_round < max_confirmation_rounds:
+                confirmation_round += 1
+                current_tasks = session.tasks  # 使用当前的任务列表
+                
+                try:
+                    round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
+                    tasks_summary = self._create_tasks_summary(current_tasks)
+                    
+                    if self.api_mode:
+                        # API模式：使用异步确认流程
+                        # 发起确认请求
+                        confirmation_request = await self.confirmation_manager.request_confirmation(
+                            session.id, current_tasks, timeout
+                        )
+                        
+                        # 发送确认请求给客户端
+                        yield {
+                            "type": "confirmation_request",
+                            "content": f"规划了 {len(current_tasks)} 个任务{round_info}，请确认是否执行",
+                            "session_id": session.id,
+                            "confirmation_request": confirmation_request.model_dump(),
+                            "tasks_summary": tasks_summary,
+                            "confirmation_round": confirmation_round
+                        }
+                        
+                        # 等待用户确认
+                        yield self._create_status_confirmation(session, f"等待用户确认执行计划{round_info}（超时：{timeout}秒）")
+                        
+                        confirmation_response = await self.confirmation_manager.wait_for_confirmation(
+                            session.id, timeout
+                        )
+                        
+                        # 处理用户响应
+                        await self._process_confirmation_response(session, confirmation_response)
+                        
+                    else:
+                        # CLI模式：直接使用同步确认界面
+                        yield self._create_status_update(session, f"请确认执行计划{round_info}")
+                        
+                        # 直接调用CLI确认界面
+                        confirmation_response = self.handle_cli_confirmation(
+                            session.id, tasks_summary, confirmation_round
+                        )
+                        
+                        # 在CLI模式下直接处理用户响应，不通过ConfirmationManager
+                        await self._process_confirmation_response(session, confirmation_response)
+                    
+                    # 如果到这里没有异常，说明确认完成，退出循环
+                    break
+                    
+                except ReplanningRequiresConfirmationError:
+                    # 🆕 用户请求了修改，需要继续下一轮确认
+                    yield {
+                        "type": "task_replanned",
+                        "content": f"任务已根据用户建议重新规划，共{len(session.tasks)}个任务",
+                        "session_id": session.id,
+                        "new_task_count": len(session.tasks)
+                    }
+                    continue  # 继续下一轮确认
+                    
+            if confirmation_round >= max_confirmation_rounds:
+                yield {
+                    "type": "confirmation_error",
+                    "content": "达到最大确认轮数限制，使用当前任务计划继续执行",
+                    "session_id": session.id
+                }
+                
+        except TimeoutError:
+            yield {
+                "type": "confirmation_timeout",
+                "content": "用户确认超时，取消任务执行",
+                "session_id": session.id
+            }
+            session.update_state(ReActState.FAILED)
+            from .exceptions import ReActError
+            raise ReActError("User confirmation timeout")
+        except Exception as e:
+            yield {
+                "type": "confirmation_error", 
+                "content": f"确认过程出现错误：{str(e)}",
+                "session_id": session.id
+            }
+            raise
+
+    async def _process_confirmation_response(
+        self, 
+        session: ReActSession, 
+        response
+    ):
+        """处理确认响应"""
+        
+        if response.action == "cancel":
+            session.update_state(ReActState.FAILED)
+            from .exceptions import ReActError
+            raise ReActError("User cancelled task execution")
+        
+        elif response.action == "modify":
+            if response.modified_tasks:
+                # 用户直接提供了修改后的任务
+                modified_tasks = []
+                for task_dict in response.modified_tasks:
+                    task = Task.from_dict(task_dict)
+                    modified_tasks.append(task)
+                session.tasks = modified_tasks
+                session.add_log_entry(f"Tasks modified by user: {len(modified_tasks)} tasks")
+            elif response.user_message:
+                # 🆕 用户提供了修改建议，需要重新规划任务
+                session.add_log_entry(f"User requested task modification: {response.user_message}")
+                await self._replan_tasks_with_user_feedback(session, response.user_message)
+                
+                # 🆕 重新规划后，需要再次请求用户确认新计划
+                if session.tasks:  # 如果重新规划成功产生了新任务
+                    session.add_log_entry("Requesting confirmation for replanned tasks")
+                    # 将状态重置为等待确认，以便再次请求确认
+                    session.update_state(ReActState.AWAITING_CONFIRMATION)
+                    raise ReplanningRequiresConfirmationError("Tasks replanned, confirmation required for new plan")
+            else:
+                session.add_log_entry("User requested modification but no modification details provided")
+        
+        elif response.action == "confirm":
+            session.add_log_entry("Tasks confirmed by user")
+        
+        # 恢复执行状态
+        session.update_state(ReActState.PLANNING)
+
+    def _create_tasks_summary(self, tasks: List[Task]) -> Dict[str, Any]:
+        """创建任务摘要用于确认界面"""
+        
+        return {
+            "total_tasks": len(tasks),
+            "tasks": [
+                {
+                    "index": i + 1,
+                    "description": task.description,
+                    "tool": task.tool_name,
+                    "type": task.type.value,
+                    "priority": task.priority,
+                    "expected_outcome": task.expected_outcome
+                }
+                for i, task in enumerate(tasks)
+            ],
+            "estimated_duration": "未知",  # 可以后续添加估算逻辑
+            "risk_level": self._assess_task_risk_level(tasks)
+        }
+
+    def _assess_task_risk_level(self, tasks: List[Task]) -> str:
+        """评估任务风险等级"""
+        
+        # 简单的风险评估逻辑
+        dangerous_tools = {"file_write", "bash", "system_command"}
+        
+        for task in tasks:
+            if task.tool_name in dangerous_tools:
+                return "high"
+        
+        return "low"
+    
+    def _identify_dangerous_tasks(self, tasks: List[Task]) -> List[Task]:
+        """识别危险任务"""
+        dangerous_tools = {"file_write", "bash", "system_command", "delete", "execute"}
+        dangerous_tasks = []
+        
+        for task in tasks:
+            if task.tool_name in dangerous_tools:
+                dangerous_tasks.append(task)
+        
+        return dangerous_tasks
+    
+    def submit_confirmation(self, response) -> bool:
+        """提交用户确认响应的便捷方法"""
+        # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
+        if not self.api_mode:
+            logger.info("CLI mode: confirmation handled synchronously")
+            return True
+        else:
+            # API模式下才使用ConfirmationManager
+            return self.confirmation_manager.submit_confirmation(response.session_id, response)
+    
+    def handle_cli_confirmation(self, session_id: str, tasks_summary: Dict[str, Any], confirmation_round: int = 1):
+        """
+        处理CLI模式的确认界面交互
+        
+        Args:
+            session_id: 会话ID
+            tasks_summary: 任务摘要信息
+            confirmation_round: 确认轮数
+            
+        Returns:
+            TaskConfirmationResponse: 用户的确认响应
+        """
+        from rich.console import Console
+        from ..api.models import TaskConfirmationResponse
+        
+        console = Console()
+        
+        # 显示任务详情
+        tasks = tasks_summary.get("tasks", [])
+        for task in tasks:
+            console.print(f"[cyan]{task['index']}.[/cyan] {task['description']}")
+            console.print(f"   工具: {task['tool']} | 优先级: {task['priority']}")
+            console.print(f"   预期结果: {task['expected_outcome']}")
+            console.print()
+        
+        # 用户选择循环
+        while True:
+            try:
+                console.print("[bold blue]请选择操作:[/bold blue]")
+                console.print("1. 确认执行")
+                console.print("2. 修改计划")
+                console.print("3. 取消执行")
+                
+                choice = console.input("请输入选择 [1-3]: ").strip()
+                
+                if choice in ["1", "2", "3"]:
+                    break
+                else:
+                    console.print("[red]无效选择，请输入 1、2 或 3[/red]")
+            except (KeyboardInterrupt, EOFError):
+                choice = "3"  # Default to cancel
+                break
+        
+        # 构建响应
+        if choice == "1":
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="confirm"
+            )
+            console.print("[green]✅ 已确认执行计划[/green]\n")
+            
+        elif choice == "2":
+            # 获取用户修改建议
+            try:
+                user_message = console.input("请描述需要如何修改计划: ")
+            except (KeyboardInterrupt, EOFError):
+                user_message = ""
+            
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="modify",
+                user_message=user_message
+            )
+            console.print("[yellow]📝 已请求修改计划[/yellow]\n")
+            
+        else:  # choice == "3"
+            response = TaskConfirmationResponse(
+                session_id=session_id,
+                action="cancel"
+            )
+            console.print("[red]❌ 已取消执行[/red]\n")
+        
+        # CLI模式下不需要通过ConfirmationManager提交，直接返回响应
+        return response
+    
+    async def _replan_tasks_with_user_feedback(self, session: ReActSession, user_feedback: str):
+        """根据用户反馈重新规划任务"""
+        
+        logger.info(f"Replanning tasks based on user feedback: {user_feedback}")
+        
+        try:
+            # 构建包含用户反馈的规划上下文
+            original_tasks_summary = "\n".join([
+                f"- {task.description} (using {task.tool_name})"
+                for task in session.tasks
+            ])
+            
+            # 创建增强的规划上下文，包含原始任务和用户反馈
+            enhanced_user_input = f"""
+原始请求: {session.user_input}
+
+原始规划的任务:
+{original_tasks_summary}
+
+用户修改要求: {user_feedback}
+
+请根据用户的修改要求，重新规划任务列表。
+"""
+            
+            from .planner import PlanningContext
+            planning_context = PlanningContext(
+                user_input=enhanced_user_input,
+                conversation_history=session.conversation_history,
+                available_tools=self.tool_registry.list_tools(),
+                project_context=session.metadata.get("project_context", {}),
+                constraints=session.metadata.get("planning_context", {}).get("constraints", {})
+            )
+            
+            # 重新规划任务
+            session.update_state(ReActState.PLANNING)
+            session.add_log_entry("Replanning tasks based on user feedback")
+            
+            new_tasks = await self.task_planner.plan_tasks(planning_context)
+            
+            if new_tasks:
+                # 更新任务列表
+                old_task_count = len(session.tasks)
+                session.tasks = new_tasks
+                session.add_log_entry(f"Tasks replanned: {old_task_count} -> {len(new_tasks)} tasks")
+                
+                logger.info(f"Successfully replanned tasks: {len(new_tasks)} new tasks generated")
+            else:
+                # 如果重新规划失败，保留原任务但记录警告
+                session.add_log_entry("Task replanning produced no tasks, keeping original plan")
+                logger.warning("Task replanning produced no tasks, keeping original plan")
+                
+        except Exception as e:
+            # 重新规划失败时的错误处理
+            session.add_log_entry(f"Task replanning failed: {str(e)}, keeping original plan")
+            logger.error(f"Task replanning failed: {str(e)}")
+            # 不抛出异常，继续使用原始任务计划
