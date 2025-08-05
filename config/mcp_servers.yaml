@@ -146,8 +146,37 @@ servers:
       max_execution_time: 60
       network_access: true
 
+  # Browser-use MCP Proxy Server (WebSocket) - AI-driven Browser Automation via Remote REST Service
+  # Note: Server must be started manually using: python tools/mcp_browser_use_proxy_server.py
+  browser_use_proxy:
+    name: browser_use_proxy
+    enabled: false  # Enable for remote browser-use integration
+    type: websocket
+    url: "${BROWSER_USE_PROXY_URL:-ws://localhost:8082/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
+    args: []
+    environment:
+      BROWSER_USE_PROXY_URL: "${BROWSER_USE_PROXY_URL:-ws://localhost:8082/mcp/ws}"
+      BROWSER_USE_REST_URL: "${BROWSER_USE_REST_URL:-http://localhost:8000}"
+      BROWSER_USE_TIMEOUT: "${BROWSER_USE_TIMEOUT:-600}"
+      BROWSER_USE_MAX_RETRIES: "${BROWSER_USE_MAX_RETRIES:-3}"
+      BROWSER_USE_RETRY_DELAY: "${BROWSER_USE_RETRY_DELAY:-2.0}"
+    working_directory: null
+    timeout: 300  # Longer timeout for complex browser automation tasks
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "browser_use_execute_task"
+      allowed_paths: []  # Browser automation doesn't need file system access
+      forbidden_paths: []
+      max_execution_time: 300
+      network_access: true  # Required for browser automation and HTTP proxy
+
 # Configuration Notes:
-# 
+#
 # 1. Environment Variables:
 #    - Use ${VAR_NAME} syntax for environment variable substitution
 #    - Provide defaults with ${VAR_NAME:-default_value} syntax

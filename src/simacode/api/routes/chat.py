@@ -124,20 +124,16 @@ async def chat_stream(
                             )
                             
                             if confirmation_response and confirmation_response.action != "cancel":
-                                # 处理确认结果和继续流式响应
-                                await service.submit_chat_confirmation(
-                                    confirmation_response.session_id,
-                                    confirmation_response.action,
-                                    confirmation_response.user_message
-                                )
-                                
                                 # 发送确认接收消息
                                 received_chunk = create_confirmation_received_chunk(
                                     session_id, confirmation_response
                                 )
                                 yield f"data: {received_chunk.model_dump_json()}\n\n"
                                 
-                                # 继续处理（ReAct引擎将继续）
+                                # 提交确认并继续流式响应  
+                                service.submit_confirmation(confirmation_response)
+                                
+                                # 继续处理原来的生成器（ReAct引擎将继续）
                                 continue
                             else:
                                 # 取消或超时
@@ -389,7 +385,40 @@ def process_regular_chunk(chunk: str, session_id: str) -> StreamingChatChunk:
         处理后的StreamingChatChunk
     """
     # 识别chunk类型（基于内容前缀）
-    if chunk.startswith("[task_init]"):
+    if chunk.startswith("[confirmation_request]"):
+        # 🆕 处理确认请求格式的chunk
+        try:
+            import json
+            confirmation_data_str = chunk[len("[confirmation_request]"):]
+            confirmation_data = json.loads(confirmation_data_str)
+            
+            # 创建正确的确认消息，显示实际任务数量
+            tasks = confirmation_data.get("tasks", [])
+            task_descriptions = []
+            for i, task in enumerate(tasks):
+                task_descriptions.append(f"{i+1}. {task.get('description', '未知任务')}")
+            
+            confirmation_message = f"请确认执行以下{len(tasks)}个任务：\n" + "\n".join(task_descriptions)
+            
+            return StreamingChatChunk(
+                chunk=confirmation_message,
+                session_id=session_id,
+                finished=False,
+                chunk_type="confirmation_request",
+                confirmation_data=confirmation_data,  # 传递完整的扁平化数据
+                requires_response=True,
+                stream_paused=True,
+                metadata={
+                    "total_tasks": len(tasks),
+                    "risk_level": confirmation_data.get("risk_level", "unknown"),
+                    "timeout_seconds": confirmation_data.get("timeout_seconds", 300),
+                    "confirmation_round": confirmation_data.get("confirmation_round", 1)
+                }
+            )
+        except (json.JSONDecodeError, KeyError) as e:
+            logger.warning(f"Failed to parse confirmation request chunk: {e}")
+            return create_chunk("error", f"确认请求格式错误: {chunk}", session_id)
+    elif chunk.startswith("[task_init]"):
         return create_chunk("task_init", chunk[11:].strip(), session_id)
     elif chunk.startswith("[tool_execution]"):
         return create_chunk("tool_output", chunk[16:].strip(), session_id)

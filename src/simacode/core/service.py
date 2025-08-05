@@ -354,8 +354,27 @@ class SimaCodeService:
                 #elif update_type == "sub_task_result":
                 #    yield content
                 elif update_type == "confirmation_request":
-                    # 🆕 处理确认请求类型
-                    yield content
+                    # 🆕 保持确认请求的完整结构信息，但扁平化以匹配客户端期望
+                    import json
+                    
+                    # 从嵌套结构中提取数据并创建扁平化结构
+                    confirmation_request = update.get("confirmation_request", {})
+                    tasks_summary = update.get("tasks_summary", {})
+                    
+                    confirmation_data = {
+                        "type": "confirmation_request",
+                        "content": content,
+                        "session_id": update.get("session_id"),
+                        # 扁平化：直接提供 tasks 和其他字段，匹配客户端期望
+                        "tasks": confirmation_request.get("tasks", []),
+                        "timeout_seconds": confirmation_request.get("timeout_seconds", 300),
+                        "confirmation_round": update.get("confirmation_round", 1),
+                        "risk_level": tasks_summary.get("risk_level", "unknown"),
+                        # 保留原始结构供其他用途
+                        "confirmation_request": confirmation_request,
+                        "tasks_summary": tasks_summary
+                    }
+                    yield f"[confirmation_request]{json.dumps(confirmation_data)}"
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
                     yield f"[task_init] {content}"
@@ -604,6 +623,7 @@ class SimaCodeService:
                     return True
                 else:
                     # API模式下才使用ConfirmationManager
+                    logger.info("API mode: confirmation handled synchronously")
                     return self.react_service.react_engine.submit_confirmation(response)
             else:
                 logger.warning("ReAct engine not available for confirmation submission")

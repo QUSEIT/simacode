@@ -143,27 +143,27 @@ class StandardChatStreamClient:
             logger.info(f"        工具: {task.get('tool', 'unknown')}")
         
         # 获取用户输入
-        print(\"\\n🤔 请选择操作:\")
-        print(\"   1. 确认执行 (confirm)\")
-        print(\"   2. 修改任务 (modify)\")
-        print(\"   3. 取消执行 (cancel)\")
+        print("\\n🤔 请选择操作:")
+        print("   1. 确认执行 (confirm)")
+        print("   2. 修改任务 (modify)")
+        print("   3. 取消执行 (cancel)")
         
         try:
-            choice = input(\"请输入选择 (1/2/3): \").strip()
+            choice = input("请输入选择 (1/2/3): ").strip()
             
             if choice == '1':
                 return self._send_confirmation(session_id, 'confirm')
             elif choice == '2':
-                modification = input(\"请输入修改建议: \").strip()
+                modification = input("请输入修改建议: ").strip()
                 return self._send_confirmation(session_id, 'modify', modification)
             elif choice == '3':
                 return self._send_confirmation(session_id, 'cancel')
             else:
-                logger.warning(\"无效选择，取消任务\")
+                logger.warning("无效选择，取消任务")
                 return self._send_confirmation(session_id, 'cancel')
                 
         except (KeyboardInterrupt, EOFError):
-            logger.info(\"\\n用户中断，取消任务\")
+            logger.info("\n用户中断，取消任务")
             return self._send_confirmation(session_id, 'cancel')
     
     def _send_confirmation(self, session_id: str, action: str, user_message: str = None) -> bool:
@@ -179,11 +179,11 @@ class StandardChatStreamClient:
             是否成功发送
         """
         # 按照设计文档格式构造确认消息
-        message = f\"CONFIRM_ACTION:{action}\"
+        message = f"CONFIRM_ACTION:{action}"
         if user_message:
-            message += f\":{user_message}\"
+            message += f":{user_message}"
         
-        logger.info(f\"发送确认响应: {message}\")
+        logger.info(f"发送确认响应: {message}")
         
         try:
             response = requests.post(
@@ -197,7 +197,7 @@ class StandardChatStreamClient:
             )
             
             if response.status_code != 200:
-                logger.error(f\"确认响应失败: {response.status_code} - {response.text}\")
+                logger.error(f"确认响应失败: {response.status_code} - {response.text}")
                 return False
             
             # 处理确认响应
@@ -208,10 +208,10 @@ class StandardChatStreamClient:
                         chunk_type = chunk_data.get('chunk_type', 'content')
                         
                         if chunk_type == 'confirmation_received':
-                            logger.info(f\"✅ 确认已接收: {chunk_data.get('chunk', '')}\")
+                            logger.info(f"✅ 确认已接收: {chunk_data.get('chunk', '')}")
                             return True
                         elif chunk_type == 'error':
-                            logger.error(f\"❌ 确认失败: {chunk_data.get('chunk', '')}\")
+                            logger.error(f"❌ 确认失败: {chunk_data.get('chunk', '')}")
                             return False
                             
                     except json.JSONDecodeError:
@@ -220,120 +220,120 @@ class StandardChatStreamClient:
             return True
             
         except Exception as e:
-            logger.error(f\"发送确认响应失败: {e}\")
+            logger.error(f"发送确认响应失败: {e}")
             return False
 
 
 def demonstrate_standard_workflow():
-    \"\"\"演示标准工作流程\"\"\"
+    """演示标准工作流程"""
     
-    print(\"🚀 标准Chat Stream确认客户端演示\")
-    print(\"=\" * 50)
+    print("🚀 标准Chat Stream确认客户端演示")
+    print("=" * 50)
     
     client = StandardChatStreamClient()
     
     # 检查服务器连接
     try:
-        health_response = requests.get(f\"{client.base_url}/health\", timeout=5)
+        health_response = requests.get(f"{client.base_url}/health", timeout=5)
         if health_response.status_code == 200:
-            print(\"✅ 服务器连接正常\")
+            print("✅ 服务器连接正常")
         else:
-            print(f\"⚠️  服务器状态异常: {health_response.status_code}\")
+            print(f"⚠️  服务器状态异常: {health_response.status_code}")
     except Exception as e:
-        print(f\"❌ 无法连接到服务器: {e}\")
-        print(\"   请确保SimaCode API服务器正在运行:\")
-        print(\"   simacode serve --host 0.0.0.0 --port 8000\")
+        print(f"❌ 无法连接到服务器: {e}")
+        print("   请确保SimaCode API服务器正在运行:")
+        print("   simacode serve --host 0.0.0.0 --port 8000")
         return
     
     # 测试任务列表
     test_tasks = [
-        \"创建一个Python项目的自动化测试框架\",
-        \"实现文件备份和同步系统\",
-        \"开发用户认证和权限管理模块\",
-        \"构建数据分析和可视化工具\"
+        "创建一个Python项目的自动化测试框架",
+        "实现文件备份和同步系统",
+        "开发用户认证和权限管理模块",
+        "构建数据分析和可视化工具"
     ]
     
-    print(f\"\\n📋 可用测试任务:\")
+    print(f"\n📋 可用测试任务:")
     for i, task in enumerate(test_tasks, 1):
-        print(f\"   {i}. {task}\")
+        print(f"   {i}. {task}")
     
     try:
-        choice = input(f\"\\n请选择任务 (1-{len(test_tasks)}) 或输入自定义任务: \").strip()
+        choice = input(f"\n请选择任务 (1-{len(test_tasks)}) 或输入自定义任务: ").strip()
         
         if choice.isdigit() and 1 <= int(choice) <= len(test_tasks):
             selected_task = test_tasks[int(choice) - 1]
         else:
             selected_task = choice if choice else test_tasks[0]
         
-        session_id = f\"demo-{int(time.time())}\")
+        session_id = f"demo-{int(time.time())}"
         
-        print(f\"\\n🎯 执行任务: {selected_task}\")
-        print(f\"📋 会话ID: {session_id}\")
-        print(\"\\n开始执行...\\n\")
+        print(f"\n🎯 执行任务: {selected_task}")
+        print(f"📋 会话ID: {session_id}")
+        print("\n开始执行...\n")
         
         # 执行任务
         success = client.send_task_with_confirmation(selected_task, session_id)
         
         if success:
-            print(\"\\n🎉 任务执行成功完成!\")
+            print("\n🎉 任务执行成功完成!")
         else:
-            print(\"\\n❌ 任务执行失败或被取消\")
+            print("\n❌ 任务执行失败或被取消")
             
     except (KeyboardInterrupt, EOFError):
-        print(\"\\n👋 演示被用户中断\")
+        print("\n👋 演示被用户中断")
     except Exception as e:
-        print(f\"\\n💥 演示过程中出现错误: {e}\")
+        print(f"\n💥 演示过程中出现错误: {e}")
 
 
 def demonstrate_message_formats():
-    \"\"\"演示消息格式\"\"\"
+    """演示消息格式"""
     
-    print(\"\\n📨 标准消息格式演示\")
-    print(\"=\" * 30)
+    print("\n📨 标准消息格式演示")
+    print("=" * 30)
     
     # 确认请求格式示例
     confirmation_request_example = {
-        \"chunk\": \"请确认执行以下3个任务:\\n1. 创建备份脚本\\n2. 配置定时任务\\n3. 测试备份功能\",
-        \"session_id\": \"sess-123\",
-        \"finished\": False,
-        \"chunk_type\": \"confirmation_request\",
-        \"confirmation_data\": {
-            \"tasks\": [
-                {\"index\": 1, \"description\": \"创建备份脚本\", \"tool\": \"file_write\"},
-                {\"index\": 2, \"description\": \"配置定时任务\", \"tool\": \"bash\"},
-                {\"index\": 3, \"description\": \"测试备份功能\", \"tool\": \"bash\"}
+        "chunk": "请确认执行以下3个任务:\n1. 创建备份脚本\n2. 配置定时任务\n3. 测试备份功能",
+        "session_id": "sess-123",
+        "finished": False,
+        "chunk_type": "confirmation_request",
+        "confirmation_data": {
+            "tasks": [
+                {"index": 1, "description": "创建备份脚本", "tool": "file_write"},
+                {"index": 2, "description": "配置定时任务", "tool": "bash"},
+                {"index": 3, "description": "测试备份功能", "tool": "bash"}
             ],
-            \"options\": [\"confirm\", \"modify\", \"cancel\"],
-            \"timeout_seconds\": 300,
-            \"confirmation_round\": 1,
-            \"risk_level\": \"medium\"
+            "options": ["confirm", "modify", "cancel"],
+            "timeout_seconds": 300,
+            "confirmation_round": 1,
+            "risk_level": "medium"
         },
-        \"requires_response\": True,
-        \"stream_paused\": True
+        "requires_response": True,
+        "stream_paused": True
     }
     
-    print(\"📥 确认请求格式 (服务器 -> 客户端):\")
+    print("📥 确认请求格式 (服务器 -> 客户端):")
     print(json.dumps(confirmation_request_example, indent=2, ensure_ascii=False))
     
     # 确认响应格式示例
     confirmation_responses = [
-        {\"message\": \"CONFIRM_ACTION:confirm\", \"session_id\": \"sess-123\"},
-        {\"message\": \"CONFIRM_ACTION:modify:请添加错误处理和日志记录\", \"session_id\": \"sess-123\"},
-        {\"message\": \"CONFIRM_ACTION:cancel\", \"session_id\": \"sess-123\"}
+        {"message": "CONFIRM_ACTION:confirm", "session_id": "sess-123"},
+        {"message": "CONFIRM_ACTION:modify:请添加错误处理和日志记录", "session_id": "sess-123"},
+        {"message": "CONFIRM_ACTION:cancel", "session_id": "sess-123"}
     ]
     
-    print(\"\\n📤 确认响应格式 (客户端 -> 服务器):\")
+    print("\n📤 确认响应格式 (客户端 -> 服务器):")
     for i, response in enumerate(confirmation_responses, 1):
-        print(f\"   {i}. {json.dumps(response, ensure_ascii=False)}\")
+        print(f"   {i}. {json.dumps(response, ensure_ascii=False)}")
 
 
-if __name__ == \"__main__\":
+if __name__ == "__main__":
     try:
         demonstrate_message_formats()
         demonstrate_standard_workflow()
         
     except KeyboardInterrupt:
-        print(\"\\n👋 程序被用户中断\")
+        print("\n👋 程序被用户中断")
     except Exception as e:
-        print(f\"\\n💥 程序执行失败: {e}\")
+        print(f"\n💥 程序执行失败: {e}")
         sys.exit(1)

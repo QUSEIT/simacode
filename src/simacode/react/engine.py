@@ -948,6 +948,7 @@ class ReActEngine:
             return True
         else:
             # API模式下才使用ConfirmationManager
+            logger.info("API mode: confirmation handled synchronously")
             return self.confirmation_manager.submit_confirmation(response.session_id, response)
     
     def handle_cli_confirmation(self, session_id: str, tasks_summary: Dict[str, Any], confirmation_round: int = 1):
