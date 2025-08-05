@@ -82,7 +82,7 @@ class ReActService:
             # Cleanup old sessions
             cleanup_count = await self.session_manager.cleanup_old_sessions()
             if cleanup_count > 0:
-                logger.info(f"Cleaned up {cleanup_count} old sessions on startup")
+                logger.debug(f"Cleaned up {cleanup_count} old sessions on startup")
             
             # Initialize MCP integration
             await self._initialize_mcp_integration()
@@ -132,7 +132,8 @@ class ReActService:
             Dict[str, Any]: Status updates and results from ReAct processing
         """
         if not self.is_running:
-            raise ReActError("ReAct service is not running")
+            # Lazy start if not running instead of raising error
+            await self.start()
         
         try:
             # Get or create session

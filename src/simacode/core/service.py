@@ -170,7 +170,10 @@ class SimaCodeService:
     async def _ensure_react_service_started(self):
         """Ensure ReAct service is started before processing requests."""
         if not self.react_service.is_running:
+            logger.debug("Starting ReAct service on demand")
             await self.react_service.start()
+        else:
+            logger.debug("ReAct service already running")
     
     # 🗑️ 已删除 _is_conversational_input 方法
     # 现在统一使用 ReAct 引擎处理所有请求，让 TaskPlanner 内部进行分类

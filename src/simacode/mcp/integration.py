@@ -169,6 +169,11 @@ class SimaCodeToolRegistry:
         Returns:
             bool: True if MCP was successfully initialized
         """
+        # Skip if already enabled
+        if self.mcp_enabled:
+            logger.debug("MCP integration already initialized, skipping")
+            return True
+            
         try:
             logger.info("Initializing MCP integration")
             
