@@ -141,11 +141,21 @@ class SimaCodeToolRegistry:
         if self.mcp_enabled:
             return True
         
+        # Prevent duplicate initialization attempts
+        if hasattr(self, '_initializing_mcp') and self._initializing_mcp:
+            logger.debug("MCP initialization already in progress, skipping")
+            return False
+        
         # Check if we should auto-initialize
         if self.state_manager.is_initialized():
-            logger.info("Auto-initializing MCP from saved state...")
+            logger.debug("Auto-initializing MCP from saved state...")
             config_path = self.state_manager.get_config_path()
-            return await self.initialize_mcp(config_path)
+            self._initializing_mcp = True
+            try:
+                result = await self.initialize_mcp(config_path)
+                return result
+            finally:
+                self._initializing_mcp = False
         
         return False
     

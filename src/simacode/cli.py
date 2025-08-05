@@ -7,6 +7,7 @@ handling command parsing, configuration loading, and application initialization.
 
 import asyncio
 import sys
+import logging
 from pathlib import Path
 from typing import Optional
 
@@ -23,6 +24,11 @@ from .cli_mcp import mcp_group
 install(show_locals=True)
 
 console = Console()
+logger = logging.getLogger(__name__)
+
+# Global service instance to prevent repeated initialization in CLI
+_global_simacode_service: Optional[SimaCodeService] = None
+_service_init_lock = asyncio.Lock()
 
 
 @click.group(invoke_without_command=True)
@@ -165,13 +171,23 @@ def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: b
     asyncio.run(_run_chat(ctx, message, interactive, react, session_id))
 
 
+async def _get_or_create_service(config_obj) -> SimaCodeService:
+    """Get or create a global SimaCodeService instance to prevent repeated initialization."""
+    global _global_simacode_service
+    
+    async with _service_init_lock:
+        if _global_simacode_service is None:
+            logger.info("Initializing global SimaCodeService instance for CLI")
+            _global_simacode_service = SimaCodeService(config_obj, api_mode=False)
+        return _global_simacode_service
+
 async def _run_chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str]) -> None:
     """Run the chat functionality using unified SimaCodeService."""
     config_obj = ctx.obj["config"]
     
     try:
-        # Initialize unified service in CLI mode
-        simacode_service = SimaCodeService(config_obj, api_mode=False)
+        # Use global service instance to prevent repeated MCP initialization
+        simacode_service = await _get_or_create_service(config_obj)
         
         if react:
             # Use ReAct mode for intelligent task planning and execution

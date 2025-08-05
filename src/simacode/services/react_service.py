@@ -229,6 +229,11 @@ class ReActService:
     
     async def _initialize_mcp_integration(self) -> None:
         """Initialize MCP integration for the ReAct engine."""
+        # Skip if already initialized
+        if self.mcp_integration is not None:
+            logger.debug("MCP integration already initialized, skipping")
+            return
+            
         try:
             logger.info("Initializing MCP integration for ReAct engine...")
             
