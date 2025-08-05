@@ -893,9 +893,13 @@ class ReActEngine:
         
         elif response.action == "confirm":
             session.add_log_entry("Tasks confirmed by user")
+            # 用户确认后，直接进入执行状态，而不是重新规划
+            session.update_state(ReActState.EXECUTING)
+            return  # 直接返回，不需要设置其他状态
         
-        # 恢复执行状态
-        session.update_state(ReActState.PLANNING)
+        # 只有在modify的情况下才重新规划
+        if response.action == "modify":
+            session.update_state(ReActState.PLANNING)
 
     def _create_tasks_summary(self, tasks: List[Task]) -> Dict[str, Any]:
         """创建任务摘要用于确认界面"""
