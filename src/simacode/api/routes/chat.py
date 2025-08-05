@@ -118,29 +118,30 @@ async def chat_stream(
                             )
                             yield f"data: {confirmation_chunk.model_dump_json()}\n\n"
                             
-                            # 等待用户确认
-                            confirmation_response = await chat_confirmation_manager.wait_for_confirmation(
-                                request.session_id
-                            )
+                            # 注意：不需要在这里等待确认，ReAct引擎会处理等待确认的逻辑
+                            # 这里只负责发送确认请求给客户端
+                            # confirmation_response = await chat_confirmation_manager.wait_for_confirmation(
+                            #     request.session_id
+                            # )
                             
-                            if confirmation_response and confirmation_response.action != "cancel":
-                                # 发送确认接收消息
-                                received_chunk = create_confirmation_received_chunk(
-                                    session_id, confirmation_response
-                                )
-                                yield f"data: {received_chunk.model_dump_json()}\n\n"
-                                
-                                # 提交确认并继续流式响应  
-                                service.submit_confirmation(confirmation_response)
-                                
-                                # 继续处理原来的生成器（ReAct引擎将继续）
-                                continue
-                            else:
-                                # 取消或超时
-                                cancel_reason = "用户取消" if confirmation_response and confirmation_response.action == "cancel" else "确认超时"
-                                cancel_chunk = create_error_chunk(f"任务已取消：{cancel_reason}", session_id, cancel_reason)
-                                yield f"data: {cancel_chunk.model_dump_json()}\n\n"
-                                return
+                            # 不需要处理确认响应，让ReAct引擎处理
+                            # if confirmation_response and confirmation_response.action != "cancel":
+                            #     # 发送确认接收消息
+                            #     received_chunk = create_confirmation_received_chunk(
+                            #         session_id, confirmation_response
+                            #     )
+                            #     yield f"data: {received_chunk.model_dump_json()}\n\n"
+                            #     
+                            #     # 注意：不需要再次提交确认，因为ReAct引擎的wait_for_confirmation已经处理了
+                            #     # await service.submit_confirmation(confirmation_response)
+                            #     
+                            #     # 不用continue，让流继续处理后续的数据
+                            # else:
+                            #     # 取消或超时
+                            #     cancel_reason = "用户取消" if confirmation_response and confirmation_response.action == "cancel" else "确认超时"
+                            #     cancel_chunk = create_error_chunk(f"任务已取消：{cancel_reason}", session_id, cancel_reason)
+                            #     yield f"data: {cancel_chunk.model_dump_json()}\n\n"
+                            #     return
                         
                         # 处理常规chunks
                         else:
@@ -271,12 +272,13 @@ async def handle_confirmation_request(
         confirmation_data_str = chunk[len("[confirmation_request]"):].strip()
         confirmation_data = json.loads(confirmation_data_str)
         
-        # 通过确认管理器创建确认请求
-        await chat_confirmation_manager.request_confirmation(
-            session_id=session_id,
-            tasks=confirmation_data.get("tasks", []),
-            timeout_seconds=confirmation_data.get("timeout_seconds", 300)
-        )
+        # 注意：不要重复创建确认请求，因为ReAct引擎已经创建过了
+        # 这里只需要格式化确认消息给客户端
+        # await chat_confirmation_manager.request_confirmation(
+        #     session_id=session_id,
+        #     tasks=confirmation_data.get("tasks", []),
+        #     timeout_seconds=confirmation_data.get("timeout_seconds", 300)
+        # )
         
         # 按照设计文档格式化确认消息
         tasks = confirmation_data.get("tasks", [])

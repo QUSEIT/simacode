@@ -104,7 +104,8 @@ class SimaCodeConfirmationClient {
                             
                             // 如果任务完成
                             if (chunkData.chunk_type === 'completion' || chunkData.finished) {
-                                console.log('🎉 任务执行完成!');
+                                console.log('🎉 任务执行完成!!!');
+                                console.log(chunkData)
                                 return true;
                             }
                             

@@ -364,6 +364,10 @@ class SimaCodeService:
                     confirmation_request = update.get("confirmation_request", {})
                     tasks_summary = update.get("tasks_summary", {})
                     
+                    logger.debug(f"[CONFIRM_DEBUG] Service processing confirmation_request update")
+                    logger.debug(f"[CONFIRM_DEBUG] confirmation_request: {confirmation_request}")
+                    logger.debug(f"[CONFIRM_DEBUG] tasks_summary: {tasks_summary}")
+                    
                     confirmation_data = {
                         "type": "confirmation_request",
                         "content": content,
@@ -377,6 +381,7 @@ class SimaCodeService:
                         "confirmation_request": confirmation_request,
                         "tasks_summary": tasks_summary
                     }
+                    logger.debug(f"[CONFIRM_DEBUG] Final confirmation_data tasks count: {len(confirmation_data.get('tasks', []))}")
                     yield f"[confirmation_request]{json.dumps(confirmation_data)}"
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
@@ -616,9 +621,12 @@ class SimaCodeService:
                 "error": str(e)
             }
     
-    def submit_confirmation(self, response) -> bool:
+    async def submit_confirmation(self, response) -> bool:
         """提交用户确认响应的便捷方法"""
         try:
+            logger.debug(f"[CONFIRM_DEBUG] SimaCodeService.submit_confirmation called")
+            logger.debug(f"[CONFIRM_DEBUG] Response: {response}, API mode: {self.api_mode}")
+            
             if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
                 # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
                 if not self.api_mode:
@@ -627,7 +635,9 @@ class SimaCodeService:
                 else:
                     # API模式下才使用ConfirmationManager
                     logger.info("API mode: confirmation handled synchronously")
-                    return self.react_service.react_engine.submit_confirmation(response)
+                    result = await self.react_service.react_engine.submit_confirmation(response)
+                    logger.debug(f"[CONFIRM_DEBUG] Engine submit_confirmation result: {result}")
+                    return result
             else:
                 logger.warning("ReAct engine not available for confirmation submission")
                 return False

@@ -164,8 +164,14 @@ class ReActEngine:
     def confirmation_manager(self):
         """Lazy initialization of confirmation manager"""
         if self._confirmation_manager is None:
-            from .confirmation_manager import ConfirmationManager
-            self._confirmation_manager = ConfirmationManager()
+            if self.api_mode:
+                # API模式下使用API层的确认管理器
+                from ..api.chat_confirmation import chat_confirmation_manager
+                self._confirmation_manager = chat_confirmation_manager
+            else:
+                # CLI模式下使用内部确认管理器
+                from .confirmation_manager import ConfirmationManager
+                self._confirmation_manager = ConfirmationManager()
         return self._confirmation_manager
     
     async def process_user_input(self, user_input: str, context: Optional[Dict[str, Any]] = None, session: Optional[ReActSession] = None) -> AsyncGenerator[Dict[str, Any], None]:
@@ -215,6 +221,7 @@ class ReActEngine:
                 yield update
             
             # Phase 2: Execution and Evaluation
+            logger.debug(f"[CONFIRM_DEBUG] Starting execution phase for session {session.id}, state: {session.state}")
             async for update in self._execution_and_evaluation_phase(session):
                 yield update
             
@@ -345,6 +352,9 @@ class ReActEngine:
     
     async def _execution_and_evaluation_phase(self, session: ReActSession) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute tasks and evaluate results."""
+        logger.debug(f"[CONFIRM_DEBUG] Execution phase started for session {session.id}")
+        logger.debug(f"[CONFIRM_DEBUG] Session state: {session.state}, tasks count: {len(session.tasks) if session.tasks else 0}")
+        
         if not session.tasks:
             # Handle conversational inputs that don't require task execution
             session.add_log_entry("No tasks to execute - treating as conversational input")
@@ -568,9 +578,9 @@ class ReActEngine:
         }
     
     def _create_status_confirmation(self, session: ReActSession, message: str) -> Dict[str, Any]:
-        """Create a status confirmation """
+        """Create a status confirmation message (not a confirmation request)"""
         return {
-            "type": "confirmation_request",
+            "type": "status",
             "content": message,
             "session_id": session.id,
             "state": session.state.value,
@@ -736,6 +746,11 @@ class ReActEngine:
     def _should_request_confirmation(self, session: ReActSession, tasks: List[Task]) -> bool:
         """判断是否需要请求人工确认"""
         
+        # 🆕 检查会话状态 - 如果已经在执行状态，不需要再次确认
+        if session.state in [ReActState.EXECUTING, ReActState.COMPLETED, ReActState.FAILED]:
+            logger.debug(f"Session {session.id} is in state {session.state.value}, skipping confirmation")
+            return False
+        
         # 检查配置
         if not self.config or not hasattr(self.config, 'react'):
             return False
@@ -776,23 +791,38 @@ class ReActEngine:
                 confirmation_round += 1
                 current_tasks = session.tasks  # 使用当前的任务列表
                 
+                logger.debug(f"[CONFIRM_DEBUG] Starting confirmation round {confirmation_round}, session: {session.id}")
+                logger.debug(f"[CONFIRM_DEBUG] Current session state: {session.state}")
+                
                 try:
                     round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
                     tasks_summary = self._create_tasks_summary(current_tasks)
                     
                     if self.api_mode:
                         # API模式：使用异步确认流程
+                        logger.debug(f"[CONFIRM_DEBUG] API mode: Starting confirmation request for session {session.id}")
+                        logger.debug(f"[CONFIRM_DEBUG] Tasks to confirm: {len(current_tasks)} tasks")
+                        
                         # 发起确认请求
                         confirmation_request = await self.confirmation_manager.request_confirmation(
                             session.id, current_tasks, timeout
                         )
+                        logger.debug(f"[CONFIRM_DEBUG] Confirmation request created: {type(confirmation_request)}")
                         
                         # 发送确认请求给客户端
+                        # 处理不同确认管理器的返回值类型
+                        if hasattr(confirmation_request, 'model_dump'):
+                            # TaskConfirmationRequest (Pydantic model)
+                            confirmation_data = confirmation_request.model_dump()
+                        else:
+                            # Dict[str, Any] from ChatStreamConfirmationManager
+                            confirmation_data = confirmation_request
+                        
                         yield {
                             "type": "confirmation_request",
                             "content": f"规划了 {len(current_tasks)} 个任务{round_info}，请确认是否执行",
                             "session_id": session.id,
-                            "confirmation_request": confirmation_request.model_dump(),
+                            "confirmation_request": confirmation_data,
                             "tasks_summary": tasks_summary,
                             "confirmation_round": confirmation_round
                         }
@@ -800,12 +830,28 @@ class ReActEngine:
                         # 等待用户确认
                         yield self._create_status_confirmation(session, f"等待用户确认执行计划{round_info}（超时：{timeout}秒）")
                         
+                        logger.debug(f"[CONFIRM_DEBUG] Waiting for confirmation from session {session.id}, timeout: {timeout}s")
                         confirmation_response = await self.confirmation_manager.wait_for_confirmation(
-                            session.id, timeout
+                            session.id
                         )
+                        logger.debug(f"[CONFIRM_DEBUG] Received confirmation response: {confirmation_response}")
+                        logger.debug(f"[CONFIRM_DEBUG] Response type: {type(confirmation_response)}")
+                        if confirmation_response:
+                            logger.debug(f"[CONFIRM_DEBUG] Response action: {getattr(confirmation_response, 'action', 'NO_ACTION')}")
                         
                         # 处理用户响应
+                        logger.debug(f"[CONFIRM_DEBUG] Processing confirmation response...")
                         await self._process_confirmation_response(session, confirmation_response)
+                        logger.debug(f"[CONFIRM_DEBUG] Confirmation response processed, session state: {session.state}")
+                        
+                        # 发送确认接收的消息给流式输出
+                        if confirmation_response and confirmation_response.action == "confirm":
+                            yield {
+                                "type": "confirmation_received",
+                                "content": f"✅ 用户确认执行任务，开始执行...",
+                                "session_id": session.id,
+                                "confirmed_tasks": len(current_tasks)
+                            }
                         
                     else:
                         # CLI模式：直接使用同步确认界面
@@ -820,10 +866,20 @@ class ReActEngine:
                         await self._process_confirmation_response(session, confirmation_response)
                     
                     # 如果到这里没有异常，说明确认完成，退出循环
+                    logger.debug(f"[CONFIRM_DEBUG] Confirmation round {confirmation_round} completed successfully, breaking loop")
+                    
+                    # 发送确认完成的状态更新
+                    yield {
+                        "type": "confirmation_completed",
+                        "content": f"确认流程完成，准备执行任务",
+                        "session_id": session.id,
+                        "session_state": session.state.value
+                    }
                     break
                     
-                except ReplanningRequiresConfirmationError:
+                except ReplanningRequiresConfirmationError as e:
                     # 🆕 用户请求了修改，需要继续下一轮确认
+                    logger.debug(f"[CONFIRM_DEBUG] Replanning required: {e}")
                     yield {
                         "type": "task_replanned",
                         "content": f"任务已根据用户建议重新规划，共{len(session.tasks)}个任务",
@@ -831,6 +887,10 @@ class ReActEngine:
                         "new_task_count": len(session.tasks)
                     }
                     continue  # 继续下一轮确认
+                except Exception as e:
+                    logger.error(f"[CONFIRM_DEBUG] Unexpected error in confirmation round {confirmation_round}: {e}")
+                    logger.error(f"[CONFIRM_DEBUG] Exception type: {type(e)}")
+                    raise  # 重新抛出异常
                     
             if confirmation_round >= max_confirmation_rounds:
                 yield {
@@ -863,6 +923,14 @@ class ReActEngine:
     ):
         """处理确认响应"""
         
+        logger.debug(f"[CONFIRM_DEBUG] _process_confirmation_response called with response: {response}")
+        
+        if not response:
+            logger.error(f"[CONFIRM_DEBUG] No confirmation response received, cannot process")
+            session.update_state(ReActState.FAILED)
+            from .exceptions import ReActError
+            raise ReActError("No confirmation response received")
+        
         if response.action == "cancel":
             session.update_state(ReActState.FAILED)
             from .exceptions import ReActError
@@ -892,14 +960,12 @@ class ReActEngine:
                 session.add_log_entry("User requested modification but no modification details provided")
         
         elif response.action == "confirm":
+            logger.debug(f"[CONFIRM_DEBUG] User confirmed tasks for session {session.id}")
             session.add_log_entry("Tasks confirmed by user")
             # 用户确认后，直接进入执行状态，而不是重新规划
             session.update_state(ReActState.EXECUTING)
+            logger.debug(f"[CONFIRM_DEBUG] Session state updated to EXECUTING: {session.state}")
             return  # 直接返回，不需要设置其他状态
-        
-        # 只有在modify的情况下才重新规划
-        if response.action == "modify":
-            session.update_state(ReActState.PLANNING)
 
     def _create_tasks_summary(self, tasks: List[Task]) -> Dict[str, Any]:
         """创建任务摘要用于确认界面"""
@@ -944,7 +1010,7 @@ class ReActEngine:
         
         return dangerous_tasks
     
-    def submit_confirmation(self, response) -> bool:
+    async def submit_confirmation(self, response) -> bool:
         """提交用户确认响应的便捷方法"""
         # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
         if not self.api_mode:
@@ -953,7 +1019,25 @@ class ReActEngine:
         else:
             # API模式下才使用ConfirmationManager
             logger.info("API mode: confirmation handled synchronously")
-            return self.confirmation_manager.submit_confirmation(response.session_id, response)
+            # 检查确认管理器的接口类型
+            if hasattr(self.confirmation_manager, 'submit_confirmation'):
+                # 检查是否为ChatStreamConfirmationManager (async方法)
+                import inspect
+                if inspect.iscoroutinefunction(self.confirmation_manager.submit_confirmation):
+                    # ChatStreamConfirmationManager - 异步调用和不同参数
+                    try:
+                        return await self.confirmation_manager.submit_confirmation(
+                            response.session_id, 
+                            response.action, 
+                            getattr(response, 'user_message', None)
+                        )
+                    except Exception as e:
+                        logger.error(f"Failed to submit confirmation: {e}")
+                        return False
+                else:
+                    # ConfirmationManager - 同步调用
+                    return self.confirmation_manager.submit_confirmation(response)
+            return False
     
     def handle_cli_confirmation(self, session_id: str, tasks_summary: Dict[str, Any], confirmation_round: int = 1):
         """
