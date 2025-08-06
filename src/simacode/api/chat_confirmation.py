@@ -198,6 +198,7 @@ class ChatStreamConfirmationManager:
             )
             confirmation.user_response = timeout_response
             
+
             return timeout_response
         
         finally:

@@ -411,15 +411,26 @@ async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional
     is_flag=True,
     help="Enable auto-reload for development",
 )
+@click.option(
+    "--debug",
+    is_flag=True,
+    help="Enable DEBUG logging for HTTP requests/responses",
+)
 @click.pass_context
-def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool) -> None:
+def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool, debug: bool) -> None:
     """Start SimaCode in API service mode."""
     config_obj = ctx.obj["config"]
+    
+    # 如果启用了debug选项，覆盖配置中的日志级别
+    if debug:
+        config_obj.logging.level = "DEBUG"
+        console.print("[bold yellow]🐛 DEBUG mode enabled - HTTP requests/responses will be logged[/bold yellow]")
     
     console.print("[bold green]🚀 Starting SimaCode API Server[/bold green]")
     console.print(f"[dim]Host: {host}:{port}[/dim]")
     console.print(f"[dim]Workers: {workers}[/dim]")
-    console.print(f"[dim]Reload: {reload}[/dim]\n")
+    console.print(f"[dim]Reload: {reload}[/dim]")
+    console.print(f"[dim]Debug: {debug}[/dim]\n")
     
     try:
         # Import here to avoid circular imports and optional dependency
@@ -429,6 +440,9 @@ def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool) 
         # Create FastAPI app with config
         app = create_app(config_obj)
         
+        # 设置 uvicorn 日志级别
+        uvicorn_log_level = "debug" if debug else "info"
+        
         # Run the server
         uvicorn.run(
             app,
@@ -436,7 +450,7 @@ def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool) 
             port=port,
             workers=workers if not reload else 1,  # uvicorn doesn't support workers with reload
             reload=reload,
-            log_level="info"
+            log_level=uvicorn_log_level
         )
         
     except ImportError:
