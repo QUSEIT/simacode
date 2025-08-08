@@ -794,6 +794,31 @@ class ReActEngine:
                 logger.debug(f"[CONFIRM_DEBUG] Starting confirmation round {confirmation_round}, session: {session.id}")
                 logger.debug(f"[CONFIRM_DEBUG] Current session state: {session.state}")
                 
+                # 🆕 检查是否需要跳过确认（修改计划后的情况）
+                if session.metadata.get("skip_next_confirmation", False):
+                    session.metadata.pop("skip_next_confirmation", None)  # 清除标志，确保只跳过一次
+                    session.add_log_entry(f"Skipping confirmation for replanned tasks (round {confirmation_round})")
+                    session.update_state(ReActState.EXECUTING)
+                    
+                    logger.info(f"Skipping confirmation round {confirmation_round} after task replanning")
+                    
+                    yield {
+                        "type": "confirmation_skipped",
+                        "content": f"✅ 任务已根据您的要求重新规划完成，直接开始执行（跳过第{confirmation_round}轮确认）",
+                        "session_id": session.id,
+                        "task_count": len(current_tasks),
+                        "confirmation_round": confirmation_round
+                    }
+                    
+                    # 发送确认完成的状态更新
+                    yield {
+                        "type": "confirmation_completed",
+                        "content": f"确认流程完成，准备执行任务",
+                        "session_id": session.id,
+                        "session_state": session.state.value
+                    }
+                    break
+                
                 try:
                     round_info = f" (第{confirmation_round}轮)" if confirmation_round > 1 else ""
                     tasks_summary = self._create_tasks_summary(current_tasks)
@@ -955,6 +980,8 @@ class ReActEngine:
                     session.add_log_entry("Requesting confirmation for replanned tasks")
                     # 将状态重置为等待确认，以便再次请求确认
                     session.update_state(ReActState.AWAITING_CONFIRMATION)
+                    # 🆕 设置跳过下次确认的标志，修改计划后直接执行
+                    session.metadata["skip_next_confirmation"] = True
                     raise ReplanningRequiresConfirmationError("Tasks replanned, confirmation required for new plan")
             else:
                 session.add_log_entry("User requested modification but no modification details provided")

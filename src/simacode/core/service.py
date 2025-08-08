@@ -386,6 +386,9 @@ class SimaCodeService:
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
                     yield f"[task_init] {content}"
+                elif update_type == "confirmation_skipped":
+                    # 🆕 Handle confirmation_skipped message type
+                    yield f"[confirmation_skipped] {content}"
                 elif update_type in ["tool_execution", "status_update"]:
                     # 为工具执行和状态更新添加前缀标识
                     yield f"[{update_type}] {content}"

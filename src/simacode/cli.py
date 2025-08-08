@@ -231,6 +231,8 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     console.print(f"[red]⏰ {content}[/red]")
                 elif update_type == "task_replanned":
                     console.print(f"[blue]🔄 {content}[/blue]")
+                elif update_type == "confirmation_skipped":
+                    console.print(f"[bold green]⚡ {content}[/bold green]")
                 elif update_type == "conversational_response":
                     # 对话性回复，直接显示内容，不显示额外标识
                     console.print(f"[white]{content}[/white]")
@@ -286,6 +288,8 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                                 console.print(f"[red]⏰ {content}[/red]")
                             elif update_type == "task_replanned":
                                 console.print(f"[blue]🔄 {content}[/blue]")
+                            elif update_type == "confirmation_skipped":
+                                console.print(f"[bold green]⚡ {content}[/bold green]")
                             elif update_type == "conversational_response":
                                 # 对话性回复，直接显示内容，不显示额外标识
                                 console.print(f"[white]{content}[/white]")
