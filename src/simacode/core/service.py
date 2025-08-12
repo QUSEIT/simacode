@@ -545,7 +545,11 @@ class SimaCodeService:
                     "session_id": session_id,
                     "created_at": session_info.get("created_at"),
                     "message_count": len(session_info.get("metadata", {}).get("conversation_history", [])),
-                    "status": session_info.get("state", "active")
+                    "status": session_info.get("state", "active"),
+                    "tasks": session_info.get("tasks", []),
+                    "updated_at": session_info.get("updated_at"),
+                    "evaluations": session_info.get("evaluations", {}),
+                    "task_results": session_info.get("task_results", {})
                 }
             else:
                 return {"error": "Session not found"}

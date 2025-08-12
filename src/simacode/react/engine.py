@@ -597,30 +597,17 @@ class ReActEngine:
             "timestamp": datetime.now().isoformat()
         }
     
-    def _create_final_result(self, session: ReActSession) -> Dict[str, Any]:
-        """Create detailed final result summary with task-by-task breakdown."""
+    def _generate_task_summary_content(self, session: ReActSession) -> str:
+        """Generate task execution summary content for completion messages."""
         successful_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.COMPLETED)
         failed_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.FAILED)
         total_tasks = len(session.tasks)
         
         # Handle conversational inputs with no tasks
         if total_tasks == 0:
-            return {
-                "type": "final_result",
-                "content": "Conversational interaction completed successfully",
-                "session_id": session.id,
-                "session_data": session.to_dict(),
-                "summary": {
-                    "total_tasks": 0,
-                    "successful_tasks": 0,
-                    "failed_tasks": 0,
-                    "execution_time": (session.updated_at - session.created_at).total_seconds(),
-                    "interaction_type": "conversational"
-                }
-            }
+            return "Conversational interaction completed successfully"
         
         # Generate detailed task breakdown
-        task_results = []
         content_lines = ["🔍 执行摘要：", ""]
         
         for i, task in enumerate(session.tasks, 1):
@@ -666,6 +653,57 @@ class ReActEngine:
                     content_lines.append(f"   错误: {error_text}")
             
             content_lines.append("")  # Empty line for spacing
+        
+        # Overall result
+        overall_success = failed_tasks == 0 and successful_tasks > 0
+        if overall_success:
+            overall_emoji = "🎉"
+            overall_text = f"所有任务执行成功！共完成 {successful_tasks} 个任务"
+        elif successful_tasks > 0:
+            overall_emoji = "⚠️"
+            overall_text = f"部分任务完成：{successful_tasks} 个成功，{failed_tasks} 个失败"
+        else:
+            overall_emoji = "❌"
+            overall_text = f"所有任务都失败了：共 {failed_tasks} 个任务失败"
+        
+        content_lines.extend([
+            "📊 最终结果：",
+            f"{overall_emoji} {overall_text}",
+            f"⏱️ 总耗时: {(session.updated_at - session.created_at).total_seconds():.1f} 秒"
+        ])
+        
+        return "\n".join(content_lines)
+
+    def _create_final_result(self, session: ReActSession) -> Dict[str, Any]:
+        """Create detailed final result summary with task-by-task breakdown."""
+        successful_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.COMPLETED)
+        failed_tasks = sum(1 for task in session.tasks if task.status == TaskStatus.FAILED)
+        total_tasks = len(session.tasks)
+        
+        # Handle conversational inputs with no tasks
+        if total_tasks == 0:
+            return {
+                "type": "final_result",
+                "content": self._generate_task_summary_content(session),
+                "session_id": session.id,
+                "session_data": session.to_dict(),
+                "summary": {
+                    "total_tasks": 0,
+                    "successful_tasks": 0,
+                    "failed_tasks": 0,
+                    "execution_time": (session.updated_at - session.created_at).total_seconds(),
+                    "interaction_type": "conversational"
+                }
+            }
+        
+        # Generate detailed task breakdown for structured data
+        task_results = []
+        for i, task in enumerate(session.tasks, 1):
+            # Get task status and evaluation
+            evaluation = session.evaluations.get(task.id)
+            
+            # Get tools used
+            tools_used = [task.tool_name] if task.tool_name else []
             
             # Store structured task result
             error_details = []
@@ -687,27 +725,12 @@ class ReActEngine:
                 "error_details": error_details
             })
         
-        # Overall result
+        # Overall result for metadata
         overall_success = failed_tasks == 0 and successful_tasks > 0
-        if overall_success:
-            overall_emoji = "🎉"
-            overall_text = f"所有任务执行成功！共完成 {successful_tasks} 个任务"
-        elif successful_tasks > 0:
-            overall_emoji = "⚠️"
-            overall_text = f"部分任务完成：{successful_tasks} 个成功，{failed_tasks} 个失败"
-        else:
-            overall_emoji = "❌"
-            overall_text = f"所有任务都失败了：共 {failed_tasks} 个任务失败"
-        
-        content_lines.extend([
-            "📊 最终结果：",
-            f"{overall_emoji} {overall_text}",
-            f"⏱️ 总耗时: {(session.updated_at - session.created_at).total_seconds():.1f} 秒"
-        ])
         
         return {
             "type": "final_result",
-            "content": "\n".join(content_lines),
+            "content": self._generate_task_summary_content(session),
             "session_id": session.id,
             "session_data": session.to_dict(),
             "summary": {

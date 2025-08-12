@@ -149,7 +149,15 @@ async def chat_stream(
                             yield f"data: {chunk_data.model_dump_json()}\n\n"
                     
                     # 发送完成信号
-                    final_chunk = create_completion_chunk(session_id)
+                    # 尝试获取session信息以生成详细摘要
+                    session_info = None
+                    try:
+                        if session_id and session_id != "new":
+                            session_info = await service.get_session_info(session_id)
+                    except Exception:
+                        pass  # 忽略获取session失败的情况
+                    
+                    final_chunk = await create_completion_chunk(session_id, session_info, service)
                     yield f"data: {final_chunk.model_dump_json()}\n\n"
                 else:
                     # 非流式响应（回退）
@@ -464,11 +472,23 @@ def create_error_chunk(error_message: str, session_id: str, reason: str = None) 
     return create_chunk("error", f"❌ {error_message}", session_id, finished=True, metadata=metadata)
 
 
-def create_completion_chunk(session_id: str) -> StreamingChatChunk:
+async def create_completion_chunk(session_id: str, session=None, service=None) -> StreamingChatChunk:
     """创建完成chunk"""
+    # 如果有session信息，尝试生成详细的任务摘要
+    completion_content = "🔍 执行摘要：\n\n📊 最终结果：\n🎉 任务执行完成"
+    
+    if session and service:
+        try:
+            # 尝试从react_service生成摘要
+            if hasattr(service, 'react_service'):
+                completion_content = await service.react_service.generate_task_summary_content(session_id)
+        except Exception:
+            # 如果生成摘要失败，使用默认消息
+            pass
+    
     return create_chunk(
         "completion", 
-        "", 
+        completion_content, 
         session_id, 
         finished=True, 
         metadata={"stream_completed": True}
