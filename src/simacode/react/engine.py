@@ -556,7 +556,7 @@ class ReActEngine:
         # Skip assessment if no tasks were executed (conversational input)
         if not session.tasks:
             session.add_log_entry("Skipping final assessment - no tasks were executed")
-            yield self._create_status_update(session, "Conversational interaction completed")
+            yield self._create_status_update(session, "Skipping final assessment - no tasks were executed")
             return
             
         session.update_state(ReActState.EVALUATING)

@@ -436,7 +436,7 @@ async function demonstrateConfirmationFlow() {
         // 执行任务并处理确认流程
         const success = await client.executeTaskWithConfirmation(
             selectedTask,
-            simulateUserConfirmation  // 使用模拟确认，也可以用 interactiveUserConfirmation
+            interactiveUserConfirmation //simulateUserConfirmation  // 使用模拟确认，也可以用 interactiveUserConfirmation
         );
 
         if (success) {

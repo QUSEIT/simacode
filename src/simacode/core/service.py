@@ -353,7 +353,7 @@ class SimaCodeService:
                 if update_type == "conversational_response":
                     yield content
                 elif update_type == "final_result":
-                    yield content
+                    yield f"[status_update] {content}"
                 #elif update_type == "sub_task_result":
                 #    yield content
                 elif update_type == "confirmation_request":

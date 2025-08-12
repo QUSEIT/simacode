@@ -284,7 +284,7 @@ async def handle_confirmation_request(
         tasks = confirmation_data.get("tasks", [])
         task_descriptions = []
         for task in tasks:
-            task_descriptions.append(f"{task.get('index', '?')}. {task.get('description', '未知任务')}")
+            task_descriptions.append(f"{task.get('index', '-')} {task.get('description', '未知任务')}")
         
         confirmation_message = f"请确认执行以下{len(tasks)}个任务：\n" + "\n".join(task_descriptions)
         
@@ -477,7 +477,7 @@ def create_completion_chunk(session_id: str) -> StreamingChatChunk:
 
 def create_confirmation_received_chunk(session_id: str, action: str, user_message: str = None) -> StreamingChatChunk:
     """创建确认接收chunk"""
-    message = f"✅ 确认已接收，动作: {action}"
+    message = f"✅ 收到您的反馈: {action}"
     if user_message:
         message += f" - {user_message}"
     
