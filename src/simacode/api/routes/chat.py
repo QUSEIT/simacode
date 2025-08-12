@@ -474,8 +474,10 @@ def create_error_chunk(error_message: str, session_id: str, reason: str = None) 
 
 async def create_completion_chunk(session_id: str, session=None, service=None) -> StreamingChatChunk:
     """创建完成chunk"""
+    from ...utils.task_summary import DEFAULT_TASK_SUCCESS_MESSAGE, CONVERSATIONAL_SUCCESS_MESSAGE
+    
     # 如果有session信息，尝试生成详细的任务摘要
-    completion_content = "🔍 执行摘要：\n\n📊 最终结果：\n🎉 任务执行完成"
+    completion_content = DEFAULT_TASK_SUCCESS_MESSAGE
     
     if session and service:
         try:
@@ -486,8 +488,14 @@ async def create_completion_chunk(session_id: str, session=None, service=None) -
             # 如果生成摘要失败，使用默认消息
             pass
     
+    # 根据内容决定chunk类型
+    if completion_content == CONVERSATIONAL_SUCCESS_MESSAGE:
+        chunk_type = "status"
+    else:
+        chunk_type = "completion"
+    
     return create_chunk(
-        "completion", 
+        chunk_type, 
         completion_content, 
         session_id, 
         finished=True, 
