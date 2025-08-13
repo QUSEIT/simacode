@@ -241,17 +241,39 @@ class ReActEngine:
             yield final_result
             
         except Exception as e:
-            session.update_state(ReActState.FAILED)
-            session.add_log_entry(f"ReAct processing failed: {str(e)}", "ERROR")
-            
-            yield {
-                "type": "error",
-                "content": f"ReAct processing failed: {str(e)}",
-                "session_id": session.id,
-                "error_type": type(e).__name__
-            }
-            
-            logger.error(f"ReAct processing failed: {str(e)}", exc_info=True)
+            # 检查是否是用户取消的异常，如果是则不设置为FAILED状态
+            if isinstance(e, ReActError) and ("User cancelled" in str(e) or "cancelled" in str(e).lower()):
+                session.add_log_entry(f"ReAct processing cancelled by user: {str(e)}", "INFO")
+                
+                yield {
+                    "type": "user_cancelled",
+                    "content": f"任务已被用户取消: {str(e)}",
+                    "session_id": session.id,
+                    "error_type": type(e).__name__,
+                    "session_state": session.state.value,
+                    "retry_count": session.retry_count
+                }
+                
+                logger.info(f"ReAct processing cancelled by user: {str(e)}")
+            else:
+                session.update_state(ReActState.FAILED)
+                session.add_log_entry(f"ReAct processing failed: {str(e)}", "ERROR")
+                
+                # 检查是否是超时相关的错误，如果是则提供重置信息
+                error_content = f"ReAct processing failed: {str(e)}"
+                if "Failed to create task plan after" in str(e) or "Failed to plan tasks" in str(e):
+                    error_content += " 会话已重置，您可以重新发送请求。"
+                
+                yield {
+                    "type": "error",
+                    "content": error_content,
+                    "session_id": session.id,
+                    "error_type": type(e).__name__,
+                    "session_state": session.state.value,
+                    "retry_count": session.retry_count
+                }
+                
+                logger.error(f"ReAct processing failed: {str(e)}", exc_info=True)
     
     async def _reasoning_and_planning_phase(self, session: ReActSession) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute the reasoning and planning phase."""
@@ -341,10 +363,45 @@ class ReActEngine:
                 break
                 
             except Exception as e:
+                # 检查是否是用户取消的异常，如果是则直接传播，不进行重试
+                if isinstance(e, ReActError) and ("User cancelled" in str(e) or "cancelled" in str(e).lower()):
+                    session.add_log_entry(f"User cancelled task execution: {str(e)}", "INFO")
+                    # 用户取消时重置会话状态，但不抛出新的异常
+                    session.retry_count = 0  # 重置重试计数
+                    session.tasks = []  # 清空任务列表
+                    session.current_task_index = 0  # 重置任务索引
+                    session.update_state(ReActState.IDLE)  # 重置状态
+                    
+                    yield {
+                        "type": "user_cancelled_reset",
+                        "content": "任务已被用户取消，会话状态已重置。您可以重新发送请求。",
+                        "session_id": session.id,
+                        "retry_count": session.retry_count,
+                        "state": session.state.value
+                    }
+                    
+                    # 直接重新抛出原始的用户取消异常，不包装
+                    raise e
+                
                 planning_attempts += 1
                 session.add_log_entry(f"Planning attempt {planning_attempts} failed: {str(e)}", "WARNING")
                 
                 if planning_attempts >= self.max_planning_retries:
+                    # 在规划超时3次后，取消任务并重置会话状态
+                    session.retry_count = 0  # 重置重试计数
+                    session.tasks = []  # 清空任务列表
+                    session.current_task_index = 0  # 重置任务索引
+                    session.update_state(ReActState.IDLE)  # 重置状态
+                    session.add_log_entry(f"Planning failed after {self.max_planning_retries} attempts. Tasks cancelled and session reset.", "ERROR")
+                    
+                    yield {
+                        "type": "planning_timeout_reset",
+                        "content": f"任务规划超时{self.max_planning_retries}次，已取消当前任务并重置会话状态。您可以重新发送请求。",
+                        "session_id": session.id,
+                        "retry_count": session.retry_count,
+                        "state": session.state.value
+                    }
+                    
                     raise ReActError(f"Failed to create task plan after {self.max_planning_retries} attempts: {str(e)}")
                 
                 # Wait before retry
@@ -542,6 +599,25 @@ class ReActEngine:
                 
                 if execution_attempts >= self.max_execution_retries:
                     task.update_status(TaskStatus.FAILED)
+                    
+                    # 在任务执行超时后，检查是否需要重置会话
+                    session.retry_count += 1
+                    session.add_log_entry(f"Task execution failed after {self.max_execution_retries} attempts. Session retry count: {session.retry_count}", "ERROR")
+                    
+                    # 如果会话整体重试次数达到限制，重置会话
+                    if session.retry_count >= session.max_retries:
+                        session.retry_count = 0  # 重置重试计数
+                        session.update_state(ReActState.IDLE)  # 重置状态
+                        session.add_log_entry(f"Session retry limit reached. Session reset.", "ERROR")
+                        
+                        yield {
+                            "type": "execution_timeout_reset",
+                            "content": f"任务执行超时{session.max_retries}次，已重置会话状态。您可以重新发送请求。",
+                            "session_id": session.id,
+                            "retry_count": session.retry_count,
+                            "state": session.state.value
+                        }
+                    
                     raise ExecutionError(
                         f"Task execution failed after {self.max_execution_retries} attempts: {str(e)}",
                         tool_name=task.tool_name,

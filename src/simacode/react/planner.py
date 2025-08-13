@@ -20,6 +20,9 @@ from ..ai.conversation import Message
 from ..tools import ToolRegistry
 from .exceptions import PlanningError, InvalidTaskError
 
+import logging
+logger = logging.getLogger(__name__)
+
 
 class TaskType(Enum):
     """Task type enumeration."""
@@ -569,7 +572,27 @@ Respond with a JSON array of alternative task objects.
         for i, task_dict in enumerate(task_data):
             try:
                 task = Task()
-                task.type = TaskType(task_dict.get("type", "file_operation"))
+                
+                # 处理task type的映射，兼容更多的类型名称
+                task_type_str = task_dict.get("type", "file_operation")
+                try:
+                    task.type = TaskType(task_type_str)
+                except ValueError:
+                    # 如果类型无效，映射到相应的有效类型
+                    type_mapping = {
+                        "file_write": TaskType.FILE_OPERATION,
+                        "file_read": TaskType.FILE_OPERATION, 
+                        "file_delete": TaskType.FILE_OPERATION,
+                        "bash": TaskType.COMMAND_EXECUTION,
+                        "command": TaskType.COMMAND_EXECUTION,
+                        "shell": TaskType.COMMAND_EXECUTION,
+                        "analysis": TaskType.CODE_ANALYSIS,
+                        "search": TaskType.SEARCH_QUERY,
+                        "query": TaskType.SEARCH_QUERY
+                    }
+                    task.type = type_mapping.get(task_type_str, TaskType.FILE_OPERATION)
+                    logger.warning(f"Task type '{task_type_str}' mapped to '{task.type.value}' for task {i}")
+                
                 task.description = task_dict.get("description", f"Task {i+1}")
                 task.tool_name = task_dict.get("tool_name", "")
                 task.tool_input = task_dict.get("tool_input", {})
