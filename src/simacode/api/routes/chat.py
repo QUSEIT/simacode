@@ -434,6 +434,8 @@ def process_regular_chunk(chunk: str, session_id: str) -> StreamingChatChunk:
         return create_chunk("tool_output", chunk[16:].strip(), session_id)
     elif chunk.startswith("[status_update]"):
         return create_chunk("status", chunk[15:].strip(), session_id)
+    elif chunk.startswith("[confirmation_skipped]"):
+        return create_chunk("content", chunk[22:].strip(), session_id)
     elif chunk.startswith("[task_replanned]"):
         return create_chunk("task_replanned", chunk[16:].strip(), session_id)
     elif chunk.startswith("❌"):
