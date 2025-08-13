@@ -96,8 +96,8 @@ def generate_task_summary_content(session: "ReActSession") -> str:
     
     content_lines.extend([
         "📊 最终结果：",
-        f"{overall_emoji} {overall_text}",
-        f"⏱️ 总耗时: {(session.updated_at - session.created_at).total_seconds():.1f} 秒"
+        f"{overall_emoji} {overall_text}"
+        #f"⏱️ 总耗时: {(session.updated_at - session.created_at).total_seconds():.1f} 秒"
     ])
     
     return "\n".join(content_lines)
