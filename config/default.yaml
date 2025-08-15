@@ -19,6 +19,7 @@ logging:
 security:
   allowed_paths: 
     - "."  # Current working directory
+    - "/tmp"
   forbidden_paths:
     - "/etc"
     - "/sys"

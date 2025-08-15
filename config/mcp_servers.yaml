@@ -103,7 +103,7 @@ servers:
   # Note: Server must be started manually using: python tools/mcp_ui_tars_server.py
   ui_tars:
     name: ui_tars
-    enabled: true  # WebSocket compatibility fixed
+    enabled: false  # WebSocket compatibility fixed
     type: websocket
     url: "${UI_TARS_MCP_URL:-ws://localhost:10001/mcp/ws}"
     headers:

@@ -526,17 +526,127 @@ class ReActEngine:
             async for update in self._execute_tasks_sequentially(session):
                 yield update
     
+    def _substitute_task_placeholders(self, session: ReActSession, task: Task) -> Task:
+        """Replace placeholders in task input with results from previous tasks."""
+        import re
+        import json
+        
+        # Create a copy of the task to avoid modifying the original
+        updated_task = Task(
+            id=task.id,
+            type=task.type,
+            description=task.description,
+            tool_name=task.tool_name,
+            tool_input=task.tool_input.copy(),
+            expected_outcome=task.expected_outcome,
+            dependencies=task.dependencies.copy(),
+            status=task.status,
+            priority=task.priority,
+            created_at=task.created_at,
+            updated_at=task.updated_at,
+            metadata=task.metadata.copy()
+        )
+        
+        # Look for results from previous tasks that can be substituted
+        task_results_text = ""
+        
+        # If task has dependencies, try to get results from those specific tasks
+        if task.dependencies:
+            dependency_results = []
+            
+            # Dependencies might be task descriptions or task IDs
+            # First, try to find matching task by description, then use the actual task ID
+            for dep_description in task.dependencies:
+                matching_task_id = None
+                
+                # Find the task ID that matches this dependency description
+                for task_id, results in session.task_results.items():
+                    # Look through the session's tasks to find one with matching description
+                    for session_task in session.tasks:
+                        if session_task.description == dep_description and session_task.id == task_id:
+                            matching_task_id = task_id
+                            break
+                    if matching_task_id:
+                        break
+                
+                if matching_task_id and matching_task_id in session.task_results:
+                    results = session.task_results[matching_task_id]
+                    
+                    # Prioritize OUTPUT results as they contain the main content
+                    output_results = []
+                    other_results = []
+                    
+                    for result in results:
+                        if result.content:
+                            if result.type.value == 'output':
+                                output_results.append(result.content)
+                            elif result.type.value in ['success', 'info']:
+                                other_results.append(result.content)
+                    
+                    # Use OUTPUT results if available, otherwise fall back to other results
+                    if output_results:
+                        dependency_results.extend(output_results)
+                    else:
+                        dependency_results.extend(other_results)
+            
+            task_results_text = "\n".join(dependency_results)
+        else:
+            # If no explicit dependencies, use results from all previous successful tasks
+            # Prioritize OUTPUT results as they contain the main content
+            output_results = []
+            other_results = []
+            
+            for task_id, results in session.task_results.items():
+                for result in results:
+                    if result.content:
+                        if result.type.value == 'output':
+                            output_results.append(result.content)
+                        elif result.type.value in ['success', 'info']:
+                            other_results.append(result.content)
+            
+            # Use OUTPUT results if available, otherwise fall back to other results
+            if output_results:
+                task_results_text = "\n".join(output_results)
+            else:
+                task_results_text = "\n".join(other_results)
+        
+        # Function to substitute placeholders in a value (string, dict, or list)
+        def substitute_value(value):
+            if isinstance(value, str):
+                # Replace common placeholder patterns
+                value = re.sub(r'<extracted_text_here>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                value = re.sub(r'<previous_result>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                value = re.sub(r'<task_result>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                value = re.sub(r'<content_from_previous_task>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                value = re.sub(r'<retrieved_content>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                value = re.sub(r'<retrieved_content_here>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                return value
+            elif isinstance(value, dict):
+                return {k: substitute_value(v) for k, v in value.items()}
+            elif isinstance(value, list):
+                return [substitute_value(item) for item in value]
+            else:
+                return value
+        
+        # Apply substitutions to tool_input
+        updated_task.tool_input = substitute_value(updated_task.tool_input)
+        
+        return updated_task
+
     async def _execute_single_task(self, session: ReActSession, task: Task) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute a single task with error handling and evaluation."""
-        task.update_status(TaskStatus.EXECUTING)
-        session.add_log_entry(f"Starting execution of task {task.id}: {task.description}")
+        # Substitute placeholders with results from previous tasks
+        processed_task = self._substitute_task_placeholders(session, task)
+        
+        processed_task.update_status(TaskStatus.EXECUTING)
+        session.add_log_entry(f"Starting execution of task {processed_task.id}: {processed_task.description}")
         
         execution_attempts = 0
         while execution_attempts < self.max_execution_retries:
             try:
                 # Execute tool
                 tool_results = []
-                async for result in execute_tool(task.tool_name, task.tool_input):
+                async for result in execute_tool(processed_task.tool_name, processed_task.tool_input):
                     tool_results.append(result)
                     
                     # Yield progress updates
@@ -544,50 +654,65 @@ class ReActEngine:
                         "type": "tool_progress",
                         "content": result.content,
                         "session_id": session.id,
-                        "task_id": task.id,
+                        "task_id": processed_task.id,
                         "result_type": result.type.value
                     }
                 
                 # Store results
-                session.task_results[task.id] = tool_results
+                session.task_results[processed_task.id] = tool_results
                 
                 # Evaluate results
                 session.update_state(ReActState.EVALUATING)
                 evaluation_context = EvaluationContext(
-                    task=task.to_dict(),
+                    task=processed_task.to_dict(),
                     tool_results=[result.to_dict() for result in tool_results],
-                    expected_outcome=task.expected_outcome,
+                    expected_outcome=processed_task.expected_outcome,
                     user_intent=session.user_input,
                     project_context=session.metadata.get("project_context", {})
                 )
                 
-                evaluation = await self.result_evaluator.evaluate_task_result(task, tool_results, evaluation_context)
-                session.evaluations[task.id] = evaluation
+                evaluation = await self.result_evaluator.evaluate_task_result(processed_task, tool_results, evaluation_context)
+                session.evaluations[processed_task.id] = evaluation
                 
-                # Update task status based on evaluation
+                # Update task status based on evaluation - also update the original task in session
                 if evaluation.outcome == EvaluationOutcome.SUCCESS:
-                    task.update_status(TaskStatus.COMPLETED)
-                    session.add_log_entry(f"Task {task.id} completed successfully")
+                    processed_task.update_status(TaskStatus.COMPLETED)
+                    # Find and update the original task in session.tasks
+                    for session_task in session.tasks:
+                        if session_task.id == processed_task.id:
+                            session_task.update_status(TaskStatus.COMPLETED)
+                            break
+                    session.add_log_entry(f"Task {processed_task.id} completed successfully")
                 elif evaluation.outcome == EvaluationOutcome.NEEDS_RETRY:
                     execution_attempts += 1
                     if execution_attempts < self.max_execution_retries:
-                        session.add_log_entry(f"Retrying task {task.id} (attempt {execution_attempts + 1})")
+                        session.add_log_entry(f"Retrying task {processed_task.id} (attempt {execution_attempts + 1})")
                         await asyncio.sleep(1)
                         continue
                     else:
-                        task.update_status(TaskStatus.FAILED)
-                        session.add_log_entry(f"Task {task.id} failed after {self.max_execution_retries} attempts")
+                        processed_task.update_status(TaskStatus.FAILED)
+                        # Find and update the original task in session.tasks
+                        for session_task in session.tasks:
+                            if session_task.id == processed_task.id:
+                                session_task.update_status(TaskStatus.FAILED)
+                                break
+                        session.add_log_entry(f"Task {processed_task.id} failed after {self.max_execution_retries} attempts")
                 else:
-                    task.update_status(TaskStatus.FAILED)
-                    session.add_log_entry(f"Task {task.id} failed: {evaluation.reasoning}")
+                    processed_task.update_status(TaskStatus.FAILED)
+                    # Find and update the original task in session.tasks
+                    for session_task in session.tasks:
+                        if session_task.id == processed_task.id:
+                            session_task.update_status(TaskStatus.FAILED)
+                            break
+                    session.add_log_entry(f"Task {processed_task.id} failed: {evaluation.reasoning}")
                 
                 # Yield sub-task completion
                 yield {
                     "type": "sub_task_result",
-                    "content": f"Task completed: {task.description}",
+                    "content": f"Task completed: {processed_task.description}",
                     "session_id": session.id,
-                    "task_id": task.id,
-                    "status": task.status.value,
+                    "task_id": processed_task.id,
+                    "status": processed_task.status.value,
                     "evaluation": evaluation.to_dict()
                 }
                 
@@ -595,10 +720,15 @@ class ReActEngine:
                 
             except Exception as e:
                 execution_attempts += 1
-                session.add_log_entry(f"Task {task.id} execution attempt {execution_attempts} failed: {str(e)}", "ERROR")
+                session.add_log_entry(f"Task {processed_task.id} execution attempt {execution_attempts} failed: {str(e)}", "ERROR")
                 
                 if execution_attempts >= self.max_execution_retries:
-                    task.update_status(TaskStatus.FAILED)
+                    processed_task.update_status(TaskStatus.FAILED)
+                    # Find and update the original task in session.tasks
+                    for session_task in session.tasks:
+                        if session_task.id == processed_task.id:
+                            session_task.update_status(TaskStatus.FAILED)
+                            break
                     
                     # 在任务执行超时后，检查是否需要重置会话
                     session.retry_count += 1
@@ -620,9 +750,9 @@ class ReActEngine:
                     
                     raise ExecutionError(
                         f"Task execution failed after {self.max_execution_retries} attempts: {str(e)}",
-                        tool_name=task.tool_name,
-                        tool_input=task.tool_input,
-                        context={"task_id": task.id}
+                        tool_name=processed_task.tool_name,
+                        tool_input=processed_task.tool_input,
+                        context={"task_id": processed_task.id}
                     )
                 
                 await asyncio.sleep(1)

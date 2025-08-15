@@ -51,6 +51,7 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: [Path.cwd()],
         description="List of allowed file system paths"
     )
+    
     forbidden_paths: list[Path] = Field(
         default_factory=lambda: [
             Path("/etc"),
@@ -176,6 +177,27 @@ class ReactConfig(BaseModel):
     )
 
 
+class DevelopmentConfig(BaseModel):
+    """Development configuration model."""
+    
+    debug_mode: bool = Field(
+        default=False,
+        description="Enable debug mode for development"
+    )
+    profiling_enabled: bool = Field(
+        default=False,
+        description="Enable profiling for performance analysis"
+    )
+    test_mode: bool = Field(
+        default=False,
+        description="Enable test mode"
+    )
+    mock_ai_responses: bool = Field(
+        default=False,
+        description="Use mock AI responses for testing"
+    )
+
+
 class ConversationContextConfig(BaseModel):
     """Conversation context configuration model."""
     
@@ -213,6 +235,7 @@ class ConversationContextConfig(BaseModel):
 class Config(BaseModel):
     """Main configuration model for SimaCode."""
     
+    
     project_name: str = Field(
         default="SimaCode Project",
         description="Project name for display purposes"
@@ -240,6 +263,10 @@ class Config(BaseModel):
     react: ReactConfig = Field(
         default_factory=ReactConfig,
         description="ReAct engine configuration"
+    )
+    development: DevelopmentConfig = Field(
+        default_factory=DevelopmentConfig,
+        description="Development configuration"
     )
     
     @classmethod
