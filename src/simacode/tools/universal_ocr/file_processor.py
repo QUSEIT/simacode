@@ -146,7 +146,7 @@ class FileProcessor:
             # For PDF files, try to get page count
             if file_path.lower().endswith('.pdf'):
                 if not PDF2IMAGE_AVAILABLE:
-                    return True, ""  # Skip validation if pdf2image not available
+                    return False, "pdf2image package not available. Install with: pip install pdf2image. Also need system dependency: brew install poppler (macOS) or apt-get install poppler-utils (Ubuntu)"
                 
                 try:
                     # Try to get info about the PDF
@@ -160,7 +160,11 @@ class FileProcessor:
                         return False, f"PDF has too many pages: {page_count} (maximum: 50)"
                     
                 except Exception as e:
-                    return False, f"Cannot read PDF file: {str(e)}"
+                    error_msg = str(e).lower()
+                    if 'poppler' in error_msg or 'pdftoppm' in error_msg:
+                        return False, f"Poppler system dependency missing. Install with: brew install poppler (macOS) or apt-get install poppler-utils (Ubuntu). Original error: {str(e)}"
+                    else:
+                        return False, f"Cannot read PDF file: {str(e)}"
             
             return True, ""
             
@@ -213,7 +217,7 @@ class FileProcessor:
         """Convert document (PDF) to image files"""
         if not PDF2IMAGE_AVAILABLE:
             raise FileProcessorError(
-                "pdf2image package not available. Install with: pip install pdf2image"
+                "pdf2image package not available. Install with: pip install pdf2image. Also need system dependency: brew install poppler (macOS) or apt-get install poppler-utils (Ubuntu)"
             )
         
         try:
@@ -246,7 +250,11 @@ class FileProcessor:
             return image_paths
             
         except Exception as e:
-            raise FileProcessorError(f"Failed to convert PDF to images: {str(e)}")
+            error_msg = str(e).lower()
+            if 'poppler' in error_msg or 'pdftoppm' in error_msg:
+                raise FileProcessorError(f"Poppler system dependency missing. Install with: brew install poppler (macOS) or apt-get install poppler-utils (Ubuntu). Original error: {str(e)}")
+            else:
+                raise FileProcessorError(f"Failed to convert PDF to images: {str(e)}")
     
     async def _enhance_image_quality(self, image_path: str) -> str:
         """Enhance image quality for better OCR results"""

@@ -81,9 +81,14 @@ class UniversalOCRTool(Tool):
                 input_data.file_path, 
                 self.config.max_file_size
             )
+            
+            if not is_valid:
+                print(f"File validation failed: {error_msg}")
+            
             return is_valid
             
-        except Exception:
+        except Exception as e:
+            print(f"Permission check failed: {str(e)}")
             return False
     
     async def execute(self, input_data: UniversalOCRInput) -> AsyncGenerator[ToolResult, None]:
