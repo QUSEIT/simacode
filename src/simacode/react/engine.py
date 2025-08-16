@@ -515,16 +515,44 @@ class ReActEngine:
         # Analyze task dependencies to determine best execution strategy
         has_dependencies = any(task.dependencies for task in session.tasks)
         
-        if not has_dependencies and len(session.tasks) > 1:
-            # Use parallel execution for independent tasks
+        # Check if any task contains placeholders that suggest dependency on previous results
+        has_placeholders = any(
+            self._task_contains_placeholders(task) for task in session.tasks
+        )
+        
+        if not has_dependencies and not has_placeholders and len(session.tasks) > 1:
+            # Use parallel execution for truly independent tasks
             session.add_log_entry("Using parallel execution for independent tasks", "INFO")
             async for update in self._execute_tasks_in_parallel(session):
                 yield update
         else:
-            # Use sequential execution for dependent tasks
-            session.add_log_entry("Using sequential execution due to task dependencies", "INFO")
+            # Use sequential execution for dependent tasks or tasks with placeholders
+            reason = "task dependencies" if has_dependencies else "placeholder dependencies"
+            session.add_log_entry(f"Using sequential execution due to {reason}", "INFO")
             async for update in self._execute_tasks_sequentially(session):
                 yield update
+    
+    def _task_contains_placeholders(self, task) -> bool:
+        """Check if a task contains placeholders that suggest dependency on previous results."""
+        import re
+        
+        def check_value(value):
+            if isinstance(value, str):
+                # Look for common placeholder patterns
+                patterns = [
+                    r'<[^>]*(?:result|content|data|output|text|extracted)[^>]*>',
+                    r'<[^>]*_from_[^>]*>',
+                    r'<[^>]*previous[^>]*>',
+                ]
+                return any(re.search(pattern, value, re.IGNORECASE) for pattern in patterns)
+            elif isinstance(value, dict):
+                return any(check_value(v) for v in value.values())
+            elif isinstance(value, list):
+                return any(check_value(item) for item in value)
+            return False
+        
+        # Check task input for placeholders
+        return check_value(task.tool_input)
     
     def _substitute_task_placeholders(self, session: ReActSession, task: Task) -> Task:
         """Replace placeholders in task input with results from previous tasks."""
@@ -613,15 +641,25 @@ class ReActEngine:
         # Function to substitute placeholders in a value (string, dict, or list)
         def substitute_value(value):
             if isinstance(value, str):
-                # Replace common placeholder patterns
-                value = re.sub(r'<extracted_text_here>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                value = re.sub(r'<previous_result>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                value = re.sub(r'<task_result>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                value = re.sub(r'<content_from_previous_task>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                value = re.sub(r'<retrieved_content>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                value = re.sub(r'<retrieved_content_here>', task_results_text.strip(), value, flags=re.IGNORECASE)
-                # Handle file-specific content placeholders like <content_from_test.txt>
-                value = re.sub(r'<content_from_[^>]+>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                replacement_text = task_results_text.strip()
+                
+                # Only proceed with substitution if we have actual content to substitute
+                if replacement_text:
+                    # Replace common placeholder patterns
+                    value = re.sub(r'<extracted_text_here>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<previous_result>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<task_result>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<content_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<retrieved_content>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<retrieved_content_here>', replacement_text, value, flags=re.IGNORECASE)
+                    # Handle file-specific content placeholders like <content_from_test.txt>
+                    value = re.sub(r'<content_from_[^>]+>', replacement_text, value, flags=re.IGNORECASE)
+                    # Handle various forms of previous task references
+                    value = re.sub(r'<[^>]*_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
+                    value = re.sub(r'<[^>]*previous_task[^>]*>', replacement_text, value, flags=re.IGNORECASE)
+                    # General pattern for any remaining placeholders that refer to previous results
+                    value = re.sub(r'<[^>]*(?:result|content|data|output|text)[^>]*>', replacement_text, value, flags=re.IGNORECASE)
+                    
                 return value
             elif isinstance(value, dict):
                 return {k: substitute_value(v) for k, v in value.items()}

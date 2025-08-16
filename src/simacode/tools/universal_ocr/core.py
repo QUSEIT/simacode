@@ -411,9 +411,9 @@ Organize the extracted information clearly."""
             # Format output according to requested format
             formatted_output = await self._format_output(extraction_result, input_data)
             
-            # Create success result
+            # Create output result for task chaining
             yield ToolResult(
-                type=ToolResultType.SUCCESS,
+                type=ToolResultType.OUTPUT,
                 content=formatted_output,
                 execution_id=execution_id,
                 metadata={
@@ -426,6 +426,13 @@ Organize the extracted information clearly."""
                 }
             )
             
+            # Also create success result for completion status
+            yield ToolResult(
+                type=ToolResultType.SUCCESS,
+                content=f"Successfully extracted text from {input_data.file_path}",
+                execution_id=execution_id
+            )
+            
         elif extraction_result.status == ExtractionStatus.PARTIAL:
             self.stats["successful_extractions"] += 1  # Count as success with warnings
             
@@ -435,10 +442,10 @@ Organize the extracted information clearly."""
                 execution_id=execution_id
             )
             
-            # Still provide partial results
+            # Still provide partial results for task chaining
             formatted_output = await self._format_output(extraction_result, input_data)
             yield ToolResult(
-                type=ToolResultType.SUCCESS,
+                type=ToolResultType.OUTPUT,
                 content=formatted_output,
                 execution_id=execution_id,
                 metadata={
