@@ -620,6 +620,8 @@ class ReActEngine:
                 value = re.sub(r'<content_from_previous_task>', task_results_text.strip(), value, flags=re.IGNORECASE)
                 value = re.sub(r'<retrieved_content>', task_results_text.strip(), value, flags=re.IGNORECASE)
                 value = re.sub(r'<retrieved_content_here>', task_results_text.strip(), value, flags=re.IGNORECASE)
+                # Handle file-specific content placeholders like <content_from_test.txt>
+                value = re.sub(r'<content_from_[^>]+>', task_results_text.strip(), value, flags=re.IGNORECASE)
                 return value
             elif isinstance(value, dict):
                 return {k: substitute_value(v) for k, v in value.items()}
