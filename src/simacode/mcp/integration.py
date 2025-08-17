@@ -31,15 +31,8 @@ class MCPStateManager:
     def __init__(self, state_dir: Optional[Path] = None):
         """Initialize state manager with optional custom state directory."""
         if state_dir is None:
-            # Use user's config directory or fallback to temp
-            if os.getenv('XDG_CONFIG_HOME'):
-                base_dir = Path(os.getenv('XDG_CONFIG_HOME'))
-            elif os.getenv('HOME'):
-                base_dir = Path(os.getenv('HOME')) / '.config'
-            else:
-                base_dir = Path.cwd()
-            
-            self.state_dir = base_dir / 'simacode' / 'mcp'
+            # Use project-local .simacode directory instead of user config
+            self.state_dir = Path.cwd() / '.simacode' / 'mcp'
         else:
             self.state_dir = state_dir
         
