@@ -44,7 +44,7 @@ ai:
 session:
   save_sessions: true
   session_dir: "~/.simacode/sessions"
-  max_sessions: 100
+  max_sessions: 512  # Maximum number of session files to keep
   auto_cleanup: true
 
 # Conversation context management

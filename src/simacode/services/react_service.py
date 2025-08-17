@@ -54,13 +54,15 @@ class ReActService:
         
         # Initialize session manager
         sessions_dir = Path.cwd() / ".simacode" / "sessions"
+        max_sessions = config.session.max_sessions
         session_config = SessionConfig(
             sessions_directory=sessions_dir,
             auto_save_interval=30,
             max_session_age=7,
-            max_sessions_to_keep=100
+            max_sessions_to_keep=max_sessions
         )
         self.session_manager = SessionManager(session_config)
+        logger.info(f"Session manager configured with max_sessions: {max_sessions}")
         
         # Service state
         self.is_running = False
