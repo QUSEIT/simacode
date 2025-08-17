@@ -460,9 +460,14 @@ class ReActEngine:
             
             yield self._create_status_update(session, f"Executing task {i+1}/{len(session.tasks)}: {task.description}")
             
-            # Execute single task
+            # Execute single task and collect all updates
+            task_updates = []
             async for update in self._execute_single_task(session, task):
+                task_updates.append(update)
                 yield update
+            
+            # 🔧 方案1: 增强任务完成验证 - 确保任务完全完成包括结果存储
+            await self._ensure_task_fully_completed(session, task)
             
             # Check if we should stop due to critical failure
             evaluation = session.evaluations.get(task.id)
@@ -559,6 +564,11 @@ class ReActEngine:
         import re
         import json
         
+        # 🔍 DEBUG: 添加详细日志分析占位符替换过程
+        session.add_log_entry(f"DEBUG: Starting placeholder substitution for task {task.id}", "DEBUG")
+        session.add_log_entry(f"DEBUG: Task tool_input before substitution: {task.tool_input}", "DEBUG")
+        session.add_log_entry(f"DEBUG: Available task_results keys: {list(session.task_results.keys())}", "DEBUG")
+        
         # Create a copy of the task to avoid modifying the original
         updated_task = Task(
             id=task.id,
@@ -578,6 +588,9 @@ class ReActEngine:
         # Look for results from previous tasks that can be substituted
         task_results_text = ""
         
+        # 🔍 DEBUG: 详细分析结果收集过程
+        session.add_log_entry(f"DEBUG: Task dependencies: {task.dependencies}", "DEBUG")
+        
         # If task has dependencies, try to get results from those specific tasks
         if task.dependencies:
             dependency_results = []
@@ -587,12 +600,20 @@ class ReActEngine:
             for dep_description in task.dependencies:
                 matching_task_id = None
                 
+                session.add_log_entry(f"DEBUG: Looking for dependency: '{dep_description}'", "DEBUG")
+                
                 # Find the task ID that matches this dependency description
                 for task_id, results in session.task_results.items():
                     # Look through the session's tasks to find one with matching description
                     for session_task in session.tasks:
-                        if session_task.description == dep_description and session_task.id == task_id:
+                        session.add_log_entry(f"DEBUG: Comparing with task: '{session_task.description}'", "DEBUG")
+                        
+                        # 🔧 修复: 使用模糊匹配而不是完全匹配
+                        if (session_task.description == dep_description or 
+                            dep_description in session_task.description or
+                            session_task.description.startswith(dep_description)) and session_task.id == task_id:
                             matching_task_id = task_id
+                            session.add_log_entry(f"DEBUG: Found matching task ID: {matching_task_id}", "DEBUG")
                             break
                     if matching_task_id:
                         break
@@ -635,8 +656,15 @@ class ReActEngine:
             # Use OUTPUT results if available, otherwise fall back to other results
             if output_results:
                 task_results_text = "\n".join(output_results)
+                session.add_log_entry(f"DEBUG: Using OUTPUT results (count: {len(output_results)})", "DEBUG")
             else:
                 task_results_text = "\n".join(other_results)
+                session.add_log_entry(f"DEBUG: Using OTHER results (count: {len(other_results)})", "DEBUG")
+        
+        # 🔍 DEBUG: 显示收集到的结果文本
+        session.add_log_entry(f"DEBUG: Collected task_results_text length: {len(task_results_text)}", "DEBUG")
+        if task_results_text:
+            session.add_log_entry(f"DEBUG: First 200 chars of task_results_text: {task_results_text[:200]}...", "DEBUG")
         
         # Function to substitute placeholders in a value (string, dict, or list)
         def substitute_value(value):
@@ -645,6 +673,33 @@ class ReActEngine:
                 
                 # Only proceed with substitution if we have actual content to substitute
                 if replacement_text:
+                    session.add_log_entry(f"DEBUG: Replacement text available for substitution", "DEBUG")
+                    
+                    # Try to extract raw text from JSON if it's OCR output
+                    original_replacement = replacement_text
+                    try:
+                        import json
+                        parsed_json = json.loads(replacement_text)
+                        if isinstance(parsed_json, dict) and 'raw_text' in parsed_json:
+                            # Use raw_text from OCR JSON output
+                            replacement_text = parsed_json['raw_text'] or ''
+                            session.add_log_entry(f"DEBUG: Extracted raw_text from JSON: {len(replacement_text)} chars", "DEBUG")
+                        elif isinstance(parsed_json, dict) and 'extracted_data' in parsed_json:
+                            # Fallback: try to get text from extracted_data
+                            extracted_data = parsed_json['extracted_data']
+                            if isinstance(extracted_data, dict) and 'raw_text' in extracted_data:
+                                replacement_text = extracted_data['raw_text'] or ''
+                                session.add_log_entry(f"DEBUG: Extracted raw_text from extracted_data: {len(replacement_text)} chars", "DEBUG")
+                    except (json.JSONDecodeError, KeyError, TypeError):
+                        # If it's not JSON or doesn't have expected structure, use as is
+                        session.add_log_entry(f"DEBUG: Using replacement text as-is (not JSON)", "DEBUG")
+                        pass
+                    
+                    # 🔍 DEBUG: 记录替换前后状态
+                    original_value = value
+                    session.add_log_entry(f"DEBUG: Before substitution - value: {value}", "DEBUG")
+                    session.add_log_entry(f"DEBUG: Replacement text to use: {replacement_text[:100]}...", "DEBUG")
+                    
                     # Replace common placeholder patterns
                     value = re.sub(r'<extracted_text_here>', replacement_text, value, flags=re.IGNORECASE)
                     value = re.sub(r'<previous_result>', replacement_text, value, flags=re.IGNORECASE)
@@ -660,6 +715,16 @@ class ReActEngine:
                     # General pattern for any remaining placeholders that refer to previous results
                     value = re.sub(r'<[^>]*(?:result|content|data|output|text)[^>]*>', replacement_text, value, flags=re.IGNORECASE)
                     
+                    # 🔍 DEBUG: 记录替换结果
+                    if original_value != value:
+                        session.add_log_entry(f"DEBUG: Substitution SUCCESS - value changed", "DEBUG")
+                    else:
+                        session.add_log_entry(f"DEBUG: Substitution FAILED - value unchanged", "DEBUG")
+                    
+                    session.add_log_entry(f"DEBUG: After substitution - value: {value[:200]}...", "DEBUG")
+                else:
+                    session.add_log_entry(f"DEBUG: No replacement text available for substitution", "DEBUG")
+                    
                 return value
             elif isinstance(value, dict):
                 return {k: substitute_value(v) for k, v in value.items()}
@@ -669,14 +734,123 @@ class ReActEngine:
                 return value
         
         # Apply substitutions to tool_input
+        session.add_log_entry(f"DEBUG: Applying substitutions to tool_input", "DEBUG")
         updated_task.tool_input = substitute_value(updated_task.tool_input)
+        session.add_log_entry(f"DEBUG: Final tool_input after substitution: {updated_task.tool_input}", "DEBUG")
         
         return updated_task
 
+    async def _ensure_task_fully_completed(self, session: ReActSession, task: Task) -> None:
+        """
+        方案1: 增强任务完成验证
+        确保任务完全完成，包括结果存储和评估，特别是OUTPUT类型结果
+        """
+        max_wait = 5.0  # 最大等待5秒
+        wait_interval = 0.1  # 100ms检查间隔
+        elapsed = 0.0
+        
+        session.add_log_entry(f"Verifying task {task.id} completion", "DEBUG")
+        
+        while elapsed < max_wait:
+            # 检查三个关键完成条件
+            has_results = task.id in session.task_results
+            has_evaluation = task.id in session.evaluations
+            has_output_result = False
+            
+            if has_results:
+                results = session.task_results[task.id]
+                # 检查是否有OUTPUT类型的结果且内容不为空
+                has_output_result = any(
+                    r.type.value == 'output' and r.content and r.content.strip()
+                    for r in results
+                )
+            
+            if has_results and has_evaluation and has_output_result:
+                session.add_log_entry(f"Task {task.id} fully completed with all required data", "DEBUG")
+                return
+                
+            await asyncio.sleep(wait_interval)
+            elapsed += wait_interval
+        
+        # 超时警告但不阻塞执行
+        session.add_log_entry(f"Warning: Task {task.id} completion verification timeout after {max_wait}s", "WARNING")
+        if task.id not in session.task_results:
+            session.add_log_entry(f"Critical: Task {task.id} has no stored results", "ERROR")
+
+    async def _substitute_task_placeholders_with_wait(self, session: ReActSession, task: Task) -> Task:
+        """
+        方案2: 延迟占位符替换
+        如果任务包含占位符，等待依赖的任务完成后再进行替换
+        """
+        # 先尝试正常替换
+        processed_task = self._substitute_task_placeholders(session, task)
+        
+        # 检查是否仍有未替换的占位符
+        if self._still_has_placeholders(processed_task):
+            session.add_log_entry(f"Task {task.id} still has placeholders, waiting for dependencies", "DEBUG")
+            
+            # 等待前序任务的OUTPUT结果可用
+            await self._wait_for_output_results(session, task)
+            
+            # 重新替换占位符
+            processed_task = self._substitute_task_placeholders(session, task)
+            
+            # 最终检查
+            if self._still_has_placeholders(processed_task):
+                session.add_log_entry(f"Warning: Task {task.id} still has unresolved placeholders after waiting", "WARNING")
+        
+        return processed_task
+    
+    def _still_has_placeholders(self, task: Task) -> bool:
+        """检查任务是否仍包含未替换的占位符"""
+        import re
+        
+        def check_value(value):
+            if isinstance(value, str):
+                # 检查常见的占位符模式
+                patterns = [
+                    r'<extracted_text_here>',
+                    r'<previous_result>',
+                    r'<task_result>',
+                    r'<content_from_previous_task>',
+                    r'<[^>]*(?:result|content|data|output|text|extracted)[^>]*>',
+                ]
+                return any(re.search(pattern, value, re.IGNORECASE) for pattern in patterns)
+            elif isinstance(value, dict):
+                return any(check_value(v) for v in value.values())
+            elif isinstance(value, list):
+                return any(check_value(item) for item in value)
+            return False
+        
+        return check_value(task.tool_input)
+    
+    async def _wait_for_output_results(self, session: ReActSession, task: Task) -> None:
+        """等待前序任务产生OUTPUT类型的结果"""
+        max_wait = 3.0  # 最大等待3秒
+        wait_interval = 0.05  # 50ms检查间隔
+        elapsed = 0.0
+        
+        while elapsed < max_wait:
+            # 检查是否有任何任务产生了OUTPUT结果
+            has_output = False
+            for task_id, results in session.task_results.items():
+                if any(r.type.value == 'output' and r.content and r.content.strip() for r in results):
+                    has_output = True
+                    break
+            
+            if has_output:
+                session.add_log_entry(f"OUTPUT results available for task {task.id} placeholder substitution", "DEBUG")
+                return
+                
+            await asyncio.sleep(wait_interval)
+            elapsed += wait_interval
+        
+        session.add_log_entry(f"Timeout waiting for OUTPUT results for task {task.id}", "WARNING")
+
     async def _execute_single_task(self, session: ReActSession, task: Task) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute a single task with error handling and evaluation."""
-        # Substitute placeholders with results from previous tasks
-        processed_task = self._substitute_task_placeholders(session, task)
+        # 🔧 方案2: 延迟占位符替换 - 等待依赖任务完成后再替换
+        processed_task = await self._substitute_task_placeholders_with_wait(session, task)
         
         processed_task.update_status(TaskStatus.EXECUTING)
         session.add_log_entry(f"Starting execution of task {processed_task.id}: {processed_task.description}")
