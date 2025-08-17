@@ -600,7 +600,7 @@ class ReActEngine:
             for dep_description in task.dependencies:
                 matching_task_id = None
                 
-                session.add_log_entry(f"DEBUG: Looking for dependency: '{dep_description}'", "DEBUG")
+                session.add_log_entry(f"DEBUG: Looking for dependency: '{str(dep_description)}'", "DEBUG")
                 
                 # Find the task ID that matches this dependency description
                 for task_id, results in session.task_results.items():
@@ -608,10 +608,14 @@ class ReActEngine:
                     for session_task in session.tasks:
                         session.add_log_entry(f"DEBUG: Comparing with task: '{session_task.description}'", "DEBUG")
                         
-                        # 🔧 修复: 使用模糊匹配而不是完全匹配
-                        if (session_task.description == dep_description or 
-                            dep_description in session_task.description or
-                            session_task.description.startswith(dep_description)) and session_task.id == task_id:
+                        # 🔧 修复: 使用模糊匹配而不是完全匹配，确保类型安全
+                        # 确保dep_description是字符串类型
+                        dep_str = str(dep_description) if dep_description is not None else ""
+                        task_desc = str(session_task.description) if session_task.description is not None else ""
+                        
+                        if (task_desc == dep_str or 
+                            (dep_str and dep_str in task_desc) or
+                            (dep_str and task_desc.startswith(dep_str))) and session_task.id == task_id:
                             matching_task_id = task_id
                             session.add_log_entry(f"DEBUG: Found matching task ID: {matching_task_id}", "DEBUG")
                             break
