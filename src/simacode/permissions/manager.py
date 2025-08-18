@@ -88,7 +88,6 @@ class PermissionManager:
                 str(Path.cwd()),  # Current working directory
                 str(Path.home() / "tmp"),  # User temp directory
                 str(Path.home() / "Desktop"),  # User Desktop for development
-                "/Users/yanhecun/Desktop",  # Absolute Desktop path
                 "/tmp",  # System temp directory
             ]
             
@@ -161,13 +160,12 @@ class PermissionManager:
         """
         # Development mode: allow all file operations for development
         development_mode = hasattr(self.config, 'development') and hasattr(self.config.development, 'debug_mode') and self.config.development.debug_mode
-        desktop_path = os.path.expanduser("~/Desktop") in file_path or "/Users/yanhecun/Desktop" in file_path
         
-        if development_mode or desktop_path:
+        if development_mode:
             return PermissionResult(
                 granted=True,
                 level=PermissionLevel.ALLOWED,
-                reason="Development mode or Desktop access - permissions granted"
+                reason="Development mode - permissions granted"
             )
         
         cache_key = self._get_cache_key("file", file_path, op=operation)
