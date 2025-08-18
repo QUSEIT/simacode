@@ -564,6 +564,11 @@ class ReActEngine:
         import re
         import json
         
+        # Early exit: if task has no dependencies and no placeholders, skip substitution
+        if not task.dependencies and not self._task_contains_placeholders(task):
+            session.add_log_entry(f"DEBUG: Task {task.id} has no dependencies and no placeholders, skipping substitution", "DEBUG")
+            return task
+        
         # 🔍 DEBUG: 添加详细日志分析占位符替换过程
         session.add_log_entry(f"DEBUG: Starting placeholder substitution for task {task.id}", "DEBUG")
         session.add_log_entry(f"DEBUG: Task tool_input before substitution: {task.tool_input}", "DEBUG")
@@ -726,20 +731,42 @@ class ReActEngine:
                     session.add_log_entry(f"DEBUG: Before substitution - value: {value}", "DEBUG")
                     session.add_log_entry(f"DEBUG: Replacement text to use: {replacement_text[:100]}...", "DEBUG")
                     
-                    # Replace common placeholder patterns
-                    value = re.sub(r'<extracted_text_here>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<previous_result>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<task_result>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<content_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<retrieved_content>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<retrieved_content_here>', replacement_text, value, flags=re.IGNORECASE)
-                    # Handle file-specific content placeholders like <content_from_test.txt>
-                    value = re.sub(r'<content_from_[^>]+>', replacement_text, value, flags=re.IGNORECASE)
-                    # Handle various forms of previous task references
-                    value = re.sub(r'<[^>]*_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
-                    value = re.sub(r'<[^>]*previous_task[^>]*>', replacement_text, value, flags=re.IGNORECASE)
-                    # General pattern for any remaining placeholders that refer to previous results
-                    value = re.sub(r'<[^>]*(?:result|content|data|output|text)[^>]*>', replacement_text, value, flags=re.IGNORECASE)
+                    # Replace specific, known placeholder patterns only
+                    original_value = value
+                    
+                    # First check if there are any placeholders to replace
+                    placeholder_patterns = [
+                        r'<extracted_text_here>',
+                        r'<previous_result>', 
+                        r'<task_result>',
+                        r'<content_from_previous_task>',
+                        r'<retrieved_content>',
+                        r'<retrieved_content_here>',
+                        r'<content_from_[^>]+>',  # file-specific content
+                        r'<[^>]*_from_previous_task>',
+                        r'<[^>]*previous_task[^>]*>'
+                    ]
+                    
+                    # Only perform substitution if value contains actual placeholders
+                    has_placeholder = any(re.search(pattern, value, re.IGNORECASE) for pattern in placeholder_patterns)
+                    
+                    if has_placeholder:
+                        # Replace specific placeholder patterns
+                        value = re.sub(r'<extracted_text_here>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<previous_result>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<task_result>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<content_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<retrieved_content>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<retrieved_content_here>', replacement_text, value, flags=re.IGNORECASE)
+                        # Handle file-specific content placeholders like <content_from_test.txt>
+                        value = re.sub(r'<content_from_[^>]+>', replacement_text, value, flags=re.IGNORECASE)
+                        # Handle various forms of previous task references
+                        value = re.sub(r'<[^>]*_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<[^>]*previous_task[^>]*>', replacement_text, value, flags=re.IGNORECASE)
+                        
+                        session.add_log_entry(f"DEBUG: Placeholder replacement performed", "DEBUG")
+                    else:
+                        session.add_log_entry(f"DEBUG: No placeholder patterns found, skipping replacement", "DEBUG")
                     
                     # 🔍 DEBUG: 记录替换结果
                     if original_value != value:
@@ -875,8 +902,30 @@ class ReActEngine:
 
     async def _execute_single_task(self, session: ReActSession, task: Task) -> AsyncGenerator[Dict[str, Any], None]:
         """Execute a single task with error handling and evaluation."""
+        
+        # 🔍 DEBUG: 记录任务执行前的状态
+        if task.tool_name == "email_send":
+            import logging
+            logger = logging.getLogger(__name__)
+            logger.warning(f"=== EXECUTE DEBUG: Before processing task {task.id} ===")
+            logger.warning(f"Task description: {task.description}")
+            logger.warning(f"Tool name: {task.tool_name}")
+            logger.warning(f"Dependencies: {task.dependencies}")
+            logger.warning(f"Original tool_input: {task.tool_input}")
+            if 'body' in task.tool_input:
+                logger.warning(f"*** ORIGINAL EMAIL BODY: '{task.tool_input['body']}' ***")
+            logger.warning("=== END EXECUTE DEBUG ===")
+        
         # 🔧 方案2: 延迟占位符替换 - 等待依赖任务完成后再替换
         processed_task = await self._substitute_task_placeholders_with_wait(session, task)
+        
+        # 🔍 DEBUG: 记录占位符替换后的状态
+        if processed_task.tool_name == "email_send":
+            logger.warning(f"=== EXECUTE DEBUG: After placeholder substitution ===")
+            logger.warning(f"Processed tool_input: {processed_task.tool_input}")
+            if 'body' in processed_task.tool_input:
+                logger.warning(f"*** PROCESSED EMAIL BODY: '{processed_task.tool_input['body']}' ***")
+            logger.warning("=== END SUBSTITUTION DEBUG ===")
         
         processed_task.update_status(TaskStatus.EXECUTING)
         session.add_log_entry(f"Starting execution of task {processed_task.id}: {processed_task.description}")

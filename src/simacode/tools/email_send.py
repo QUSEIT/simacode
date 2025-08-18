@@ -425,33 +425,24 @@ class EmailSendTool(Tool):
             )
             return
         
-        # Create message
-        msg = MIMEMultipart('mixed')
-        msg['Subject'] = input_data.subject
-        msg['From'] = email.utils.formataddr((from_name, from_email))
-        msg['To'] = ', '.join(input_data.to)
-        
-        if input_data.cc:
-            msg['Cc'] = ', '.join(input_data.cc)
-        
-        if input_data.reply_to:
-            msg['Reply-To'] = input_data.reply_to
-        
-        # Set priority
-        if input_data.priority == "high":
-            msg['X-Priority'] = '1'
-            msg['X-MSMail-Priority'] = 'High'
-        elif input_data.priority == "low":
-            msg['X-Priority'] = '5'
-            msg['X-MSMail-Priority'] = 'Low'
-        
-        # Add timestamp
-        msg['Date'] = email.utils.formatdate(localtime=True)
-        
-        # Create body
+        # Create body content first
         body_content = input_data.body
+        
+        # 🔍 DEBUG: 记录邮件体处理过程
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"=== EMAIL BODY PROCESSING DEBUG ===")
+        logger.warning(f"*** Input body: '{input_data.body}' ***")
+        logger.warning(f"*** Body after initial assignment: '{body_content}' ***")
+        logger.warning(f"Content type: {input_data.content_type}")
+        
         if input_data.content_type == "html":
             body_content = self._sanitize_html_content(body_content)
+            logger.warning(f"*** Body after HTML sanitization: '{body_content}' ***")
+        
+        logger.warning(f"*** Final body content: '{body_content}' ***")
+        logger.warning(f"Body length: {len(body_content)}")
+        logger.warning("=== END EMAIL BODY PROCESSING DEBUG ===")
         
         # Check body size
         if len(body_content.encode(input_data.encoding)) > self.config.email.security.max_body_size:
@@ -462,9 +453,102 @@ class EmailSendTool(Tool):
             )
             return
         
-        # Attach body
-        body_part = MIMEText(body_content, input_data.content_type, input_data.encoding)
-        msg.attach(body_part)
+        # Create message - use different structure based on whether we have attachments
+        has_attachments = input_data.attachments and len(input_data.attachments) > 0
+        
+        if has_attachments:
+            # Use multipart for attachments
+            msg = MIMEMultipart('mixed')
+            logger.warning(f"Creating MIMEMultipart message for email with attachments")
+            
+            # Set headers
+            msg['Subject'] = input_data.subject
+            msg['From'] = email.utils.formataddr((from_name, from_email))
+            msg['To'] = ', '.join(input_data.to)
+            
+            if input_data.cc:
+                msg['Cc'] = ', '.join(input_data.cc)
+            
+            if input_data.reply_to:
+                msg['Reply-To'] = input_data.reply_to
+            
+            # Set priority
+            if input_data.priority == "high":
+                msg['X-Priority'] = '1'
+                msg['X-MSMail-Priority'] = 'High'
+            elif input_data.priority == "low":
+                msg['X-Priority'] = '5'
+                msg['X-MSMail-Priority'] = 'Low'
+            
+            # Add timestamp
+            msg['Date'] = email.utils.formatdate(localtime=True)
+            
+            # Attach body as first part
+            # Convert content_type to proper MIMEText subtype
+            if input_data.content_type == "text":
+                mime_subtype = "plain"
+            elif input_data.content_type == "html":
+                mime_subtype = "html"
+            else:
+                mime_subtype = "plain"  # default
+                
+            body_part = MIMEText(body_content, mime_subtype, input_data.encoding)
+            msg.attach(body_part)
+            logger.warning(f"Attached body part with subtype: {mime_subtype}")
+        else:
+            # For simple text emails, use MIMEText directly
+            # Convert content_type to proper MIMEText subtype
+            if input_data.content_type == "text":
+                mime_subtype = "plain"
+            elif input_data.content_type == "html":
+                mime_subtype = "html"
+            else:
+                mime_subtype = "plain"  # default
+            
+            msg = MIMEText(body_content, mime_subtype, input_data.encoding)
+            logger.warning(f"Creating simple MIMEText message for text-only email (subtype: {mime_subtype})")
+            
+            # Set headers for simple message
+            msg['Subject'] = input_data.subject
+            msg['From'] = email.utils.formataddr((from_name, from_email))
+            msg['To'] = ', '.join(input_data.to)
+            
+            if input_data.cc:
+                msg['Cc'] = ', '.join(input_data.cc)
+            
+            if input_data.reply_to:
+                msg['Reply-To'] = input_data.reply_to
+            
+            # Set priority
+            if input_data.priority == "high":
+                msg['X-Priority'] = '1'
+                msg['X-MSMail-Priority'] = 'High'
+            elif input_data.priority == "low":
+                msg['X-Priority'] = '5'
+                msg['X-MSMail-Priority'] = 'Low'
+            
+            # Add timestamp
+            msg['Date'] = email.utils.formatdate(localtime=True)
+        
+        # 🔍 DEBUG: 记录最终的邮件消息结构
+        logger.warning(f"=== EMAIL MESSAGE STRUCTURE DEBUG ===")
+        logger.warning(f"Message type: {type(msg)}")
+        logger.warning(f"Has attachments: {has_attachments}")
+        
+        if has_attachments:
+            logger.warning(f"Message subtype: {msg.get_content_maintype()}/{msg.get_content_subtype()}")
+            logger.warning(f"Message parts count: {len(msg.get_payload())}")
+            if len(msg.get_payload()) > 0:
+                first_part = msg.get_payload()[0]
+                logger.warning(f"First part (body) content: '{first_part.get_payload()}'")
+        else:
+            logger.warning(f"Simple message content: '{msg.get_payload()}'")
+            
+        logger.warning(f"Full message headers: {dict(msg)}")
+        # Show raw message preview
+        raw_msg = msg.as_string()[:800]  # First 800 chars to see more
+        logger.warning(f"Raw message preview: {raw_msg}")
+        logger.warning("=== END EMAIL MESSAGE STRUCTURE DEBUG ===")
         
         yield None, ToolResult(
             type=ToolResultType.INFO,
@@ -532,6 +616,18 @@ class EmailSendTool(Tool):
     async def execute(self, input_data: EmailSendInput) -> AsyncGenerator[ToolResult, None]:
         """Execute email sending operation."""
         execution_id = input_data.execution_id
+        
+        # 🔍 DEBUG: 记录邮件工具接收到的输入
+        import logging
+        logger = logging.getLogger(__name__)
+        logger.warning(f"=== EMAIL SEND TOOL DEBUG: Received input ===")
+        logger.warning(f"To: {input_data.to}")
+        logger.warning(f"Subject: {input_data.subject}")
+        logger.warning(f"*** EMAIL BODY RECEIVED: '{input_data.body}' ***")
+        logger.warning(f"Body length: {len(input_data.body) if input_data.body else 0}")
+        logger.warning(f"Content type: {input_data.content_type}")
+        logger.warning(f"Attachments: {input_data.attachments}")
+        logger.warning("=== END EMAIL TOOL INPUT DEBUG ===")
         
         try:
             # Check if SMTP libraries are available

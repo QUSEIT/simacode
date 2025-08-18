@@ -418,10 +418,28 @@ Always classify the input type first, then respond appropriately.
             # Parse and validate tasks for task-oriented inputs
             tasks = result["tasks"]
             
+            # 🔍 DEBUG: 详细记录生成的任务
+            logger.warning(f"=== PLANNER DEBUG: Generated {len(tasks)} tasks ===")
+            for i, task in enumerate(tasks):
+                logger.warning(f"Task {i+1}: {task.description}")
+                logger.warning(f"  Tool: {task.tool_name}")
+                logger.warning(f"  Input: {task.tool_input}")
+                logger.warning(f"  Dependencies: {task.dependencies}")
+                if task.tool_name == "email_send":
+                    logger.warning(f"  *** EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}' ***")
+            logger.warning("=== END PLANNER DEBUG ===")
+            
             # Critical validation for OCR+Email scenarios
             self._validate_ocr_email_scenarios(tasks, context)
             
             validated_tasks = await self._validate_and_enhance_tasks(tasks, context)
+            
+            # 🔍 DEBUG: 记录验证后的任务
+            logger.warning(f"=== PLANNER DEBUG: After validation ===")
+            for i, task in enumerate(validated_tasks):
+                if task.tool_name == "email_send":
+                    logger.warning(f"Task {i+1} after validation - EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}'")
+            logger.warning("=== END VALIDATION DEBUG ===")
             
             return validated_tasks
             
