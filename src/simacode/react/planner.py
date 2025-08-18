@@ -7,6 +7,7 @@ tool selection, and execution plan generation.
 
 import asyncio
 import json
+import re
 import uuid
 from dataclasses import dataclass, field
 from datetime import datetime
@@ -768,7 +769,44 @@ Respond with a JSON array of alternative task objects.
                     raise ValueError("Invalid response format")
             
         except json.JSONDecodeError as e:
-            raise PlanningError(f"Failed to parse JSON response: {str(e)}")
+            # 记录原始响应内容以便调试
+            logger.error(f"JSON parsing failed. Raw response content: {response_content[:500]}...")
+            logger.error(f"JSON decode error at line {e.lineno}, column {e.colno}: {e.msg}")
+            
+            # 尝试修复常见的JSON格式问题
+            try:
+                fixed_content = self._attempt_json_fix(response_content)
+                if fixed_content:
+                    parsed_data = json.loads(fixed_content)
+                    logger.warning("JSON was successfully repaired and parsed")
+                    
+                    # 继续正常的解析流程
+                    if parsed_data.get("type") == "conversational_response":
+                        return {
+                            "type": "conversational_response",
+                            "content": parsed_data.get("content", "")
+                        }
+                    elif parsed_data.get("type") == "task_plan":
+                        task_data = parsed_data.get("tasks", [])
+                        tasks = await self._parse_task_list(task_data)
+                        return {
+                            "type": "task_plan", 
+                            "tasks": tasks
+                        }
+                    else:
+                        if isinstance(parsed_data, list):
+                            tasks = await self._parse_task_list(parsed_data)
+                            return {
+                                "type": "task_plan",
+                                "tasks": tasks
+                            }
+                        else:
+                            raise ValueError("Invalid response format after repair")
+                else:
+                    raise PlanningError(f"Failed to parse JSON response: {str(e)}")
+            except Exception as repair_error:
+                logger.error(f"JSON repair attempt failed: {str(repair_error)}")
+                raise PlanningError(f"Failed to parse JSON response: {str(e)}")
         except Exception as e:
             raise PlanningError(f"Failed to parse planning response: {str(e)}")
     
@@ -816,6 +854,70 @@ Respond with a JSON array of alternative task objects.
                 raise InvalidTaskError(f"Invalid task definition at index {i}: {str(e)}")
         
         return tasks
+
+    def _attempt_json_fix(self, content: str) -> str:
+        """尝试修复常见的JSON格式错误"""
+        try:
+            # 移除可能的前后缀文本
+            content = content.strip()
+            
+            # 查找JSON对象的开始和结束
+            start_idx = content.find('{')
+            end_idx = content.rfind('}')
+            
+            if start_idx == -1 or end_idx == -1 or start_idx >= end_idx:
+                return None
+                
+            json_content = content[start_idx:end_idx + 1]
+            
+            # 尝试修复常见问题
+            fixes = [
+                # 修复尾随逗号
+                lambda x: re.sub(r',\s*}', '}', x),
+                lambda x: re.sub(r',\s*]', ']', x),
+                # 修复未引用的属性名
+                lambda x: re.sub(r'(\w+):', r'"\1":', x),
+                # 修复单引号
+                lambda x: x.replace("'", '"'),
+                # 修复换行符和制表符
+                lambda x: x.replace('\n', '\\n').replace('\t', '\\t'),
+                # 修复不完整的字符串
+                lambda x: re.sub(r'"([^"]*?)$', r'"\1"', x),
+                # 修复未闭合的大括号或方括号
+                lambda x: self._balance_brackets(x)
+            ]
+            
+            for fix in fixes:
+                try:
+                    fixed = fix(json_content)
+                    json.loads(fixed)  # 测试是否有效
+                    return fixed
+                except:
+                    continue
+                    
+            return None
+            
+        except Exception as e:
+            logger.debug(f"JSON fix attempt failed: {str(e)}")
+            return None
+    
+    def _balance_brackets(self, content: str) -> str:
+        """尝试平衡括号"""
+        try:
+            open_braces = content.count('{')
+            close_braces = content.count('}')
+            open_brackets = content.count('[')
+            close_brackets = content.count(']')
+            
+            # 添加缺失的闭合括号
+            if open_braces > close_braces:
+                content += '}' * (open_braces - close_braces)
+            if open_brackets > close_brackets:
+                content += ']' * (open_brackets - close_brackets)
+                
+            return content
+        except:
+            return content
 
     async def _parse_tasks_from_response(self, response_content: str) -> List[Task]:
         """Parse task list from AI response (legacy method for compatibility)."""

@@ -396,13 +396,14 @@ class ReActEngine:
                     
                     yield {
                         "type": "planning_timeout_reset",
-                        "content": f"任务规划超时{self.max_planning_retries}次，已取消当前任务并重置会话状态。您可以重新发送请求。",
+                        "content": f"任务规划连续失败{self.max_planning_retries}次，可能是由于AI返回的JSON格式不正确。已自动重置会话状态，请重新发送您的请求。\n\n错误详情: {str(e)}",
                         "session_id": session.id,
                         "retry_count": session.retry_count,
                         "state": session.state.value
                     }
                     
-                    raise ReActError(f"Failed to create task plan after {self.max_planning_retries} attempts: {str(e)}")
+                    # 不抛出异常，而是正常结束规划阶段
+                    return
                 
                 # Wait before retry
                 await asyncio.sleep(1)
