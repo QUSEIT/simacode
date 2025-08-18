@@ -155,6 +155,10 @@ TASK-ORIENTED inputs include:
 - System commands: "运行测试", "启动服务", "检查状态"
 - Code analysis: "分析代码", "查找函数", "检查错误"
 - Search operations: "搜索", "查找", "定位"
+- Email operations: "发送邮件", "发邮件", "给...发信"
+- Email attachments: "作为邮件附件", "邮件附件", "attach to email", "发送附件"
+- OCR operations: "识别", "OCR", "提取文字", "读取图片"
+- Combined operations: "识别...并发送", "提取...然后邮件"
 - Any request requiring tool execution
 
 ## RESPONSE FORMAT ##
@@ -181,6 +185,136 @@ For TASK-ORIENTED inputs, respond with:
   ]
 }}
 
+## CRITICAL RULE FOR DEPENDENT TASKS ##
+When creating tasks that use results from previous tasks, you MUST use placeholders in the tool_input:
+
+REQUIRED placeholders:
+- <extracted_text_here> - for OCR/text extraction results
+- <previous_result> - for any previous task output
+- <file_content> - for file reading results
+
+Example WRONG way:
+{{
+  "tool_name": "email_send",
+  "tool_input": {{
+    "body": "The image has been processed successfully."  // ❌ NO PLACEHOLDER
+  }}
+}}
+
+Example CORRECT way:
+{{
+  "tool_name": "email_send", 
+  "tool_input": {{
+    "body": "识别结果：<extracted_text_here>"  // ✅ USES PLACEHOLDER
+  }}
+}}
+
+## TOOL PARAMETER EXAMPLES ##
+
+Email sending example:
+{{
+  "type": "email_send",
+  "description": "Send email to user about project update",
+  "tool_name": "email_send", 
+  "tool_input": {{
+    "to": "user@example.com",
+    "subject": "Project Update",
+    "body": "The project has been completed successfully.",
+    "content_type": "text"
+  }},
+  "expected_outcome": "Email sent successfully",
+  "dependencies": [],
+  "priority": 1
+}}
+
+Email sending with OCR content example (MANDATORY for OCR+Email tasks):
+{{
+  "type": "email_send",
+  "description": "Send email with extracted OCR content",
+  "tool_name": "email_send",
+  "tool_input": {{
+    "to": "recipient@example.com",
+    "subject": "OCR识别结果",
+    "body": "识别结果如下：<extracted_text_here>",
+    "content_type": "text"
+  }},
+  "expected_outcome": "Email sent with OCR content",
+  "dependencies": ["Extract text from image"],
+  "priority": 2
+}}
+
+Email sending with attachment example:
+{{
+  "type": "email_send",
+  "description": "Send email with file attachment",
+  "tool_name": "email_send",
+  "tool_input": {{
+    "to": "recipient@example.com",
+    "subject": "文件发送",
+    "body": "请查收附件文件。",
+    "content_type": "text",
+    "attachments": ["./sample.json"]
+  }},
+  "expected_outcome": "Email sent with attachment",
+  "dependencies": [],
+  "priority": 1
+}}
+
+## MANDATORY FOR "识别...并...邮件" REQUESTS ##
+When user requests to recognize/识别 content AND send via email, you MUST:
+1. First task: Use "universal_ocr" with "output_format": "raw"
+2. Second task: Use "email_send" with body containing "<extracted_text_here>"
+3. Set proper dependencies between tasks
+
+NEVER create email tasks without placeholders when depending on OCR results!
+
+## MANDATORY FOR ATTACHMENT EMAIL REQUESTS ##
+When user requests to send a file as email attachment (e.g., "作为邮件附件", "attach to email", "发送附件"):
+1. Use "email_send" tool with "attachments" parameter
+2. Use relative file paths like "./filename" or just "filename" 
+3. Ensure file exists or will be created by previous tasks
+
+Example for attachment email:
+{{
+  "description": "Send file as email attachment",
+  "tool_name": "email_send",
+  "tool_input": {{
+    "to": "recipient@example.com",
+    "subject": "文件附件",
+    "body": "请查收附件文件。",
+    "content_type": "text",
+    "attachments": ["./sample.json"]
+  }}
+}}
+
+OCR text extraction example:
+{{
+  "type": "file_operation",
+  "description": "Extract text from image using OCR",
+  "tool_name": "universal_ocr",
+  "tool_input": {{
+    "file_path": "/path/to/image.png",
+    "output_format": "raw"
+  }},
+  "expected_outcome": "Text extracted from image",
+  "dependencies": [],
+  "priority": 1
+}}
+
+File writing example:
+{{
+  "type": "file_operation",
+  "description": "Save content to file",
+  "tool_name": "file_write",
+  "tool_input": {{
+    "file_path": "./output.json",
+    "content": "{{\"result\": \"<extracted_text_here>\"}}"
+  }},
+  "expected_outcome": "File written successfully",
+  "dependencies": ["Extract text from image"],
+  "priority": 2
+}}
+
 Available tools:
 {available_tools}
 
@@ -191,6 +325,47 @@ For tasks, specify:
 - Expected outcome description
 - Dependencies on other tasks (if any)
 - Priority level (1-5, where 1 is highest)
+
+## TASK DEPENDENCIES AND PLACEHOLDERS ##
+
+When creating tasks that depend on previous results:
+1. Set the "dependencies" field to reference the previous task description
+2. Use placeholders in tool_input to reference previous results:
+   - <extracted_text_here> - for OCR text results
+   - <previous_result> - for any previous task output
+   - <task_result> - for specific task results
+3. For file paths, use current directory relative paths (e.g., "./filename" or "filename")
+   - This ensures compatibility with the security permission system
+   - Avoid absolute paths unless specifically required
+
+MANDATORY sequence for "识别图片并发邮件" requests:
+[
+  {{
+    "description": "识别图片内容",
+    "tool_name": "universal_ocr",
+    "tool_input": {{"file_path": "/path/to/image.png", "output_format": "raw"}},
+    "dependencies": [],
+    "priority": 1
+  }},
+  {{
+    "description": "发送邮件包含识别结果",
+    "tool_name": "email_send",
+    "tool_input": {{
+      "to": "user@example.com",
+      "subject": "图片识别结果", 
+      "body": "识别结果：<extracted_text_here>",
+      "content_type": "text"
+    }},
+    "dependencies": ["识别图片内容"],
+    "priority": 2
+  }}
+]
+
+CRITICAL REQUIREMENTS:
+1. Task dependencies must match task descriptions exactly
+2. Email body MUST contain "<extracted_text_here>" placeholder when depending on OCR
+3. OCR output_format MUST be "raw" for email scenarios
+4. Use concise, consistent task descriptions
 
 Be specific and actionable. Consider edge cases and error handling.
 Always classify the input type first, then respond appropriately.
@@ -242,6 +417,10 @@ Always classify the input type first, then respond appropriately.
             
             # Parse and validate tasks for task-oriented inputs
             tasks = result["tasks"]
+            
+            # Critical validation for OCR+Email scenarios
+            self._validate_ocr_email_scenarios(tasks, context)
+            
             validated_tasks = await self._validate_and_enhance_tasks(tasks, context)
             
             return validated_tasks
@@ -300,12 +479,24 @@ Respond with a JSON array of alternative task objects.
             )
     
     def _get_available_tools_description(self) -> str:
-        """Get formatted description of available tools."""
+        """Get formatted description of available tools with parameter information."""
         tools = self.tool_registry.get_all_tools()
         descriptions = []
         
         for tool_name, tool in tools.items():
-            descriptions.append(f"- {tool_name}: {tool.description}")
+            description = f"- {tool_name}: {tool.description}"
+            
+            # Add parameter examples for specific tools
+            if tool_name == "email_send":
+                description += "\n  Parameters: {\"to\": \"recipient@email.com\", \"subject\": \"Email subject\", \"body\": \"Email content\", \"content_type\": \"text\", \"attachments\": [\"optional_file_path.json\"]}"
+            elif tool_name == "file_read":
+                description += "\n  Parameters: {\"file_path\": \"/path/to/file\"}"
+            elif tool_name == "file_write":
+                description += "\n  Parameters: {\"file_path\": \"/path/to/file\", \"content\": \"File content\"}"
+            elif tool_name == "bash":
+                description += "\n  Parameters: {\"command\": \"shell command\"}"
+            
+            descriptions.append(description)
         
         return "\n".join(descriptions)
     
@@ -645,6 +836,60 @@ Respond with a JSON array of alternative task objects.
         
         # Sort by priority and dependencies
         return self._sort_tasks_by_execution_order(validated_tasks)
+    
+    def _validate_ocr_email_scenarios(self, tasks: List[Task], context: PlanningContext) -> None:
+        """Validate OCR+Email scenarios to ensure placeholders are used correctly"""
+        
+        # Check if this is an OCR+Email scenario
+        user_input = context.user_input.lower()
+        is_ocr_email_scenario = (
+            ("识别" in user_input or "ocr" in user_input) and 
+            ("邮件" in user_input or "email" in user_input or "发送" in user_input)
+        )
+        
+        if not is_ocr_email_scenario:
+            return
+        
+        # Find OCR and email tasks
+        ocr_tasks = [task for task in tasks if task.tool_name == "universal_ocr"]
+        email_tasks = [task for task in tasks if task.tool_name == "email_send"]
+        
+        if not ocr_tasks or not email_tasks:
+            return
+        
+        logger.warning(f"Validating OCR+Email scenario with {len(ocr_tasks)} OCR tasks and {len(email_tasks)} email tasks")
+        
+        # Validate each email task that depends on OCR
+        for email_task in email_tasks:
+            if email_task.dependencies:
+                # Check if email body contains placeholder
+                body = email_task.tool_input.get('body', '')
+                
+                placeholders = ['<extracted_text_here>', '<previous_result>', '<task_result>']
+                has_placeholder = any(placeholder in body for placeholder in placeholders)
+                
+                if not has_placeholder:
+                    logger.error(f"CRITICAL: Email task '{email_task.description}' depends on other tasks but has no placeholder in body: '{body}'")
+                    
+                    # Auto-fix: Add placeholder to email body
+                    if body and not has_placeholder:
+                        if "识别" in context.user_input:
+                            email_task.tool_input['body'] = f"{body}\n\n识别结果：<extracted_text_here>"
+                        else:
+                            email_task.tool_input['body'] = f"{body}\n\n结果：<extracted_text_here>"
+                        
+                        logger.warning(f"AUTO-FIXED: Added placeholder to email body: '{email_task.tool_input['body']}'")
+                    else:
+                        # Fallback: Replace entire body
+                        email_task.tool_input['body'] = "识别结果：<extracted_text_here>"
+                        logger.warning(f"AUTO-FIXED: Replaced email body with placeholder template")
+        
+        # Validate OCR output format
+        for ocr_task in ocr_tasks:
+            output_format = ocr_task.tool_input.get('output_format', 'json')
+            if output_format != 'raw':
+                logger.warning(f"OCR task using '{output_format}' format, changing to 'raw' for better email compatibility")
+                ocr_task.tool_input['output_format'] = 'raw'
     
     def _sort_tasks_by_execution_order(self, tasks: List[Task]) -> List[Task]:
         """Sort tasks based on dependencies and priority."""

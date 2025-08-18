@@ -596,31 +596,53 @@ class ReActEngine:
             dependency_results = []
             
             # Dependencies might be task descriptions or task IDs
-            # First, try to find matching task by description, then use the actual task ID
+            # Enhanced matching: try multiple strategies to find the right task
             for dep_description in task.dependencies:
                 matching_task_id = None
                 
                 session.add_log_entry(f"DEBUG: Looking for dependency: '{str(dep_description)}'", "DEBUG")
                 
-                # Find the task ID that matches this dependency description
-                for task_id, results in session.task_results.items():
-                    # Look through the session's tasks to find one with matching description
-                    for session_task in session.tasks:
-                        session.add_log_entry(f"DEBUG: Comparing with task: '{session_task.description}'", "DEBUG")
+                # Strategy 1: Direct task ID match (if dependency is already a task ID)
+                if str(dep_description) in session.task_results:
+                    matching_task_id = str(dep_description)
+                    session.add_log_entry(f"DEBUG: Direct task ID match: {matching_task_id}", "DEBUG")
+                else:
+                    # Strategy 2: Find task by description matching
+                    dep_str = str(dep_description) if dep_description is not None else ""
+                    
+                    # Look through all tasks with results
+                    for task_id, results in session.task_results.items():
+                        # Find the corresponding task object
+                        matching_session_task = None
+                        for session_task in session.tasks:
+                            if session_task.id == task_id:
+                                matching_session_task = session_task
+                                break
                         
-                        # 🔧 修复: 使用模糊匹配而不是完全匹配，确保类型安全
-                        # 确保dep_description是字符串类型
-                        dep_str = str(dep_description) if dep_description is not None else ""
-                        task_desc = str(session_task.description) if session_task.description is not None else ""
-                        
-                        if (task_desc == dep_str or 
-                            (dep_str and dep_str in task_desc) or
-                            (dep_str and task_desc.startswith(dep_str))) and session_task.id == task_id:
-                            matching_task_id = task_id
-                            session.add_log_entry(f"DEBUG: Found matching task ID: {matching_task_id}", "DEBUG")
-                            break
-                    if matching_task_id:
-                        break
+                        if matching_session_task:
+                            task_desc = str(matching_session_task.description) if matching_session_task.description else ""
+                            session.add_log_entry(f"DEBUG: Comparing '{dep_str}' with task '{task_desc}'", "DEBUG")
+                            
+                            # Enhanced matching logic
+                            if (task_desc == dep_str or  # Exact match
+                                (dep_str and dep_str in task_desc) or  # Substring match
+                                (dep_str and task_desc.startswith(dep_str)) or  # Prefix match
+                                (task_desc and dep_str in task_desc.lower()) or  # Case-insensitive substring
+                                # Handle common OCR description patterns
+                                (dep_str and "识别" in dep_str and "识别" in task_desc) or
+                                (dep_str and "ocr" in dep_str.lower() and matching_session_task.tool_name == "universal_ocr")):
+                                matching_task_id = task_id
+                                session.add_log_entry(f"DEBUG: Found matching task ID: {matching_task_id}", "DEBUG")
+                                break
+                    
+                    # Strategy 3: Fallback - if only one OCR task exists and dependency mentions OCR/识别
+                    if not matching_task_id and ("识别" in dep_str or "ocr" in dep_str.lower()):
+                        ocr_tasks = [(tid, task) for tid, task in [(tid, next((t for t in session.tasks if t.id == tid), None)) 
+                                                                   for tid in session.task_results.keys()]
+                                    if task and task.tool_name == "universal_ocr"]
+                        if len(ocr_tasks) == 1:
+                            matching_task_id = ocr_tasks[0][0]
+                            session.add_log_entry(f"DEBUG: Fallback OCR task match: {matching_task_id}", "DEBUG")
                 
                 if matching_task_id and matching_task_id in session.task_results:
                     results = session.task_results[matching_task_id]

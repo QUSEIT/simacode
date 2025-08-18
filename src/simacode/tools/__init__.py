@@ -18,6 +18,7 @@ from .bash import BashTool
 from .file_read import FileReadTool
 from .file_write import FileWriteTool
 from .universal_ocr import UniversalOCRTool
+from .email_send import EmailSendTool
 
 __all__ = [
     "Tool",
@@ -30,4 +31,5 @@ __all__ = [
     "FileReadTool",
     "FileWriteTool",
     "UniversalOCRTool",
+    "EmailSendTool",
 ]

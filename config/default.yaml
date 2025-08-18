@@ -67,3 +67,27 @@ react:
   confirmation_timeout: 300  # 确认超时时间（秒）
   allow_task_modification: true  # 允许用户修改任务
   auto_confirm_safe_tasks: false  # 自动确认安全任务
+
+# Email configuration
+email:
+  smtp:
+    server: null  # SMTP server address (e.g., smtp.gmail.com)
+    port: 587  # SMTP port (587 for TLS, 465 for SSL, 25 for plain)
+    use_tls: true  # Use TLS encryption
+    use_ssl: false  # Use SSL encryption
+    timeout: 30  # Connection timeout in seconds
+    username: null  # SMTP username (will be loaded from SIMACODE_SMTP_USER env var)
+    password: null  # SMTP password (will be loaded from SIMACODE_SMTP_PASS env var)
+  security:
+    max_recipients: 50  # Maximum number of recipients per email
+    max_attachment_size: 26214400  # 25MB in bytes
+    max_body_size: 1048576  # 1MB in bytes
+    allowed_domains: []  # Allowed recipient domains (empty = allow all)
+    blocked_domains: []  # Blocked recipient domains
+    allowed_attachment_types: [".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".gif", ".json", ".csv", ".xml", ".zip"]
+  rate_limiting:
+    max_emails_per_hour: 100  # Maximum emails per hour
+    max_emails_per_day: 1000  # Maximum emails per day
+  defaults:
+    from_name: "SimaCode Assistant"  # Default sender name
+    from_email: null  # Default sender email (will use username if not set)
