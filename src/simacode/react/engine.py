@@ -742,6 +742,7 @@ class ReActEngine:
                         r'<content_from_previous_task>',
                         r'<retrieved_content>',
                         r'<retrieved_content_here>',
+                        r'<file_content>',  # file content placeholder
                         r'<content_from_[^>]+>',  # file-specific content
                         r'<[^>]*_from_previous_task>',
                         r'<[^>]*previous_task[^>]*>'
@@ -758,6 +759,7 @@ class ReActEngine:
                         value = re.sub(r'<content_from_previous_task>', replacement_text, value, flags=re.IGNORECASE)
                         value = re.sub(r'<retrieved_content>', replacement_text, value, flags=re.IGNORECASE)
                         value = re.sub(r'<retrieved_content_here>', replacement_text, value, flags=re.IGNORECASE)
+                        value = re.sub(r'<file_content>', replacement_text, value, flags=re.IGNORECASE)
                         # Handle file-specific content placeholders like <content_from_test.txt>
                         value = re.sub(r'<content_from_[^>]+>', replacement_text, value, flags=re.IGNORECASE)
                         # Handle various forms of previous task references
