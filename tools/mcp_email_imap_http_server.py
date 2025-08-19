@@ -489,7 +489,7 @@ class EmailIMAPMCPServer:
             },
             "get_recent_emails_json": {
                 "name": "get_recent_emails_json",
-                "description": "Get recent emails in pure JSON format (no wrapper)",
+                "description": "Get recent emails and return pure email JSON data (does not save to file)",
                 "input_schema": {
                     "type": "object",
                     "properties": {
