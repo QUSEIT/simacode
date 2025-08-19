@@ -782,6 +782,22 @@ class EmailIMAPMCPServer:
             # Ensure all content in result is safe for JSON serialization
             safe_result = self._ensure_json_safe(result)
             
+            # Special handling for get_recent_emails_json to return pure email data
+            if tool_name == "get_recent_emails_json":
+                # For successful email retrieval, return only the email data without MCP wrapper
+                if not safe_result.get("error"):
+                    return MCPMessage(
+                        id=message.id,
+                        result={
+                            "content": [
+                                {
+                                    "type": "text",
+                                    "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
+                                }
+                            ]
+                        }
+                    )
+            
             return MCPMessage(
                 id=message.id,
                 result={
