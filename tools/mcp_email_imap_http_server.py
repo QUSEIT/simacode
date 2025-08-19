@@ -568,8 +568,8 @@ class EmailIMAPMCPServer:
                         },
                         "include_attachments": {
                             "type": "boolean",
-                            "description": "Whether to include attachment content (default: false)",
-                            "default": False
+                            "description": "Whether to include attachment content with base64 data (default: true)",
+                            "default": True
                         }
                     }
                 }
@@ -1124,7 +1124,7 @@ class EmailIMAPMCPServer:
             filename = arguments.get("filename", "mail.json")
             folder = arguments.get("folder", "INBOX")
             days = arguments.get("days", 7)
-            include_attachments = arguments.get("include_attachments", False)
+            include_attachments = arguments.get("include_attachments", True)
             
             # Get the latest email using the existing method
             email_json_result = await self._get_recent_emails_json({

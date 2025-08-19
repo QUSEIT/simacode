@@ -505,19 +505,66 @@ Respond with a JSON array of alternative task objects.
         for tool_name, tool in tools.items():
             description = f"- {tool_name}: {tool.description}"
             
-            # Add parameter examples for specific tools
-            if tool_name == "email_send":
-                description += "\n  Parameters: {\"to\": \"recipient@email.com\", \"subject\": \"Email subject\", \"body\": \"Email content\", \"content_type\": \"text\", \"attachments\": [\"optional_file_path.json\"]}"
-            elif tool_name == "file_read":
-                description += "\n  Parameters: {\"file_path\": \"/path/to/file\"}"
-            elif tool_name == "file_write":
-                description += "\n  Parameters: {\"file_path\": \"/path/to/file\", \"content\": \"File content\"}"
-            elif tool_name == "bash":
-                description += "\n  Parameters: {\"command\": \"shell command\"}"
+            # Try to get dynamic parameter information from MCP tools
+            param_info = self._get_tool_parameter_info(tool_name, tool)
+            if param_info:
+                description += f"\n  Parameters: {param_info}"
             
             descriptions.append(description)
         
         return "\n".join(descriptions)
+    
+    def _get_tool_parameter_info(self, tool_name: str, tool: Any) -> str:
+        """
+        Dynamically get parameter information for a tool.
+        
+        Args:
+            tool_name: Name of the tool
+            tool: Tool instance
+            
+        Returns:
+            str: Parameter information string
+        """
+        try:
+            # Check if this is an MCP tool wrapper with schema information
+            if hasattr(tool, 'mcp_schema') and tool.mcp_schema:
+                schema = tool.mcp_schema
+                if isinstance(schema, dict) and 'properties' in schema:
+                    properties = schema['properties']
+                    required = schema.get('required', [])
+                    
+                    # Build parameter example from schema
+                    param_example = {}
+                    for prop_name, prop_schema in properties.items():
+                        if 'default' in prop_schema:
+                            param_example[prop_name] = prop_schema['default']
+                        elif prop_schema.get('type') == 'string':
+                            param_example[prop_name] = f"<{prop_name}>"
+                        elif prop_schema.get('type') == 'integer':
+                            param_example[prop_name] = 0
+                        elif prop_schema.get('type') == 'boolean':
+                            param_example[prop_name] = False
+                        else:
+                            param_example[prop_name] = f"<{prop_name}>"
+                    
+                    import json
+                    return json.dumps(param_example)
+            
+            # Fallback to hardcoded examples for built-in tools
+            if tool_name == "email_send":
+                return '{"to": "recipient@email.com", "subject": "Email subject", "body": "Email content", "content_type": "text", "attachments": ["optional_file_path.json"]}'
+            elif tool_name == "file_read":
+                return '{"file_path": "/path/to/file"}'
+            elif tool_name == "file_write":
+                return '{"file_path": "/path/to/file", "content": "File content"}'
+            elif tool_name == "bash":
+                return '{"command": "shell command"}'
+            
+            return ""
+            
+        except Exception as e:
+            logger.debug(f"Failed to get parameter info for tool {tool_name}: {str(e)}")
+            return ""
     
     def _summarize_conversation_history(self, history: List[Message]) -> str:
         """Create conversation summary using configurable strategy."""
