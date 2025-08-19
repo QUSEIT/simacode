@@ -175,6 +175,40 @@ servers:
       max_execution_time: 300
       network_access: true  # Required for browser automation and HTTP proxy
 
+  # Email IMAP MCP Server (HTTP/WebSocket) - Email checking and retrieval via IMAP
+  # Note: Server must be started manually using: python tools/mcp_email_imap_http_server.py
+  email_imap:
+    name: email_imap
+    enabled: true  # Enable for email automation features
+    type: websocket
+    url: "${EMAIL_IMAP_MCP_URL:-ws://localhost:8081/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
+    args: []
+    environment:
+      EMAIL_IMAP_MCP_URL: "${EMAIL_IMAP_MCP_URL:-ws://localhost:8081/mcp/ws}"
+      EMAIL_IMAP_SERVER: "${EMAIL_IMAP_SERVER:-imap.gmail.com}"
+      EMAIL_IMAP_PORT_IMAP: "${EMAIL_IMAP_PORT_IMAP:-993}"
+      EMAIL_USERNAME: "${EMAIL_USERNAME}"
+      EMAIL_PASSWORD: "${EMAIL_PASSWORD}"
+      EMAIL_TIMEOUT: "${EMAIL_TIMEOUT:-30}"
+      EMAIL_IMAP_HOST: "${EMAIL_IMAP_HOST:-0.0.0.0}"
+      EMAIL_IMAP_PORT: "${EMAIL_IMAP_PORT:-8081}"
+    working_directory: null
+    timeout: 60  # Email operations can take some time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "read"      # Allow reading operations (get_email, get_recent_emails, list_folders)
+        - "execute"   # Allow general execution operations  
+        - "access"    # Allow access operations (check_emails)
+      allowed_paths: []  # Email operations don't need file system access
+      forbidden_paths: []
+      max_execution_time: 60
+      network_access: true  # Required for IMAP connections
+
 # Configuration Notes:
 #
 # 1. Environment Variables:
