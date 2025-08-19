@@ -487,8 +487,8 @@ class EmailIMAPMCPServer:
                     "required": ["uid"]
                 }
             },
-            "get_recent_emails_json": {
-                "name": "get_recent_emails_json",
+            "get_recent_emails": {
+                "name": "get_recent_emails",
                 "description": "Get recent emails and return pure email JSON data (does not save to file)",
                 "input_schema": {
                     "type": "object",
@@ -512,35 +512,6 @@ class EmailIMAPMCPServer:
                             "type": "boolean",
                             "description": "Include attachment content in base64 format",
                             "default": True
-                        }
-                    }
-                }
-            },
-            "get_recent_emails": {
-                "name": "get_recent_emails",
-                "description": "Get recent emails with full content",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "folder": {
-                            "type": "string",
-                            "description": "Email folder to check (default: INBOX)",
-                            "default": "INBOX"
-                        },
-                        "days": {
-                            "type": "integer",
-                            "description": "Number of days to look back for recent emails",
-                            "default": 7
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of emails to return",
-                            "default": 5
-                        },
-                        "include_attachments": {
-                            "type": "boolean",
-                            "description": "Include attachment content in base64 format",
-                            "default": False
                         }
                     }
                 }
@@ -768,10 +739,8 @@ class EmailIMAPMCPServer:
                 result = await self._check_emails(arguments)
             elif tool_name == "get_email":
                 result = await self._get_email(arguments)
-            elif tool_name == "get_recent_emails_json":
-                result = await self._get_recent_emails_json(arguments)
             elif tool_name == "get_recent_emails":
-                result = await self._get_recent_emails(arguments)
+                result = await self._get_recent_emails_json(arguments)
             elif tool_name == "save_latest_email_json":
                 result = await self._save_latest_email_json(arguments)
             else:
@@ -782,8 +751,8 @@ class EmailIMAPMCPServer:
             # Ensure all content in result is safe for JSON serialization
             safe_result = self._ensure_json_safe(result)
             
-            # Special handling for get_recent_emails_json to return pure email data
-            if tool_name == "get_recent_emails_json":
+            # Special handling for get_recent_emails to return pure email data
+            if tool_name == "get_recent_emails":
                 # For successful email retrieval, return only the email data without MCP wrapper
                 if not safe_result.get("error"):
                     return MCPMessage(
@@ -1051,85 +1020,6 @@ class EmailIMAPMCPServer:
             return {
                 "error": f"Failed to get recent emails: {self._safe_text(str(e))}",
                 "message": "An error occurred while retrieving email data"
-            }
-        finally:
-            await self.email_client.disconnect()
-    
-    async def _get_recent_emails(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Get recent emails with full content."""
-        try:
-            folder = arguments.get("folder", "INBOX")
-            days = arguments.get("days", 7)
-            limit = arguments.get("limit", 5)
-            include_attachments = arguments.get("include_attachments", True)
-            
-            folder_info = await self.email_client.select_folder(folder)
-            
-            since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
-            criteria = f"SINCE {since_date}"
-            
-            uids = await self.email_client.search_emails(criteria, limit)
-            
-            emails = []
-            for uid in uids:
-                try:
-                    email_msg = await self.email_client.fetch_email(uid)
-                    
-                    email_data = {
-                        "uid": str(email_msg.uid),
-                        "subject": self._safe_text(email_msg.subject),
-                        "sender": self._safe_text(email_msg.sender),
-                        "recipient": self._safe_text(email_msg.recipient),
-                        "date": self._safe_text(email_msg.date),
-                        "body_text": self._safe_text(email_msg.body_text),
-                        "body_html": self._safe_text(email_msg.body_html),
-                        "size": email_msg.size,
-                        "flags": email_msg.flags,
-                        "attachments": []
-                    }
-                    
-                    if include_attachments:
-                        # Safely process attachments
-                        safe_attachments = []
-                        for att in email_msg.attachments:
-                            safe_att = {
-                                "filename": self._safe_text(att.get("filename", "")),
-                                "content_type": self._safe_text(att.get("content_type", "")),
-                                "size": att.get("size", 0),
-                                "content_base64": att.get("content_base64", "")
-                            }
-                            safe_attachments.append(safe_att)
-                        email_data["attachments"] = safe_attachments
-                    else:
-                        for att in email_msg.attachments:
-                            email_data["attachments"].append({
-                                "filename": self._safe_text(att.get("filename", "")),
-                                "content_type": self._safe_text(att.get("content_type", "")),
-                                "size": att.get("size", 0)
-                            })
-                    
-                    emails.append(email_data)
-                    
-                except Exception as e:
-                    logger.error(f"Error fetching email {uid}: {str(e)}")
-                    continue
-            
-            return {
-                "success": True,
-                "folder": folder,
-                "folder_info": folder_info,
-                "days_back": days,
-                "search_criteria": criteria,
-                "emails": emails,
-                "count": len(emails),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to get recent emails: {str(e)}",
-                "timestamp": datetime.now().isoformat()
             }
         finally:
             await self.email_client.disconnect()
