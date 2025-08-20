@@ -19,6 +19,7 @@ from .file_read import FileReadTool
 from .file_write import FileWriteTool
 from .universal_ocr import UniversalOCRTool
 from .email_send import EmailSendTool
+from .mcp_content_extraction import MCPContentExtraction
 
 __all__ = [
     "Tool",
@@ -32,4 +33,5 @@ __all__ = [
     "FileWriteTool",
     "UniversalOCRTool",
     "EmailSendTool",
+    "MCPContentExtraction",
 ]

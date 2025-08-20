@@ -753,8 +753,24 @@ class EmailIMAPMCPServer:
             
             # Special handling for get_recent_emails to return pure email data
             if tool_name == "get_recent_emails":
-                # For successful email retrieval, return only the email data without MCP wrapper
-                if not safe_result.get("error"):
+                # Check if result is an error (dict with "error" key) or success (list/dict without error)
+                is_error = isinstance(safe_result, dict) and safe_result.get("error") is not None
+                
+                if not is_error:
+                    # For successful email retrieval, return only the email data without MCP wrapper
+                    return MCPMessage(
+                        id=message.id,
+                        result={
+                            "content": [
+                                {
+                                    "type": "text", 
+                                    "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
+                                }
+                            ]
+                        }
+                    )
+                else:
+                    # For errors, still use the standard error format
                     return MCPMessage(
                         id=message.id,
                         result={
@@ -763,7 +779,8 @@ class EmailIMAPMCPServer:
                                     "type": "text",
                                     "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
                                 }
-                            ]
+                            ],
+                            "isError": True
                         }
                     )
             
@@ -976,45 +993,59 @@ class EmailIMAPMCPServer:
                     "message": "No recent emails found in the specified time range"
                 }
             
-            # Get the latest email (first in the reversed list)
-            latest_uid = uids[0]
-            email_msg = await self.email_client.fetch_email(latest_uid)
+            # Get the requested number of emails (up to limit)
+            emails_data = []
             
-            # Create pure email JSON without wrapper
-            email_data = {
-                "uid": str(email_msg.uid),
-                "subject": self._safe_text(email_msg.subject),
-                "sender": self._safe_text(email_msg.sender),
-                "recipient": self._safe_text(email_msg.recipient),
-                "date": self._safe_text(email_msg.date),
-                "body_text": self._safe_text(email_msg.body_text),
-                "body_html": self._safe_text(email_msg.body_html),
-                "size": email_msg.size,
-                "flags": email_msg.flags,
-                "attachments": []
-            }
-            
-            # Process attachments
-            if include_attachments:
-                # Include full attachment data with base64 content
-                for att in email_msg.attachments:
-                    safe_att = {
-                        "filename": self._safe_text(att.get("filename", "")),
-                        "content_type": self._safe_text(att.get("content_type", "")),
-                        "size": att.get("size", 0),
-                        "content_base64": att.get("content_base64", "")
+            for uid in uids[:limit]:  # Process up to 'limit' emails
+                try:
+                    email_msg = await self.email_client.fetch_email(uid)
+                    
+                    # Create email JSON data
+                    email_data = {
+                        "uid": str(email_msg.uid),
+                        "subject": self._safe_text(email_msg.subject),
+                        "sender": self._safe_text(email_msg.sender),
+                        "recipient": self._safe_text(email_msg.recipient),
+                        "date": self._safe_text(email_msg.date),
+                        "body_text": self._safe_text(email_msg.body_text),
+                        "body_html": self._safe_text(email_msg.body_html),
+                        "size": email_msg.size,
+                        "flags": email_msg.flags,
+                        "attachments": []
                     }
-                    email_data["attachments"].append(safe_att)
-            else:
-                # Include only attachment metadata
-                for att in email_msg.attachments:
-                    email_data["attachments"].append({
-                        "filename": self._safe_text(att.get("filename", "")),
-                        "content_type": self._safe_text(att.get("content_type", "")),
-                        "size": att.get("size", 0)
-                    })
+                    
+                    # Process attachments
+                    if include_attachments:
+                        # Include full attachment data with base64 content
+                        for att in email_msg.attachments:
+                            safe_att = {
+                                "filename": self._safe_text(att.get("filename", "")),
+                                "content_type": self._safe_text(att.get("content_type", "")),
+                                "size": att.get("size", 0),
+                                "content_base64": att.get("content_base64", "")
+                            }
+                            email_data["attachments"].append(safe_att)
+                    else:
+                        # Include only attachment metadata
+                        for att in email_msg.attachments:
+                            email_data["attachments"].append({
+                                "filename": self._safe_text(att.get("filename", "")),
+                                "content_type": self._safe_text(att.get("content_type", "")),
+                                "size": att.get("size", 0)
+                            })
+                    
+                    emails_data.append(email_data)
+                    
+                except Exception as e:
+                    # Log error but continue processing other emails
+                    logger.error(f"Error processing email {uid}: {str(e)}")
+                    continue
             
-            return email_data
+            # Return single email if limit is 1, otherwise return array
+            if limit == 1 and emails_data:
+                return emails_data[0]
+            else:
+                return emails_data
             
         except Exception as e:
             return {
