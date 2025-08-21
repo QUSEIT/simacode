@@ -299,6 +299,26 @@ class IMAPEmailClient:
             logger.error(f"Error decoding header: {str(e)}")
             return str(header_value)
     
+    def _extract_email_address(self, header_value: str) -> str:
+        """Extract email address from header value, removing display names."""
+        if not header_value:
+            return ""
+        
+        try:
+            # First decode the header
+            decoded = self._decode_header(header_value)
+            
+            # Use email.utils.parseaddr to extract just the email address
+            import email.utils
+            name, address = email.utils.parseaddr(decoded)
+            
+            # Return just the email address part
+            return address if address else decoded
+            
+        except Exception as e:
+            logger.error(f"Error extracting email address: {str(e)}")
+            return str(header_value)
+    
     async def fetch_email(self, uid: str) -> EmailMessage:
         """
         Fetch email message by UID.
@@ -321,8 +341,8 @@ class IMAPEmailClient:
             email_message = email.message_from_bytes(raw_email)
             
             subject = self._decode_header(email_message.get('Subject', ''))
-            sender = self._decode_header(email_message.get('From', ''))
-            recipient = self._decode_header(email_message.get('To', ''))
+            sender = self._extract_email_address(email_message.get('From', ''))
+            recipient = self._extract_email_address(email_message.get('To', ''))
             date = email_message.get('Date', '')
             
             body_text = ""
@@ -431,41 +451,9 @@ class EmailIMAPMCPServer:
         
         # Available tools
         self.tools = {
-            "list_folders": {
-                "name": "list_folders",
-                "description": "List available email folders/mailboxes",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {}
-                }
-            },
-            "check_emails": {
-                "name": "check_emails",
-                "description": "Check for emails in a folder with optional filtering",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "folder": {
-                            "type": "string",
-                            "description": "Email folder to check (default: INBOX)",
-                            "default": "INBOX"
-                        },
-                        "criteria": {
-                            "type": "string",
-                            "description": "IMAP search criteria (e.g., 'UNSEEN', 'FROM sender@email.com')",
-                            "default": "ALL"
-                        },
-                        "limit": {
-                            "type": "integer",
-                            "description": "Maximum number of emails to return",
-                            "default": 10
-                        }
-                    }
-                }
-            },
             "get_email": {
                 "name": "get_email",
-                "description": "Get specific email by UID with optional attachments",
+                "description": "Get specific email by UID with attachments and base64 content by default",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -480,7 +468,17 @@ class EmailIMAPMCPServer:
                         },
                         "include_attachments": {
                             "type": "boolean",
-                            "description": "Include attachment data in Base64 format",
+                            "description": "Include attachment data with Base64 content",
+                            "default": True
+                        },
+                        "include_body_html": {
+                            "type": "boolean",
+                            "description": "Include HTML body content",
+                            "default": False
+                        },
+                        "include_headers": {
+                            "type": "boolean",
+                            "description": "Include email headers",
                             "default": False
                         }
                     },
@@ -508,39 +506,15 @@ class EmailIMAPMCPServer:
                             "description": "Maximum number of emails to return",
                             "default": 1
                         },
+                        "include_body_html": {
+                            "type": "boolean",
+                            "description": "Include HTML body content",
+                            "default": False
+                        },
                         "include_attachments": {
                             "type": "boolean",
                             "description": "Include attachment content in base64 format",
-                            "default": True
-                        }
-                    }
-                }
-            },
-            "save_latest_email_json": {
-                "name": "save_latest_email_json",
-                "description": "Get the latest email and save it as a pure JSON file",
-                "input_schema": {
-                    "type": "object",
-                    "properties": {
-                        "filename": {
-                            "type": "string",
-                            "description": "Output filename (default: mail.json)",
-                            "default": "mail.json"
-                        },
-                        "folder": {
-                            "type": "string",
-                            "description": "Email folder to check (default: INBOX)",
-                            "default": "INBOX"
-                        },
-                        "days": {
-                            "type": "integer",
-                            "description": "Number of days back to search (default: 7)",
-                            "default": 7
-                        },
-                        "include_attachments": {
-                            "type": "boolean",
-                            "description": "Whether to include attachment content with base64 data (default: true)",
-                            "default": True
+                            "default": False
                         }
                     }
                 }
@@ -733,16 +707,10 @@ class EmailIMAPMCPServer:
             
             start_time = asyncio.get_event_loop().time()
             
-            if tool_name == "list_folders":
-                result = await self._list_folders(arguments)
-            elif tool_name == "check_emails":
-                result = await self._check_emails(arguments)
-            elif tool_name == "get_email":
+            if tool_name == "get_email":
                 result = await self._get_email(arguments)
             elif tool_name == "get_recent_emails":
                 result = await self._get_recent_emails_json(arguments)
-            elif tool_name == "save_latest_email_json":
-                result = await self._save_latest_email_json(arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -751,38 +719,7 @@ class EmailIMAPMCPServer:
             # Ensure all content in result is safe for JSON serialization
             safe_result = self._ensure_json_safe(result)
             
-            # Special handling for get_recent_emails to return pure email data
-            if tool_name == "get_recent_emails":
-                # Check if result is an error (dict with "error" key) or success (list/dict without error)
-                is_error = isinstance(safe_result, dict) and safe_result.get("error") is not None
-                
-                if not is_error:
-                    # For successful email retrieval, return only the email data without MCP wrapper
-                    return MCPMessage(
-                        id=message.id,
-                        result={
-                            "content": [
-                                {
-                                    "type": "text", 
-                                    "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
-                                }
-                            ]
-                        }
-                    )
-                else:
-                    # For errors, still use the standard error format
-                    return MCPMessage(
-                        id=message.id,
-                        result={
-                            "content": [
-                                {
-                                    "type": "text",
-                                    "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
-                                }
-                            ],
-                            "isError": True
-                        }
-                    )
+            # No special handling - all tools now return consistent format
             
             return MCPMessage(
                 id=message.id,
@@ -812,73 +749,6 @@ class EmailIMAPMCPServer:
                 }
             )
     
-    async def _list_folders(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """List email folders."""
-        try:
-            folders = await self.email_client.list_folders()
-            
-            return {
-                "success": True,
-                "folders": folders,
-                "count": len(folders),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to list folders: {str(e)}",
-                "timestamp": datetime.now().isoformat()
-            }
-        finally:
-            await self.email_client.disconnect()
-    
-    async def _check_emails(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Check for emails in folder."""
-        try:
-            folder = arguments.get("folder", "INBOX")
-            criteria = arguments.get("criteria", "ALL")
-            limit = arguments.get("limit", 10)
-            
-            folder_info = await self.email_client.select_folder(folder)
-            uids = await self.email_client.search_emails(criteria, limit)
-            
-            emails = []
-            for uid in uids:
-                try:
-                    email_msg = await self.email_client.fetch_email(uid)
-                    emails.append({
-                        "uid": email_msg.uid,
-                        "subject": email_msg.subject,
-                        "sender": email_msg.sender,
-                        "date": email_msg.date,
-                        "size": email_msg.size,
-                        "flags": email_msg.flags,
-                        "has_attachments": len(email_msg.attachments) > 0
-                    })
-                except Exception as e:
-                    logger.error(f"Error fetching email {uid}: {str(e)}")
-                    continue
-            
-            return {
-                "success": True,
-                "folder": folder,
-                "folder_info": folder_info,
-                "search_criteria": criteria,
-                "emails": emails,
-                "count": len(emails),
-                "timestamp": datetime.now().isoformat()
-            }
-            
-        except Exception as e:
-            return {
-                "success": False,
-                "error": f"Failed to check emails: {str(e)}",
-                "timestamp": datetime.now().isoformat()
-            }
-        finally:
-            await self.email_client.disconnect()
-    
     def _safe_text(self, text: Any) -> str:
         """Safely convert text to string, handling encoding issues."""
         if text is None:
@@ -890,6 +760,27 @@ class EmailIMAPMCPServer:
         else:
             # Convert to string and then safely encode
             return str(text).encode('utf-8', errors='ignore').decode('utf-8')
+    
+    def _clean_body_text(self, text: Any) -> str:
+        """Clean body text by removing special characters like \\n, \\r, \\, \" etc."""
+        if text is None:
+            return ""
+        
+        # First ensure safe text conversion
+        safe_text = self._safe_text(text)
+        
+        # Remove special characters
+        cleaned_text = safe_text.replace('\n', ' ')  # Replace newlines with spaces
+        cleaned_text = cleaned_text.replace('\r', '')  # Remove carriage returns
+        cleaned_text = cleaned_text.replace('\\', '')  # Remove backslashes
+        cleaned_text = cleaned_text.replace('"', "'")  # Replace double quotes with single quotes
+        
+        # Remove extra whitespace
+        import re
+        cleaned_text = re.sub(r'\s+', ' ', cleaned_text)  # Replace multiple spaces with single space
+        cleaned_text = cleaned_text.strip()  # Remove leading/trailing whitespace
+        
+        return cleaned_text
     
     def _ensure_json_safe(self, obj: Any) -> Any:
         """Recursively ensure all strings in an object are JSON-safe."""
@@ -907,7 +798,9 @@ class EmailIMAPMCPServer:
         try:
             uid = arguments.get("uid")
             folder = arguments.get("folder", "INBOX")
-            include_attachments = arguments.get("include_attachments", False)
+            include_attachments = arguments.get("include_attachments", True)  # Default to True
+            include_body_html = arguments.get("include_body_html", False)  # Default to False
+            include_headers = arguments.get("include_headers", False)  # Default to False
             
             if not uid:
                 return {
@@ -923,39 +816,38 @@ class EmailIMAPMCPServer:
             result = {
                 "success": True,
                 "uid": str(email_msg.uid),
-                "subject": self._safe_text(email_msg.subject),
+                "subject": self._clean_body_text(email_msg.subject),
                 "sender": self._safe_text(email_msg.sender),
                 "recipient": self._safe_text(email_msg.recipient),
                 "date": self._safe_text(email_msg.date),
-                "body_text": self._safe_text(email_msg.body_text),
-                "body_html": self._safe_text(email_msg.body_html),
-                "headers": {k: self._safe_text(v) for k, v in email_msg.headers.items()},
+                "body_text": self._clean_body_text(email_msg.body_text),
                 "size": email_msg.size,
                 "flags": email_msg.flags,
                 "attachments": [],
                 "timestamp": datetime.now().isoformat()
             }
             
-            if include_attachments:
-                # Safely process attachments with base64 content
-                safe_attachments = []
-                for att in email_msg.attachments:
-                    safe_att = {
-                        "filename": self._safe_text(att.get("filename", "")),
-                        "content_type": self._safe_text(att.get("content_type", "")),
-                        "size": att.get("size", 0),
-                        "content_base64": att.get("content_base64", "")
-                    }
-                    safe_attachments.append(safe_att)
-                result["attachments"] = safe_attachments
-            else:
-                # Just include attachment metadata without content
-                for att in email_msg.attachments:
-                    result["attachments"].append({
-                        "filename": self._safe_text(att.get("filename", "")),
-                        "content_type": self._safe_text(att.get("content_type", "")),
-                        "size": att.get("size", 0)
-                    })
+            # Only include body_html if explicitly requested
+            if include_body_html:
+                result["body_html"] = self._safe_text(email_msg.body_html)
+            
+            # Only include headers if explicitly requested
+            if include_headers:
+                result["headers"] = {k: self._safe_text(v) for k, v in email_msg.headers.items()}
+            
+            # Process attachments - now default to include with base64 content
+            safe_attachments = []
+            for att in email_msg.attachments:
+                safe_att = {
+                    "filename": self._safe_text(att.get("filename", "")),
+                    "content_type": self._safe_text(att.get("content_type", "")),
+                    "size": att.get("size", 0)
+                }
+                # Include base64 content by default when include_attachments is True
+                if include_attachments:
+                    safe_att["content_base64"] = att.get("content_base64", "")
+                safe_attachments.append(safe_att)
+            result["attachments"] = safe_attachments
             
             return result
             
@@ -978,7 +870,8 @@ class EmailIMAPMCPServer:
             folder = arguments.get("folder", "INBOX")
             days = arguments.get("days", 7)
             limit = arguments.get("limit", 1)
-            include_attachments = arguments.get("include_attachments", True)
+            include_body_html = arguments.get("include_body_html", False)
+            include_attachments = arguments.get("include_attachments", False)
             
             await self.email_client.select_folder(folder)
             
@@ -989,8 +882,10 @@ class EmailIMAPMCPServer:
             
             if not uids:
                 return {
+                    "success": False,
                     "error": "No emails found",
-                    "message": "No recent emails found in the specified time range"
+                    "message": "No recent emails found in the specified time range",
+                    "timestamp": datetime.now().isoformat()
                 }
             
             # Get the requested number of emails (up to limit)
@@ -1003,36 +898,31 @@ class EmailIMAPMCPServer:
                     # Create email JSON data
                     email_data = {
                         "uid": str(email_msg.uid),
-                        "subject": self._safe_text(email_msg.subject),
+                        "subject": self._clean_body_text(email_msg.subject),
                         "sender": self._safe_text(email_msg.sender),
                         "recipient": self._safe_text(email_msg.recipient),
                         "date": self._safe_text(email_msg.date),
-                        "body_text": self._safe_text(email_msg.body_text),
-                        "body_html": self._safe_text(email_msg.body_html),
+                        "body_text": self._clean_body_text(email_msg.body_text),
                         "size": email_msg.size,
                         "flags": email_msg.flags,
                         "attachments": []
                     }
                     
-                    # Process attachments
-                    if include_attachments:
-                        # Include full attachment data with base64 content
-                        for att in email_msg.attachments:
-                            safe_att = {
-                                "filename": self._safe_text(att.get("filename", "")),
-                                "content_type": self._safe_text(att.get("content_type", "")),
-                                "size": att.get("size", 0),
-                                "content_base64": att.get("content_base64", "")
-                            }
-                            email_data["attachments"].append(safe_att)
-                    else:
-                        # Include only attachment metadata
-                        for att in email_msg.attachments:
-                            email_data["attachments"].append({
-                                "filename": self._safe_text(att.get("filename", "")),
-                                "content_type": self._safe_text(att.get("content_type", "")),
-                                "size": att.get("size", 0)
-                            })
+                    # Only include body_html if explicitly requested
+                    if include_body_html:
+                        email_data["body_html"] = self._safe_text(email_msg.body_html)
+                    
+                    # Process attachments - always include metadata
+                    for att in email_msg.attachments:
+                        safe_att = {
+                            "filename": self._safe_text(att.get("filename", "")),
+                            "content_type": self._safe_text(att.get("content_type", "")),
+                            "size": att.get("size", 0)
+                        }
+                        # Only include base64 content if explicitly requested
+                        if include_attachments:
+                            safe_att["content_base64"] = att.get("content_base64", "")
+                        email_data["attachments"].append(safe_att)
                     
                     emails_data.append(email_data)
                     
@@ -1041,78 +931,17 @@ class EmailIMAPMCPServer:
                     logger.error(f"Error processing email {uid}: {str(e)}")
                     continue
             
-            # Return single email if limit is 1, otherwise return array
-            if limit == 1 and emails_data:
-                return emails_data[0]
-            else:
-                return emails_data
-            
-        except Exception as e:
+            # Return with success format like get_email
             return {
-                "error": f"Failed to get recent emails: {self._safe_text(str(e))}",
-                "message": "An error occurred while retrieving email data"
+                "result": emails_data
             }
-        finally:
-            await self.email_client.disconnect()
-    
-    async def _save_latest_email_json(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
-        """Get the latest email and save it as pure JSON file."""
-        try:
-            filename = arguments.get("filename", "mail.json")
-            folder = arguments.get("folder", "INBOX")
-            days = arguments.get("days", 7)
-            include_attachments = arguments.get("include_attachments", True)
+        
             
-            # Get the latest email using the existing method
-            email_json_result = await self._get_recent_emails_json({
-                "folder": folder,
-                "days": days,
-                "limit": 1,
-                "include_attachments": include_attachments
-            })
-            
-            # Check if we got email data successfully
-            if "error" in email_json_result:
-                return {
-                    "success": False,
-                    "error": email_json_result["error"],
-                    "message": email_json_result.get("message", "Failed to retrieve email"),
-                    "timestamp": datetime.now().isoformat()
-                }
-            
-            # Write the pure email JSON to file
-            try:
-                with open(filename, 'w', encoding='utf-8') as f:
-                    json.dump(email_json_result, f, ensure_ascii=False, indent=2)
-                
-                return {
-                    "success": True,
-                    "message": f"Latest email saved to {filename}",
-                    "filename": filename,
-                    "email_summary": {
-                        "uid": email_json_result.get("uid"),
-                        "subject": email_json_result.get("subject"),
-                        "sender": email_json_result.get("sender"),
-                        "date": email_json_result.get("date"),
-                        "size": email_json_result.get("size"),
-                        "attachments_count": len(email_json_result.get("attachments", []))
-                    },
-                    "timestamp": datetime.now().isoformat()
-                }
-                
-            except Exception as file_error:
-                return {
-                    "success": False,
-                    "error": f"Failed to save file: {str(file_error)}",
-                    "message": "Email was retrieved but could not be saved to file",
-                    "timestamp": datetime.now().isoformat()
-                }
-                
         except Exception as e:
             return {
                 "success": False,
-                "error": f"Failed to save latest email JSON: {self._safe_text(str(e))}",
-                "message": "An error occurred while processing the request",
+                "error": f"Failed to get recent emails: {self._safe_text(str(e))}",
+                "message": "An error occurred while retrieving email data",
                 "timestamp": datetime.now().isoformat()
             }
         finally:
