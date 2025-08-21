@@ -518,6 +518,31 @@ class EmailIMAPMCPServer:
                         }
                     }
                 }
+            },
+            "extract_attachments": {
+                "name": "extract_attachments",
+                "description": "Extract and save attachments from email JSON file by decoding base64 content",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "json_file": {
+                            "type": "string",
+                            "description": "Path to the email JSON file containing attachments",
+                            "default": "mail.json"
+                        },
+                        "output_dir": {
+                            "type": "string", 
+                            "description": "Directory to save extracted attachment files",
+                            "default": "./attachments"
+                        },
+                        "overwrite": {
+                            "type": "boolean",
+                            "description": "Whether to overwrite existing files",
+                            "default": False
+                        }
+                    },
+                    "required": ["json_file"]
+                }
             }
         }
         
@@ -711,6 +736,8 @@ class EmailIMAPMCPServer:
                 result = await self._get_email(arguments)
             elif tool_name == "get_recent_emails":
                 result = await self._get_recent_emails_json(arguments)
+            elif tool_name == "extract_attachments":
+                result = await self._extract_attachments(arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -946,6 +973,230 @@ class EmailIMAPMCPServer:
             }
         finally:
             await self.email_client.disconnect()
+    
+    async def _extract_attachments(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+        """Extract and save attachments from email JSON file."""
+        try:
+            json_file = arguments.get("json_file", "mail.json")
+            output_dir = arguments.get("output_dir", "./attachments")
+            overwrite = arguments.get("overwrite", False)
+            
+            # Check if JSON file exists
+            if not os.path.exists(json_file):
+                return {
+                    "success": False,
+                    "error": f"JSON file not found: {json_file}",
+                    "message": "Please provide a valid path to the email JSON file",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Read and parse JSON file
+            try:
+                with open(json_file, 'r', encoding='utf-8') as f:
+                    file_content = f.read()
+                
+                # Clean the content before parsing JSON
+                cleaned_content = self._clean_json_content(file_content)
+                
+                # Parse the cleaned JSON content
+                email_data = json.loads(cleaned_content)
+                
+            except json.JSONDecodeError as e:
+                return {
+                    "success": False,
+                    "error": f"Invalid JSON format: {str(e)}",
+                    "message": "The provided file is not valid JSON",
+                    "timestamp": datetime.now().isoformat()
+                }
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to read JSON file: {str(e)}",
+                    "message": "Could not read the JSON file",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Extract attachments from email data
+            attachments = []
+            if isinstance(email_data, dict):
+                attachments = email_data.get("attachments", [])
+            elif isinstance(email_data, list):
+                # If it's a list of emails, get attachments from first email
+                if email_data and isinstance(email_data[0], dict):
+                    attachments = email_data[0].get("attachments", [])
+            
+            if not attachments:
+                return {
+                    "success": False,
+                    "error": "No attachments found in JSON file",
+                    "message": "The email data does not contain any attachments",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Create output directory if it doesn't exist
+            try:
+                os.makedirs(output_dir, exist_ok=True)
+            except Exception as e:
+                return {
+                    "success": False,
+                    "error": f"Failed to create output directory: {str(e)}",
+                    "message": f"Cannot create directory: {output_dir}",
+                    "timestamp": datetime.now().isoformat()
+                }
+            
+            # Process each attachment
+            extracted_files = []
+            errors = []
+            
+            for i, attachment in enumerate(attachments):
+                try:
+                    filename = attachment.get("filename", f"attachment_{i}")
+                    content_base64 = attachment.get("content_base64", "")
+                    content_type = attachment.get("content_type", "application/octet-stream")
+                    size = attachment.get("size", 0)
+                    
+                    if not content_base64:
+                        errors.append(f"Attachment '{filename}': No base64 content found")
+                        continue
+                    
+                    # Sanitize filename to prevent directory traversal
+                    safe_filename = self._sanitize_filename(filename)
+                    file_path = os.path.join(output_dir, safe_filename)
+                    
+                    # Check if file exists and handle overwrite setting
+                    if os.path.exists(file_path) and not overwrite:
+                        # Generate unique filename
+                        name, ext = os.path.splitext(safe_filename)
+                        counter = 1
+                        while os.path.exists(file_path):
+                            new_filename = f"{name}_{counter}{ext}"
+                            file_path = os.path.join(output_dir, new_filename)
+                            counter += 1
+                        safe_filename = os.path.basename(file_path)
+                    
+                    # Decode base64 content
+                    try:
+                        file_content = base64.b64decode(content_base64)
+                    except Exception as decode_error:
+                        errors.append(f"Attachment '{filename}': Base64 decode error - {str(decode_error)}")
+                        continue
+                    
+                    # Write file
+                    try:
+                        with open(file_path, 'wb') as f:
+                            f.write(file_content)
+                        
+                        # Verify file size
+                        actual_size = len(file_content)
+                        
+                        extracted_files.append({
+                            "original_filename": filename,
+                            "saved_filename": safe_filename,
+                            "file_path": file_path,
+                            "content_type": content_type,
+                            "original_size": size,
+                            "actual_size": actual_size,
+                            "size_match": actual_size == size
+                        })
+                        
+                    except Exception as write_error:
+                        errors.append(f"Attachment '{filename}': Write error - {str(write_error)}")
+                        continue
+                        
+                except Exception as att_error:
+                    errors.append(f"Attachment {i}: Processing error - {str(att_error)}")
+                    continue
+            
+            # Prepare result
+            result = {
+                "success": len(extracted_files) > 0,
+                "extracted_count": len(extracted_files),
+                "total_attachments": len(attachments),
+                "output_directory": output_dir,
+                "extracted_files": extracted_files,
+                "timestamp": datetime.now().isoformat()
+            }
+            
+            if errors:
+                result["errors"] = errors
+                result["error_count"] = len(errors)
+            
+            if len(extracted_files) == 0:
+                result["error"] = "No attachments could be extracted"
+                result["message"] = "All attachment extractions failed"
+            elif errors:
+                result["message"] = f"Extracted {len(extracted_files)} files with {len(errors)} errors"
+            else:
+                result["message"] = f"Successfully extracted {len(extracted_files)} attachment files"
+            
+            return result
+            
+        except Exception as e:
+            return {
+                "success": False,
+                "error": f"Failed to extract attachments: {self._safe_text(str(e))}",
+                "message": "An unexpected error occurred during attachment extraction",
+                "timestamp": datetime.now().isoformat()
+            }
+    
+    def _sanitize_filename(self, filename: str) -> str:
+        """Sanitize filename to prevent security issues."""
+        if not filename:
+            return "unnamed_attachment"
+        
+        import re
+        
+        # Remove any path separators to prevent directory traversal
+        safe_filename = os.path.basename(filename)
+        
+        # Remove or replace dangerous characters
+        safe_filename = re.sub(r'[<>:"/\\|?*]', '_', safe_filename)
+        
+        # Remove control characters
+        safe_filename = re.sub(r'[\x00-\x1f\x7f]', '', safe_filename)
+        
+        # Limit filename length
+        if len(safe_filename) > 255:
+            name, ext = os.path.splitext(safe_filename)
+            safe_filename = name[:255-len(ext)] + ext
+        
+        # Ensure filename is not empty after sanitization
+        if not safe_filename.strip():
+            return "unnamed_attachment"
+        
+        return safe_filename.strip()
+    
+    def _clean_json_content(self, content: str) -> str:
+        """
+        Clean JSON content by checking if it starts with '{' and ends with '}'.
+        If not, remove the first line (if doesn't start with '{') and/or 
+        the last line (if doesn't end with '}').
+        
+        Args:
+            content: Raw file content that may contain non-JSON lines
+            
+        Returns:
+            Cleaned content that should be valid JSON
+        """
+        if not content or not content.strip():
+            return content
+        
+        lines = content.splitlines()
+        if not lines:
+            return content
+        
+        # Check if first line starts with '{', if not remove it
+        if lines and not lines[0].strip().startswith('{'):
+            lines = lines[1:]
+            logger.info("Removed first line as it doesn't start with '{'")
+        
+        # Check if last line ends with '}', if not remove it
+        if lines and not lines[-1].strip().endswith('}'):
+            lines = lines[:-1]
+            logger.info("Removed last line as it doesn't end with '}'")
+        
+        # Return cleaned content
+        return '\n'.join(lines)
     
     async def start_server(self):
         """Start the HTTP server."""
