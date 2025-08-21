@@ -593,7 +593,18 @@ class EmailIMAPMCPServer:
             if response is None:
                 return web.Response(status=204)
             
-            return web.json_response(response.to_dict())
+            try:
+                return web.json_response(response.to_dict())
+            except UnicodeEncodeError:
+                # Fallback: return error response
+                error_response = MCPMessage(
+                    id=mcp_message.id if 'mcp_message' in locals() else None,
+                    error={
+                        "code": MCPErrorCodes.INTERNAL_ERROR,
+                        "message": "Encoding error in response"
+                    }
+                )
+                return web.json_response(error_response.to_dict())
             
         except Exception as e:
             logger.error(f"Error handling MCP request: {str(e)}")
@@ -625,7 +636,19 @@ class EmailIMAPMCPServer:
                         response = await self._process_mcp_message(mcp_message)
                         
                         if response is not None:
-                            await ws.send_str(response.to_json())
+                            try:
+                                json_response = response.to_json()
+                                await ws.send_str(json_response)
+                            except UnicodeEncodeError:
+                                # Fallback: create a simple error response
+                                error_response = MCPMessage(
+                                    id=mcp_message.id,
+                                    error={
+                                        "code": MCPErrorCodes.INTERNAL_ERROR,
+                                        "message": "Encoding error in response"
+                                    }
+                                )
+                                await ws.send_str(error_response.to_json())
                         
                     except Exception as e:
                         logger.error(f"Error processing WebSocket message: {str(e)}")
@@ -748,13 +771,20 @@ class EmailIMAPMCPServer:
             
             # No special handling - all tools now return consistent format
             
+            # Serialize JSON with proper UTF-8 handling
+            try:
+                json_text = json.dumps(safe_result, indent=2, ensure_ascii=False)
+            except UnicodeEncodeError:
+                # Fallback: use ensure_ascii=True if UTF-8 fails
+                json_text = json.dumps(safe_result, indent=2, ensure_ascii=True)
+            
             return MCPMessage(
                 id=message.id,
                 result={
                     "content": [
                         {
                             "type": "text",
-                            "text": json.dumps(safe_result, indent=2, ensure_ascii=False)
+                            "text": json_text
                         }
                     ],
                     "isError": not safe_result.get("success", True),
@@ -782,11 +812,22 @@ class EmailIMAPMCPServer:
             return ""
         
         if isinstance(text, str):
-            # Ensure the string is properly encoded for JSON
-            return text.encode('utf-8', errors='ignore').decode('utf-8')
+            # For strings, ensure they can be JSON serialized
+            try:
+                # Test if the string can be JSON serialized
+                json.dumps(text, ensure_ascii=False)
+                return text
+            except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):
+                # If there are encoding issues, clean the string
+                return text.encode('utf-8', errors='replace').decode('utf-8', errors='replace')
         else:
             # Convert to string and then safely encode
-            return str(text).encode('utf-8', errors='ignore').decode('utf-8')
+            try:
+                str_text = str(text)
+                json.dumps(str_text, ensure_ascii=False)
+                return str_text
+            except (UnicodeError, UnicodeDecodeError, UnicodeEncodeError):
+                return str(text).encode('utf-8', errors='replace').decode('utf-8', errors='replace')
     
     def _clean_body_text(self, text: Any) -> str:
         """Clean body text by removing special characters like \\n, \\r, \\, \" etc."""
