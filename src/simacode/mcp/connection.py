@@ -45,13 +45,18 @@ class StdioTransport(MCPTransport):
             if self.env:
                 process_env.update(self.env)
             
+            # Set larger limit for MCP communication to handle large responses
+            # Default asyncio readline limit is 64KB, increase to 10MB for large email attachments
+            limit = 10 * 1024 * 1024  # 10MB
+            
             self.process = await asyncio.create_subprocess_exec(
                 *self.command,
                 *self.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=process_env
+                env=process_env,
+                limit=limit
             )
             
             # Check if process started successfully
@@ -234,13 +239,18 @@ class WebSocketTransport(MCPTransport):
             if self.env:
                 process_env.update(self.env)
             
+            # Set larger limit for MCP communication to handle large responses
+            # Default asyncio readline limit is 64KB, increase to 10MB for large email attachments
+            limit = 10 * 1024 * 1024  # 10MB
+            
             self.process = await asyncio.create_subprocess_exec(
                 *self.command,
                 *self.args,
                 stdin=asyncio.subprocess.PIPE,
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE,
-                env=process_env
+                env=process_env,
+                limit=limit
             )
             
             # Check if process started successfully

@@ -719,33 +719,10 @@ class EmailIMAPMCPServer:
             message_size = len(json_text.encode('utf-8'))
             logger.info(f"[TOOL_EXEC] Response JSON size: {message_size:,} bytes ({message_size/1024:.1f} KB)")
             
-            # Conservative limit for MCP protocol - start truncating at 500KB
-            if message_size > 500 * 1024:  # 500KB
-                logger.warning(f"[TOOL_EXEC] Large response detected: {message_size:,} bytes - truncating to prevent MCP protocol issues")
-                
-                # For large responses, truncate body content
-                if 'body_text' in safe_result and len(safe_result['body_text']) > 5000:
-                    original_length = len(safe_result['body_text'])
-                    safe_result['body_text'] = safe_result['body_text'][:5000] + f"\n\n[TRUNCATED - Original length: {original_length} chars]"
-                    logger.warning(f"[TOOL_EXEC] Truncated body_text from {original_length} to {len(safe_result['body_text'])} chars")
-                
-                # Remove large attachments base64 content for oversized responses
-                if 'attachments' in safe_result:
-                    for i, att in enumerate(safe_result['attachments']):
-                        if 'content_base64' in att and len(att['content_base64']) > 100000:
-                            original_size = len(att['content_base64'])
-                            att['content_base64'] = "[REMOVED - Too large for MCP protocol]"
-                            logger.warning(f"[TOOL_EXEC] Removed large attachment content ({original_size:,} chars) from attachment {i}")
-                
-                # Re-serialize after truncation
-                try:
-                    json_text = json.dumps(safe_result, indent=2, ensure_ascii=False)
-                    new_size = len(json_text.encode('utf-8'))
-                    logger.info(f"[TOOL_EXEC] After truncation: {new_size:,} bytes ({new_size/1024:.1f} KB)")
-                except UnicodeEncodeError:
-                    json_text = json.dumps(safe_result, indent=2, ensure_ascii=True)
-                    new_size = len(json_text.encode('utf-8'))
-                    logger.info(f"[TOOL_EXEC] After truncation (ASCII): {new_size:,} bytes ({new_size/1024:.1f} KB)")
+            # No truncation - send full content including complete attachment base64
+            if message_size > 1024 * 1024:  # 1MB
+                logger.info(f"[TOOL_EXEC] Large response: {message_size:,} bytes ({message_size/1024/1024:.1f} MB) - sending complete content with full attachments")
+                logger.info(f"[TOOL_EXEC] MCP protocol limit increased to 10MB to support full email content")
             
             return MCPMessage(
                 id=message.id,
