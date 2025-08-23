@@ -715,6 +715,38 @@ class EmailIMAPMCPServer:
                 # Fallback: use ensure_ascii=True if UTF-8 fails
                 json_text = json.dumps(safe_result, indent=2, ensure_ascii=True)
             
+            # Log message size for debugging
+            message_size = len(json_text.encode('utf-8'))
+            logger.info(f"[TOOL_EXEC] Response JSON size: {message_size:,} bytes ({message_size/1024:.1f} KB)")
+            
+            # Conservative limit for MCP protocol - start truncating at 500KB
+            if message_size > 500 * 1024:  # 500KB
+                logger.warning(f"[TOOL_EXEC] Large response detected: {message_size:,} bytes - truncating to prevent MCP protocol issues")
+                
+                # For large responses, truncate body content
+                if 'body_text' in safe_result and len(safe_result['body_text']) > 5000:
+                    original_length = len(safe_result['body_text'])
+                    safe_result['body_text'] = safe_result['body_text'][:5000] + f"\n\n[TRUNCATED - Original length: {original_length} chars]"
+                    logger.warning(f"[TOOL_EXEC] Truncated body_text from {original_length} to {len(safe_result['body_text'])} chars")
+                
+                # Remove large attachments base64 content for oversized responses
+                if 'attachments' in safe_result:
+                    for i, att in enumerate(safe_result['attachments']):
+                        if 'content_base64' in att and len(att['content_base64']) > 100000:
+                            original_size = len(att['content_base64'])
+                            att['content_base64'] = "[REMOVED - Too large for MCP protocol]"
+                            logger.warning(f"[TOOL_EXEC] Removed large attachment content ({original_size:,} chars) from attachment {i}")
+                
+                # Re-serialize after truncation
+                try:
+                    json_text = json.dumps(safe_result, indent=2, ensure_ascii=False)
+                    new_size = len(json_text.encode('utf-8'))
+                    logger.info(f"[TOOL_EXEC] After truncation: {new_size:,} bytes ({new_size/1024:.1f} KB)")
+                except UnicodeEncodeError:
+                    json_text = json.dumps(safe_result, indent=2, ensure_ascii=True)
+                    new_size = len(json_text.encode('utf-8'))
+                    logger.info(f"[TOOL_EXEC] After truncation (ASCII): {new_size:,} bytes ({new_size/1024:.1f} KB)")
+            
             return MCPMessage(
                 id=message.id,
                 result={
@@ -727,7 +759,8 @@ class EmailIMAPMCPServer:
                     "isError": not safe_result.get("success", True),
                     "metadata": {
                         "execution_time": execution_time,
-                        "tool": tool_name
+                        "tool": tool_name,
+                        "response_size_bytes": len(json_text.encode('utf-8'))
                     }
                 }
             )
@@ -851,7 +884,9 @@ class EmailIMAPMCPServer:
                 }
                 # Include base64 content by default when include_attachments is True
                 if include_attachments:
-                    safe_att["content_base64"] = att.get("content_base64", "")
+                    base64_content = att.get("content_base64", "")
+                    safe_att["content_base64"] = base64_content
+                    logger.debug(f"[GET_EMAIL] Attachment '{safe_att['filename']}': base64 content {'included' if base64_content else 'empty'} ({len(base64_content)} chars)")
                 safe_attachments.append(safe_att)
             result["attachments"] = safe_attachments
             
