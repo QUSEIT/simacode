@@ -1,13 +1,13 @@
 #!/usr/bin/env python3
 """
-Email IMAP MCP Server (HTTP/WebSocket)
+Email IMAP MCP Server (stdio)
 
-A HTTP-based MCP server that provides IMAP email checking and retrieval functionality.
-It communicates with SimaCode via HTTP/WebSocket protocol and provides email automation
+A stdio-based MCP server that provides IMAP email checking and retrieval functionality.
+It communicates with SimaCode via stdio protocol and provides email automation
 capabilities including checking for new emails, retrieving email content, and handling attachments.
 
 Features:
-- HTTP-based MCP server with WebSocket support
+- stdio-based MCP server
 - IMAP email server connection with SSL/TLS
 - Email listing, filtering, and retrieval
 - Attachment handling with base64 encoding
@@ -33,17 +33,12 @@ from dataclasses import dataclass
 try:
     from dotenv import load_dotenv
     DOTENV_AVAILABLE = True
+    print("Info: python-dotenv is available for .env.mcp loading", file=sys.stderr)
 except ImportError:
     DOTENV_AVAILABLE = False
-    print("Warning: python-dotenv not available. Consider installing with: pip install python-dotenv", file=sys.stderr)
+    print("Warning: python-dotenv not available. .env.mcp will not be loaded.", file=sys.stderr)
+    print("Install with: pip install python-dotenv", file=sys.stderr)
 
-# HTTP server support
-try:
-    from aiohttp import web, WSMsgType
-    from aiohttp.web import Request, Response, WebSocketResponse
-except ImportError:
-    print("Error: aiohttp package not available. Please install with: pip install aiohttp", file=sys.stderr)
-    sys.exit(1)
 
 # Add parent directory to path for MCP imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -54,7 +49,7 @@ from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG for more detailed logging
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
 )
 logger = logging.getLogger(__name__)
@@ -68,7 +63,7 @@ class EmailConfig:
     username: str = ""
     password: str = ""
     use_ssl: bool = True
-    timeout: int = 30
+    timeout: int = 60
 
 
 @dataclass
@@ -114,6 +109,15 @@ class IMAPEmailClient:
         self.current_folder: str = "INBOX"
         self.last_connect_time: Optional[datetime] = None
         
+        # Log IMAP configuration parameters
+        logger.info(f"[IMAP_CONFIG] IMAP Client initialized with:")
+        logger.info(f"[IMAP_CONFIG]   Server: {self.config.server}")
+        logger.info(f"[IMAP_CONFIG]   Port: {self.config.port}")
+        logger.info(f"[IMAP_CONFIG]   Username: {self.config.username}")
+        logger.info(f"[IMAP_CONFIG]   Password: {'*' * len(self.config.password) if self.config.password else 'NOT SET'}")
+        logger.info(f"[IMAP_CONFIG]   Use SSL: {self.config.use_ssl}")
+        logger.info(f"[IMAP_CONFIG]   Timeout: {self.config.timeout}s")
+        
     async def connect(self) -> bool:
         """
         Connect to IMAP server.
@@ -121,35 +125,49 @@ class IMAPEmailClient:
         Returns:
             bool: True if connection successful, False otherwise
         """
+        start_time = datetime.now()
         try:
-            logger.info(f"Connecting to IMAP server: {self.config.server}:{self.config.port}")
+            logger.info(f"[CONNECT] Starting connection to IMAP server: {self.config.server}:{self.config.port} (timeout={self.config.timeout}s)")
             
+            # Create connection
+            connection_start = datetime.now()
             if self.config.use_ssl:
+                logger.debug(f"[CONNECT] Creating SSL connection...")
                 self.connection = imaplib.IMAP4_SSL(
                     self.config.server, 
                     self.config.port,
                     timeout=self.config.timeout
                 )
             else:
+                logger.debug(f"[CONNECT] Creating non-SSL connection...")
                 self.connection = imaplib.IMAP4(
                     self.config.server,
                     self.config.port,
                     timeout=self.config.timeout
                 )
             
+            connection_time = (datetime.now() - connection_start).total_seconds()
+            logger.debug(f"[CONNECT] Socket connection established in {connection_time:.2f}s")
+            
             # Login
+            login_start = datetime.now()
+            logger.debug(f"[CONNECT] Attempting login for user: {self.config.username}")
             result = self.connection.login(self.config.username, self.config.password)
+            login_time = (datetime.now() - login_start).total_seconds()
+            logger.debug(f"[CONNECT] Login attempt completed in {login_time:.2f}s")
             
             if result[0] == 'OK':
                 self.last_connect_time = datetime.now()
-                logger.info("Successfully connected and authenticated to IMAP server")
+                total_time = (self.last_connect_time - start_time).total_seconds()
+                logger.info(f"[CONNECT] Successfully connected and authenticated to IMAP server in {total_time:.2f}s")
                 return True
             else:
-                logger.error(f"Failed to authenticate: {result[1]}")
+                logger.error(f"[CONNECT] Failed to authenticate: {result[1]}")
                 return False
                 
         except Exception as e:
-            logger.error(f"Failed to connect to IMAP server: {str(e)}")
+            total_time = (datetime.now() - start_time).total_seconds()
+            logger.error(f"[CONNECT] Failed to connect to IMAP server after {total_time:.2f}s: {str(e)}")
             return False
     
     async def disconnect(self):
@@ -167,19 +185,33 @@ class IMAPEmailClient:
     
     async def ensure_connection(self) -> bool:
         """Ensure IMAP connection is established and healthy."""
+        logger.debug(f"[ENSURE_CONN] Checking connection health...")
+        
         # Check if we have a connection and it's recent
         if self.connection and self.last_connect_time:
             time_since_connect = datetime.now() - self.last_connect_time
+            logger.debug(f"[ENSURE_CONN] Time since last connect: {time_since_connect.total_seconds():.1f}s")
+            
             if time_since_connect.total_seconds() < 300:  # 5 minutes
                 try:
                     # Test connection with NOOP
+                    noop_start = datetime.now()
+                    logger.debug(f"[ENSURE_CONN] Testing connection with NOOP...")
                     result = self.connection.noop()
+                    noop_time = (datetime.now() - noop_start).total_seconds()
+                    
                     if result[0] == 'OK':
+                        logger.debug(f"[ENSURE_CONN] NOOP successful in {noop_time:.2f}s - connection healthy")
                         return True
-                except:
-                    pass
+                    else:
+                        logger.warning(f"[ENSURE_CONN] NOOP failed in {noop_time:.2f}s: {result[1]}")
+                except Exception as e:
+                    logger.warning(f"[ENSURE_CONN] NOOP exception: {str(e)}")
+        else:
+            logger.debug(f"[ENSURE_CONN] No existing connection or connection too old")
         
         # Reconnect if needed
+        logger.info(f"[ENSURE_CONN] Reconnecting...")
         await self.disconnect()
         return await self.connect()
     
@@ -221,16 +253,25 @@ class IMAPEmailClient:
         Returns:
             Dict with folder information
         """
+        select_start = datetime.now()
+        logger.debug(f"[SELECT] Selecting folder: {folder}")
+        
         if not await self.ensure_connection():
             raise Exception("Failed to connect to IMAP server")
         
         try:
+            logger.debug(f"[SELECT] Executing IMAP SELECT command for folder: {folder}")
             result, data = self.connection.select(folder)
+            select_time = (datetime.now() - select_start).total_seconds()
+            
             if result != 'OK':
+                logger.error(f"[SELECT] Failed to select folder '{folder}' in {select_time:.2f}s: {data}")
                 raise Exception(f"Failed to select folder '{folder}': {data}")
             
             self.current_folder = folder
             message_count = int(data[0])
+            
+            logger.info(f"[SELECT] Successfully selected folder '{folder}' with {message_count} messages in {select_time:.2f}s")
             
             return {
                 "folder": folder,
@@ -239,7 +280,8 @@ class IMAPEmailClient:
             }
             
         except Exception as e:
-            logger.error(f"Error selecting folder '{folder}': {str(e)}")
+            select_time = (datetime.now() - select_start).total_seconds()
+            logger.error(f"[SELECT] Error selecting folder '{folder}' after {select_time:.2f}s: {str(e)}")
             raise
     
     async def search_emails(
@@ -257,22 +299,36 @@ class IMAPEmailClient:
         Returns:
             List of email UIDs
         """
+        search_start = datetime.now()
+        logger.debug(f"[SEARCH] Starting email search with criteria: '{criteria}', limit: {limit}")
+        
         if not await self.ensure_connection():
             raise Exception("Failed to connect to IMAP server")
         
         try:
+            logger.debug(f"[SEARCH] Executing IMAP SEARCH command...")
             result, data = self.connection.search(None, criteria)
+            search_time = (datetime.now() - search_start).total_seconds()
+            
             if result != 'OK':
+                logger.error(f"[SEARCH] Search failed in {search_time:.2f}s: {data}")
                 raise Exception(f"Search failed: {data}")
             
             uids = data[0].split()
+            total_found = len(uids)
             uids = uids[-limit:] if len(uids) > limit else uids
             uids.reverse()
             
-            return [uid.decode('utf-8') for uid in uids]
+            result_uids = [uid.decode('utf-8') for uid in uids]
+            
+            logger.info(f"[SEARCH] Found {total_found} emails, returning {len(result_uids)} (limited to {limit}) in {search_time:.2f}s")
+            logger.debug(f"[SEARCH] Returned UIDs: {result_uids}")
+            
+            return result_uids
             
         except Exception as e:
-            logger.error(f"Error searching emails: {str(e)}")
+            search_time = (datetime.now() - search_start).total_seconds()
+            logger.error(f"[SEARCH] Error searching emails after {search_time:.2f}s: {str(e)}")
             raise
     
     def _decode_header(self, header_value: str) -> str:
@@ -329,12 +385,19 @@ class IMAPEmailClient:
         Returns:
             EmailMessage object
         """
+        fetch_start = datetime.now()
+        logger.debug(f"[FETCH] Starting fetch for email UID: {uid}")
+        
         if not await self.ensure_connection():
             raise Exception("Failed to connect to IMAP server")
         
         try:
+            logger.debug(f"[FETCH] Executing IMAP FETCH command for UID: {uid}")
             result, data = self.connection.fetch(uid, '(RFC822 FLAGS)')
+            fetch_time = (datetime.now() - fetch_start).total_seconds()
+            
             if result != 'OK':
+                logger.error(f"[FETCH] Failed to fetch email {uid} in {fetch_time:.2f}s: {data}")
                 raise Exception(f"Failed to fetch email {uid}: {data}")
             
             raw_email = data[0][1]
@@ -395,6 +458,10 @@ class IMAPEmailClient:
                 flag_part = flags_data.split('FLAGS (')[1].split(')')[0]
                 flags = [flag.strip() for flag in flag_part.split()]
             
+            parse_time = (datetime.now() - fetch_start).total_seconds()
+            logger.info(f"[FETCH] Successfully fetched and parsed email {uid} (size: {len(raw_email)} bytes) in {parse_time:.2f}s")
+            logger.debug(f"[FETCH] Email details - Subject: '{subject[:50]}...', Sender: {sender}, Attachments: {len(attachments)}")
+            
             return EmailMessage(
                 uid=uid,
                 subject=subject,
@@ -410,37 +477,29 @@ class IMAPEmailClient:
             )
             
         except Exception as e:
-            logger.error(f"Error fetching email {uid}: {str(e)}")
+            fetch_time = (datetime.now() - fetch_start).total_seconds()
+            logger.error(f"[FETCH] Error fetching email {uid} after {fetch_time:.2f}s: {str(e)}")
             raise
 
 
 class EmailIMAPMCPServer:
     """
-    HTTP-based MCP server for IMAP email integration.
+    stdio-based MCP server for IMAP email integration.
     
-    This server provides MCP protocol compliance over HTTP/WebSocket and integrates
+    This server provides MCP protocol compliance over stdio and integrates
     with IMAP email servers for email automation tasks.
     """
     
-    def __init__(self, host: str = "0.0.0.0", port: int = 8081, email_config: Optional[EmailConfig] = None):
+    def __init__(self, email_config: Optional[EmailConfig] = None):
         """
         Initialize Email IMAP MCP server.
         
         Args:
-            host: Server host address
-            port: Server port number
             email_config: Email IMAP configuration
         """
-        self.host = host
-        self.port = port
-        self.app = web.Application()
-        
         # Initialize email client with configuration
         self.email_config = email_config or EmailConfig()
         self.email_client = IMAPEmailClient(self.email_config)
-        
-        # Setup routes
-        self._setup_routes()
         
         # MCP server info
         self.server_info = {
@@ -546,140 +605,8 @@ class EmailIMAPMCPServer:
             }
         }
         
-        logger.info(f"Email IMAP MCP Server initialized on {host}:{port}")
+        logger.info(f"Email IMAP MCP Server initialized for stdio")
     
-    def _setup_routes(self):
-        """Setup HTTP routes for MCP protocol."""
-        self.app.router.add_get('/health', self._health_check)
-        self.app.router.add_post('/mcp', self._handle_mcp_request)
-        self.app.router.add_get('/mcp/ws', self._handle_websocket)
-        
-    async def _health_check(self, request: Request) -> Response:
-        """Health check endpoint."""
-        # Test email connection
-        connection_status = "disconnected"
-        try:
-            connected = await self.email_client.ensure_connection()
-            connection_status = "connected" if connected else "failed"
-            await self.email_client.disconnect()
-        except Exception as e:
-            connection_status = f"error: {str(e)}"
-        
-        health_data = {
-            "status": "healthy",
-            "server": self.server_info,
-            "email_config": {
-                "server": self.email_config.server,
-                "port": self.email_config.port,
-                "username": self.email_config.username,
-                "use_ssl": self.email_config.use_ssl,
-                "connection_status": connection_status
-            },
-            "timestamp": datetime.now().isoformat()
-        }
-            
-        return web.json_response(health_data)
-    
-    async def _handle_mcp_request(self, request: Request) -> Response:
-        """Handle HTTP-based MCP requests."""
-        try:
-            request_data = await request.json()
-            mcp_message = MCPMessage.from_dict(request_data)
-            
-            logger.info(f"Received MCP request: {mcp_message.method}")
-            
-            response = await self._process_mcp_message(mcp_message)
-            
-            if response is None:
-                return web.Response(status=204)
-            
-            try:
-                return web.json_response(response.to_dict())
-            except UnicodeEncodeError:
-                # Fallback: return error response
-                error_response = MCPMessage(
-                    id=mcp_message.id if 'mcp_message' in locals() else None,
-                    error={
-                        "code": MCPErrorCodes.INTERNAL_ERROR,
-                        "message": "Encoding error in response"
-                    }
-                )
-                return web.json_response(error_response.to_dict())
-            
-        except Exception as e:
-            logger.error(f"Error handling MCP request: {str(e)}")
-            
-            error_response = MCPMessage(
-                id=request_data.get("id") if 'request_data' in locals() else None,
-                error={
-                    "code": MCPErrorCodes.INTERNAL_ERROR,
-                    "message": str(e)
-                }
-            )
-            
-            return web.json_response(error_response.to_dict())
-    
-    async def _handle_websocket(self, request: Request) -> WebSocketResponse:
-        """Handle WebSocket-based MCP connections."""
-        ws = web.WebSocketResponse()
-        await ws.prepare(request)
-        
-        logger.info("WebSocket connection established")
-        
-        try:
-            async for msg in ws:
-                if msg.type == WSMsgType.TEXT:
-                    try:
-                        request_data = json.loads(msg.data)
-                        mcp_message = MCPMessage.from_dict(request_data)
-                        
-                        response = await self._process_mcp_message(mcp_message)
-                        
-                        if response is not None:
-                            try:
-                                json_response = response.to_json()
-                                await ws.send_str(json_response)
-                            except UnicodeEncodeError:
-                                # Fallback: create a simple error response
-                                error_response = MCPMessage(
-                                    id=mcp_message.id,
-                                    error={
-                                        "code": MCPErrorCodes.INTERNAL_ERROR,
-                                        "message": "Encoding error in response"
-                                    }
-                                )
-                                await ws.send_str(error_response.to_json())
-                        
-                    except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
-                        
-                        request_id = None
-                        try:
-                            if 'request_data' in locals():
-                                request_id = request_data.get("id")
-                        except:
-                            pass
-                        
-                        error_response = MCPMessage(
-                            id=request_id,
-                            error={
-                                "code": MCPErrorCodes.INTERNAL_ERROR,
-                                "message": str(e)
-                            }
-                        )
-                        
-                        await ws.send_str(error_response.to_json())
-                        
-                elif msg.type == WSMsgType.ERROR:
-                    logger.error(f"WebSocket error: {ws.exception()}")
-                    break
-                    
-        except Exception as e:
-            logger.error(f"WebSocket connection error: {str(e)}")
-        finally:
-            logger.info("WebSocket connection closed")
-            
-        return ws
     
     async def _process_mcp_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Process an MCP message and return response."""
@@ -739,12 +666,17 @@ class EmailIMAPMCPServer:
     
     async def _execute_tool(self, message: MCPMessage) -> MCPMessage:
         """Execute a tool and return the result."""
+        tool_start = datetime.now()
         try:
             params = message.params or {}
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
             
+            logger.info(f"[TOOL_EXEC] Starting tool execution: {tool_name}")
+            logger.debug(f"[TOOL_EXEC] Tool arguments: {arguments}")
+            
             if tool_name not in self.tools:
+                logger.error(f"[TOOL_EXEC] Tool '{tool_name}' not found")
                 return MCPMessage(
                     id=message.id,
                     error={
@@ -754,6 +686,7 @@ class EmailIMAPMCPServer:
                 )
             
             start_time = asyncio.get_event_loop().time()
+            logger.debug(f"[TOOL_EXEC] Dispatching to tool handler: {tool_name}")
             
             if tool_name == "get_email":
                 result = await self._get_email(arguments)
@@ -765,6 +698,10 @@ class EmailIMAPMCPServer:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
             execution_time = asyncio.get_event_loop().time() - start_time
+            total_time = (datetime.now() - tool_start).total_seconds()
+            
+            logger.info(f"[TOOL_EXEC] Tool '{tool_name}' completed in {total_time:.2f}s")
+            logger.debug(f"[TOOL_EXEC] Processing result for JSON serialization...")
             
             # Ensure all content in result is safe for JSON serialization
             safe_result = self._ensure_json_safe(result)
@@ -796,7 +733,8 @@ class EmailIMAPMCPServer:
             )
             
         except Exception as e:
-            logger.error(f"Tool execution error: {str(e)}")
+            total_time = (datetime.now() - tool_start).total_seconds()
+            logger.error(f"[TOOL_EXEC] Tool execution error after {total_time:.2f}s: {str(e)}")
             
             return MCPMessage(
                 id=message.id,
@@ -934,6 +872,7 @@ class EmailIMAPMCPServer:
     
     async def _get_recent_emails_json(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Get recent emails and return only the latest email in pure JSON format."""
+        operation_start = datetime.now()
         try:
             folder = arguments.get("folder", "INBOX")
             days = arguments.get("days", 7)
@@ -941,12 +880,22 @@ class EmailIMAPMCPServer:
             include_body_html = arguments.get("include_body_html", False)
             include_attachments = arguments.get("include_attachments", False)
             
+            logger.info(f"[GET_RECENT] Starting operation - folder: {folder}, days: {days}, limit: {limit}")
+            logger.debug(f"[GET_RECENT] Options - include_body_html: {include_body_html}, include_attachments: {include_attachments}")
+            
+            select_start = datetime.now()
             await self.email_client.select_folder(folder)
+            select_time = (datetime.now() - select_start).total_seconds()
+            logger.debug(f"[GET_RECENT] Folder selection completed in {select_time:.2f}s")
             
             since_date = (datetime.now() - timedelta(days=days)).strftime("%d-%b-%Y")
             criteria = f"SINCE {since_date}"
+            logger.debug(f"[GET_RECENT] Search criteria: '{criteria}' (since {since_date})")
             
+            search_start = datetime.now()
             uids = await self.email_client.search_emails(criteria, limit)
+            search_time = (datetime.now() - search_start).total_seconds()
+            logger.debug(f"[GET_RECENT] Email search completed in {search_time:.2f}s")
             
             if not uids:
                 return {
@@ -959,9 +908,14 @@ class EmailIMAPMCPServer:
             # Get the requested number of emails (up to limit)
             emails_data = []
             
-            for uid in uids[:limit]:  # Process up to 'limit' emails
+            logger.info(f"[GET_RECENT] Processing {len(uids[:limit])} emails...")
+            for i, uid in enumerate(uids[:limit], 1):  # Process up to 'limit' emails
                 try:
+                    logger.debug(f"[GET_RECENT] Processing email {i}/{len(uids[:limit])} - UID: {uid}")
+                    email_start = datetime.now()
                     email_msg = await self.email_client.fetch_email(uid)
+                    email_time = (datetime.now() - email_start).total_seconds()
+                    logger.debug(f"[GET_RECENT] Email {i} processed in {email_time:.2f}s")
                     
                     # Create email JSON data
                     email_data = {
@@ -996,8 +950,12 @@ class EmailIMAPMCPServer:
                     
                 except Exception as e:
                     # Log error but continue processing other emails
-                    logger.error(f"Error processing email {uid}: {str(e)}")
+                    email_time = (datetime.now() - email_start).total_seconds()
+                    logger.error(f"[GET_RECENT] Error processing email {i} (UID: {uid}) after {email_time:.2f}s: {str(e)}")
                     continue
+            
+            operation_time = (datetime.now() - operation_start).total_seconds()
+            logger.info(f"[GET_RECENT] Operation completed in {operation_time:.2f}s - retrieved {len(emails_data)} emails")
             
             # Return with success format like get_email
             return {
@@ -1006,6 +964,8 @@ class EmailIMAPMCPServer:
         
             
         except Exception as e:
+            operation_time = (datetime.now() - operation_start).total_seconds()
+            logger.error(f"[GET_RECENT] Operation failed after {operation_time:.2f}s: {str(e)}")
             return {
                 "success": False,
                 "error": f"Failed to get recent emails: {self._safe_text(str(e))}",
@@ -1013,7 +973,10 @@ class EmailIMAPMCPServer:
                 "timestamp": datetime.now().isoformat()
             }
         finally:
+            disconnect_start = datetime.now()
             await self.email_client.disconnect()
+            disconnect_time = (datetime.now() - disconnect_start).total_seconds()
+            logger.debug(f"[GET_RECENT] Disconnection completed in {disconnect_time:.2f}s")
     
     async def _extract_attachments(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Extract and save attachments from email JSON file."""
@@ -1239,52 +1202,120 @@ class EmailIMAPMCPServer:
         # Return cleaned content
         return '\n'.join(lines)
     
-    async def start_server(self):
-        """Start the HTTP server."""
-        logger.info(f"Starting Email IMAP MCP Server on {self.host}:{self.port}")
+    async def run_stdio(self):
+        """Run the MCP server using stdio."""
+        logger.info("Starting Email IMAP MCP Server with stdio")
         
-        # Log email configuration status
+        # Log detailed email configuration status
+        logger.info("[SERVER_CONFIG] Email IMAP MCP Server configuration:")
+        logger.info(f"[SERVER_CONFIG]   Server: {self.email_config.server}")
+        logger.info(f"[SERVER_CONFIG]   Port: {self.email_config.port}")
+        logger.info(f"[SERVER_CONFIG]   Username: {self.email_config.username}")
+        logger.info(f"[SERVER_CONFIG]   Password: {'SET' if self.email_config.password else 'NOT SET'}")
+        logger.info(f"[SERVER_CONFIG]   Use SSL: {self.email_config.use_ssl}")
+        logger.info(f"[SERVER_CONFIG]   Timeout: {self.email_config.timeout}s")
+        
         if self.email_config.server and self.email_config.username:
-            logger.info(f"Email IMAP configured: {self.email_config.server}:{self.email_config.port} ({self.email_config.username})")
+            logger.info(f"[SERVER_CONFIG] Email IMAP fully configured: {self.email_config.server}:{self.email_config.port} ({self.email_config.username})")
         else:
-            logger.warning("Email IMAP configuration incomplete - functionality will be limited")
+            logger.warning("[SERVER_CONFIG] Email IMAP configuration incomplete - functionality will be limited")
         
-        runner = web.AppRunner(self.app)
-        await runner.setup()
+        try:
+            while True:
+                try:
+                    # Read from stdin
+                    line = await asyncio.to_thread(sys.stdin.readline)
+                    if not line:
+                        break
+                    
+                    line = line.strip()
+                    if not line:
+                        continue
+                    
+                    # Parse JSON request
+                    request_data = json.loads(line)
+                    mcp_message = MCPMessage.from_dict(request_data)
+                    
+                    # Process message
+                    response = await self._process_mcp_message(mcp_message)
+                    
+                    # Send response to stdout if there is one
+                    if response is not None:
+                        try:
+                            json_response = response.to_json()
+                            print(json_response, flush=True)
+                        except UnicodeEncodeError:
+                            # Fallback: create a simple error response
+                            error_response = MCPMessage(
+                                id=mcp_message.id,
+                                error={
+                                    "code": MCPErrorCodes.INTERNAL_ERROR,
+                                    "message": "Encoding error in response"
+                                }
+                            )
+                            print(error_response.to_json(), flush=True)
+                    
+                except json.JSONDecodeError as e:
+                    logger.error(f"Invalid JSON received: {e}")
+                    continue
+                except Exception as e:
+                    logger.error(f"Error processing message: {e}")
+                    # Try to send error response if we have a request ID
+                    try:
+                        if 'request_data' in locals() and 'id' in request_data:
+                            error_response = MCPMessage(
+                                id=request_data["id"],
+                                error={
+                                    "code": MCPErrorCodes.INTERNAL_ERROR,
+                                    "message": str(e)
+                                }
+                            )
+                            print(error_response.to_json(), flush=True)
+                    except:
+                        pass
+                    continue
         
-        site = web.TCPSite(runner, self.host, self.port)
-        await site.start()
-        
-        logger.info(f"Email IMAP MCP Server started successfully")
-        logger.info(f"Health check: http://{self.host}:{self.port}/health")
-        logger.info(f"MCP HTTP endpoint: http://{self.host}:{self.port}/mcp")
-        logger.info(f"MCP WebSocket endpoint: ws://{self.host}:{self.port}/mcp/ws")
-        
-        return runner
-    
-    async def stop_server(self, runner):
-        """Stop the HTTP server."""
-        logger.info("Shutting down Email IMAP MCP Server...")
-        
-        # Disconnect from email server
-        await self.email_client.disconnect()
-        
-        # Stop HTTP server
-        await runner.cleanup()
-        logger.info("Email IMAP MCP Server stopped")
+        except KeyboardInterrupt:
+            logger.info("Received interrupt signal")
+        except Exception as e:
+            logger.error(f"Stdio server error: {e}")
+        finally:
+            # Disconnect from email server
+            await self.email_client.disconnect()
+            logger.info("Email IMAP MCP Server stopped")
 
 
 def load_env_config():
     """Load environment configuration from .env.mcp file."""
     env_file = Path(__file__).parent.parent / ".env.mcp"
     
+    logger.info(f"[ENV_LOAD] Attempting to load environment from: {env_file}")
+    logger.info(f"[ENV_LOAD] File exists: {env_file.exists()}")
+    logger.info(f"[ENV_LOAD] DOTENV_AVAILABLE: {DOTENV_AVAILABLE}")
+    
     if DOTENV_AVAILABLE and env_file.exists():
-        logger.info(f"Loading environment from: {env_file}")
-        load_dotenv(env_file)
+        logger.info(f"[ENV_LOAD] Loading environment from: {env_file}")
+        # Load with override=True to ensure .env.mcp values take precedence
+        load_dotenv(env_file, override=True)
+        
+        # Log what was loaded for debugging
+        with open(env_file, 'r') as f:
+            content = f.read()
+            logger.debug(f"[ENV_LOAD] .env.mcp content:")
+            for line_num, line in enumerate(content.splitlines(), 1):
+                if line.strip() and not line.strip().startswith('#'):
+                    if 'PASSWORD' in line:
+                        # Hide password values in logs
+                        key_part = line.split('=')[0]
+                        logger.debug(f"[ENV_LOAD]   Line {line_num}: {key_part}=***")
+                    else:
+                        logger.debug(f"[ENV_LOAD]   Line {line_num}: {line}")
+        
+        logger.info(f"[ENV_LOAD] Successfully loaded environment from .env.mcp")
     elif env_file.exists():
-        logger.warning(f"Found {env_file} but python-dotenv not available. Install with: pip install python-dotenv")
+        logger.warning(f"[ENV_LOAD] Found {env_file} but python-dotenv not available. Install with: pip install python-dotenv")
     else:
-        logger.info(f"No .env.mcp file found at: {env_file}")
+        logger.warning(f"[ENV_LOAD] No .env.mcp file found at: {env_file}")
 
 
 async def main():
@@ -1294,9 +1325,30 @@ async def main():
     # Load environment configuration first
     load_env_config()
     
-    parser = argparse.ArgumentParser(description="Email IMAP MCP Server (HTTP/WebSocket)")
-    parser.add_argument("--host", default=os.getenv("EMAIL_IMAP_HOST", "0.0.0.0"), help="Server host address")
-    parser.add_argument("--port", type=int, default=int(os.getenv("EMAIL_IMAP_PORT", "8081")), help="Server port number")
+    # Log environment variables for debugging
+    logger.info("[ENV_DEBUG] Environment variables after loading .env.mcp:")
+    logger.info(f"[ENV_DEBUG]   EMAIL_IMAP_SERVER: {os.getenv('EMAIL_IMAP_SERVER', 'NOT SET')}")
+    logger.info(f"[ENV_DEBUG]   EMAIL_IMAP_PORT_IMAP: {os.getenv('EMAIL_IMAP_PORT_IMAP', 'NOT SET (default: 993)')}")
+    logger.info(f"[ENV_DEBUG]   EMAIL_USERNAME: {os.getenv('EMAIL_USERNAME', 'NOT SET')}")
+    logger.info(f"[ENV_DEBUG]   EMAIL_PASSWORD: {'SET (' + str(len(os.getenv('EMAIL_PASSWORD', ''))) + ' chars)' if os.getenv('EMAIL_PASSWORD') else 'NOT SET'}")
+    logger.info(f"[ENV_DEBUG]   EMAIL_TIMEOUT: {os.getenv('EMAIL_TIMEOUT', 'NOT SET (default: 60)')}")
+    
+    # Validate critical IMAP configuration
+    missing_config = []
+    if not os.getenv('EMAIL_IMAP_SERVER'):
+        missing_config.append('EMAIL_IMAP_SERVER')
+    if not os.getenv('EMAIL_USERNAME'):
+        missing_config.append('EMAIL_USERNAME')
+    if not os.getenv('EMAIL_PASSWORD'):
+        missing_config.append('EMAIL_PASSWORD')
+        
+    if missing_config:
+        logger.error(f"[ENV_DEBUG] Missing critical IMAP configuration: {', '.join(missing_config)}")
+        logger.error(f"[ENV_DEBUG] Please check .env.mcp file and ensure these variables are set")
+    else:
+        logger.info(f"[ENV_DEBUG] All critical IMAP configuration variables are set")
+    
+    parser = argparse.ArgumentParser(description="Email IMAP MCP Server (stdio)")
     
     # Email IMAP configuration (read from environment by default)
     parser.add_argument("--server", default=os.getenv("EMAIL_IMAP_SERVER"), help="IMAP server hostname")
@@ -1304,9 +1356,18 @@ async def main():
     parser.add_argument("--username", default=os.getenv("EMAIL_USERNAME"), help="Email username")
     parser.add_argument("--password", default=os.getenv("EMAIL_PASSWORD"), help="Email password")
     parser.add_argument("--no-ssl", action="store_true", help="Disable SSL/TLS")
-    parser.add_argument("--timeout", type=int, default=int(os.getenv("EMAIL_TIMEOUT", "30")), help="Connection timeout")
+    parser.add_argument("--timeout", type=int, default=int(os.getenv("EMAIL_TIMEOUT", "60")), help="Connection timeout (default: 60s for better compatibility with slower IMAP servers)")
     
     args = parser.parse_args()
+    
+    # Log parsed arguments for debugging
+    logger.info("[ARGS_DEBUG] Parsed arguments:")
+    logger.info(f"[ARGS_DEBUG]   server: {args.server}")
+    logger.info(f"[ARGS_DEBUG]   imap_port: {args.imap_port}")
+    logger.info(f"[ARGS_DEBUG]   username: {args.username}")
+    logger.info(f"[ARGS_DEBUG]   password: {'SET' if args.password else 'NOT SET'}")
+    logger.info(f"[ARGS_DEBUG]   no_ssl: {args.no_ssl}")
+    logger.info(f"[ARGS_DEBUG]   timeout: {args.timeout}")
     
     # Validate required email parameters
     if not args.server or not args.username or not args.password:
@@ -1324,27 +1385,17 @@ async def main():
     )
     
     # Create and start server
-    server = EmailIMAPMCPServer(host=args.host, port=args.port, email_config=email_config)
+    server = EmailIMAPMCPServer(email_config=email_config)
     
-    runner = await server.start_server()
-    
-    try:
-        # Keep server running
-        while True:
-            await asyncio.sleep(1)
-    except KeyboardInterrupt:
-        logger.info("Shutting down server...")
-    except asyncio.CancelledError:
-        logger.info("Server cancelled, shutting down...")
-    finally:
-        await server.stop_server(runner)
+    # Run stdio server
+    await server.run_stdio()
 
 
 if __name__ == "__main__":
     try:
         asyncio.run(main())
     except KeyboardInterrupt:
-        print("\nServer stopped by user.")
+        print("\nServer stopped by user.", file=sys.stderr)
     except Exception as e:
-        print(f"Server error: {e}")
+        print(f"Server error: {e}", file=sys.stderr)
         sys.exit(1)
