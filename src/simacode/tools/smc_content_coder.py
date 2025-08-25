@@ -124,7 +124,7 @@ class ContentForwardURL(Tool):
     Tool for generating content forwarding URLs.
     
     This tool encodes content as base64 and generates a forwarding URL
-    in the format: FORWARD_URL?ct=<base64_encoded_content>
+    in the format: FORWARD_URL<base64_encoded_content>
     """
     
     def __init__(self, permission_manager: Optional[PermissionManager] = None):
@@ -229,7 +229,7 @@ class ContentForwardURL(Tool):
             try:
                 # URL encode the base64 content to handle any special characters
                 encoded_param = urllib.parse.quote(base64_content, safe='')
-                forwarding_url = f"{forward_url_base}?ct={encoded_param}"
+                forwarding_url = f"{forward_url_base}{encoded_param}"
                 
                 # First show the original content before encoding
                 yield ToolResult(
