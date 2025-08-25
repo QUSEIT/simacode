@@ -11,79 +11,78 @@
     </style>
 </head>
 <body class="bg-gray-50 min-h-screen" x-data="formBuilder()" x-cloak>
-    <div class="container mx-auto px-4 py-8">
+    <div class="max-w-4xl mx-auto px-3 py-4">
         <!-- Header -->
-        <div class="text-center mb-8">
-            <h1 class="text-3xl font-bold text-gray-800 mb-4">万能表单生成器与提交系统</h1>
+        <div class="text-center mb-4">
+            <h1 class="text-xl font-medium text-gray-800 mb-3">万能表单生成器</h1>
             
             <!-- Mode Toggle -->
-            <div class="inline-flex items-center bg-white rounded-lg shadow-md p-1">
+            <div class="inline-flex items-center bg-white rounded border border-gray-200 text-sm">
                 <button @click="currentMode = 'builder'" 
-                        :class="currentMode === 'builder' ? 'bg-blue-500 text-white' : 'text-gray-600'"
-                        class="px-6 py-2 rounded-md transition-all duration-200 font-medium">
-                    构建模式
+                        :class="currentMode === 'builder' ? 'bg-gray-100 text-gray-800' : 'text-gray-600 hover:text-gray-800'"
+                        class="px-4 py-1.5 rounded-l transition-colors">
+                    构建
                 </button>
                 <button @click="currentMode = 'preview'" 
-                        :class="currentMode === 'preview' ? 'bg-blue-500 text-white' : 'text-gray-600'"
-                        class="px-6 py-2 rounded-md transition-all duration-200 font-medium">
-                    预览模式
+                        :class="currentMode === 'preview' ? 'bg-gray-100 text-gray-800' : 'text-gray-600 hover:text-gray-800'"
+                        class="px-4 py-1.5 rounded-r transition-colors border-l border-gray-200">
+                    预览
                 </button>
             </div>
         </div>
 
         <!-- Builder Mode -->
-        <div x-show="currentMode === 'builder'" class="bg-white rounded-lg shadow-md p-6 mb-6">
-            <div class="flex justify-between items-center mb-6">
-                <h2 class="text-2xl font-semibold text-gray-800">表单构建器</h2>
+        <div x-show="currentMode === 'builder'" class="bg-white rounded border border-gray-200 p-4 mb-4">
+            <div class="flex justify-between items-center mb-4">
                 <div class="flex space-x-2">
-                    <button @click="loadConfig()" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors">
+                    <button @click="loadConfig()" class="bg-gray-600 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 transition-colors">
                         加载配置
                     </button>
-                    <button @click="saveConfig()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+                    <button @click="saveConfig()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
                         保存配置
                     </button>
                 </div>
             </div>
 
             <!-- Form POST URL Configuration -->
-            <div class="mb-6 p-4 bg-gray-50 rounded-lg">
-                <label class="block text-sm font-medium text-gray-700 mb-2">表单提交地址 (POST URL)</label>
+            <div class="mb-4 p-3 bg-gray-50 rounded border">
+                <label class="block text-sm text-gray-600 mb-1">提交地址</label>
                 <input x-model="formConfig.postUrl" type="url" placeholder="https://example.com/api/submit"
-                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                       class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
             </div>
 
             <!-- Add Field Button -->
-            <div class="mb-4">
-                <button @click="addField()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+            <div class="mb-3">
+                <button @click="addField()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
                     + 添加字段
                 </button>
             </div>
 
             <!-- Field Definitions -->
-            <div class="space-y-4">
+            <div class="space-y-2">
                 <template x-for="(field, index) in formFields" :key="index">
-                    <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
-                        <div class="grid grid-cols-12 gap-4 items-start">
+                    <div class="border border-gray-200 rounded p-3 bg-gray-50">
+                        <div class="grid grid-cols-12 gap-2 items-start text-xs">
                             <!-- Field Key -->
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">字段键 *</label>
+                                <label class="block text-gray-600 mb-1">字段键 *</label>
                                 <input x-model="field.key" type="text" placeholder="name" 
                                        pattern="[a-zA-Z0-9_]+" required
-                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
                             </div>
                             
                             <!-- Label -->
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">标签文本 *</label>
+                                <label class="block text-gray-600 mb-1">标签 *</label>
                                 <input x-model="field.label" type="text" placeholder="您的姓名" required
-                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
                             </div>
                             
                             <!-- Type -->
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">字段类型 *</label>
+                                <label class="block text-gray-600 mb-1">类型 *</label>
                                 <select x-model="field.type" required
-                                        class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                        class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
                                     <option value="text">文本</option>
                                     <option value="number">数字</option>
                                     <option value="email">邮箱</option>
@@ -97,25 +96,25 @@
                             
                             <!-- Placeholder -->
                             <div class="col-span-2">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">占位符</label>
+                                <label class="block text-gray-600 mb-1">占位符</label>
                                 <input x-model="field.placeholder" type="text" placeholder="提示文字"
-                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
                             </div>
                             
                             <!-- Options -->
                             <div class="col-span-2" x-show="field.type === 'select' || field.type === 'checkbox'">
-                                <label class="block text-xs font-medium text-gray-700 mb-1">选项</label>
-                                <input x-model="field.options" type="text" placeholder="选项1,选项2,选项3"
-                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                <label class="block text-gray-600 mb-1">选项</label>
+                                <input x-model="field.options" type="text" placeholder="选项1,选项2"
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
                             </div>
                             
                             <!-- Required & Delete -->
-                            <div class="col-span-2 flex items-center justify-between pt-6">
+                            <div class="col-span-2 flex items-center justify-between pt-5">
                                 <label class="flex items-center">
                                     <input x-model="field.required" type="checkbox" class="mr-1">
-                                    <span class="text-xs text-gray-700">必填</span>
+                                    <span class="text-gray-600">必填</span>
                                 </label>
-                                <button @click="removeField(index)" class="bg-red-500 text-white px-2 py-1 text-xs rounded hover:bg-red-600 transition-colors">
+                                <button @click="removeField(index)" class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition-colors">
                                     删除
                                 </button>
                             </div>
@@ -126,29 +125,27 @@
         </div>
 
         <!-- Preview Mode -->
-        <div x-show="currentMode === 'preview'" class="bg-white rounded-lg shadow-md p-6">
-            <h2 class="text-2xl font-semibold text-gray-800 mb-4">表单预览与填写</h2>
-            
+        <div x-show="currentMode === 'preview'" class="bg-white rounded border border-gray-200 p-4">
             <!-- Form Configuration Info (Top) -->
-            <div class="mb-6 p-3 bg-gray-50 rounded-lg">
-                <div class="flex items-start space-x-3">
-                    <span class="text-sm font-medium text-gray-600 min-w-0 flex-shrink-0">提交地址:</span>
+            <div class="mb-3 p-2 bg-gray-50 rounded border text-sm">
+                <div class="flex items-start space-x-2">
+                    <span class="text-gray-600 min-w-0 flex-shrink-0">提交:</span>
                     <div class="flex-1">
                         <span x-show="formConfig.postUrl" x-text="formConfig.postUrl" 
-                              class="text-sm text-blue-600 break-all font-mono"></span>
-                        <span x-show="!formConfig.postUrl" class="text-sm text-gray-400 italic">未配置提交地址</span>
+                              class="text-blue-600 break-all font-mono"></span>
+                        <span x-show="!formConfig.postUrl" class="text-gray-400 italic">未配置</span>
                     </div>
                 </div>
                 
-                <div x-show="!formConfig.postUrl" class="mt-2 text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
-                    ⚠️ 请在构建模式下配置提交地址，或表单数据将仅输出到浏览器控制台
+                <div x-show="!formConfig.postUrl" class="mt-1 text-xs text-amber-600 bg-amber-50 p-1 rounded">
+                    ⚠️ 数据将仅输出到控制台
                 </div>
             </div>
             
-            <form @submit.prevent="submitForm()" class="space-y-6">
+            <form @submit.prevent="submitForm()" class="space-y-3">
                 <template x-for="(field, index) in formFields" :key="index">
                     <div>
-                        <label class="block text-sm font-medium text-gray-700 mb-2" x-text="field.label + (field.required ? ' *' : '')"></label>
+                        <label class="block text-sm text-gray-600 mb-1" x-text="field.label + (field.required ? ' *' : '')"></label>
                         
                         <!-- Text Input -->
                         <input x-show="field.type === 'text'" 
@@ -156,7 +153,7 @@
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="text"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Number Input -->
                         <input x-show="field.type === 'number'" 
@@ -164,7 +161,7 @@
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="number"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Email Input -->
                         <input x-show="field.type === 'email'" 
@@ -172,7 +169,7 @@
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="email"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- URL Input -->
                         <input x-show="field.type === 'url'" 
@@ -180,28 +177,28 @@
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="url"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Date Input -->
                         <input x-show="field.type === 'date'" 
                                x-model="formData[field.key]" 
                                :required="field.required"
                                type="date"
-                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Textarea -->
                         <textarea x-show="field.type === 'textarea'" 
                                   x-model="formData[field.key]" 
                                   :placeholder="field.placeholder"
                                   :required="field.required"
-                                  rows="3"
-                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                                  rows="2"
+                                  class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500"></textarea>
                         
                         <!-- Select -->
                         <select x-show="field.type === 'select'" 
                                 x-model="formData[field.key]" 
                                 :required="field.required"
-                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                             <option value="">请选择...</option>
                             <template x-for="option in getOptions(field)" :key="option">
                                 <option :value="option" x-text="option"></option>
@@ -209,14 +206,14 @@
                         </select>
                         
                         <!-- Checkbox Group -->
-                        <div x-show="field.type === 'checkbox'" class="space-y-2">
+                        <div x-show="field.type === 'checkbox'" class="space-y-1">
                             <template x-for="option in getOptions(field)" :key="option">
                                 <label class="flex items-center">
                                     <input type="checkbox" 
                                            :value="option"
                                            @change="updateCheckboxValue(field.key, option, $event.target.checked)"
                                            :checked="isChecked(field.key, option)"
-                                           class="mr-2 text-blue-500 focus:ring-blue-500">
+                                           class="mr-1">
                                     <span x-text="option" class="text-sm text-gray-700"></span>
                                 </label>
                             </template>
@@ -225,9 +222,9 @@
                 </template>
                 
                 <!-- Submit Button -->
-                <div class="pt-6">
+                <div class="pt-4">
                     <button type="submit" 
-                            class="w-full bg-blue-500 text-white py-3 px-4 rounded-md hover:bg-blue-600 transition-colors font-medium text-lg">
+                            class="w-full bg-blue-600 text-white py-2 px-3 rounded hover:bg-blue-700 transition-colors text-sm">
                         提交表单
                     </button>
                 </div>
@@ -236,13 +233,13 @@
             <!-- Submit Status -->
             <div x-show="submitStatus" x-text="submitStatus" 
                  :class="submitSuccess ? 'text-green-600' : 'text-red-600'"
-                 class="mt-4 text-sm font-medium text-center"></div>
+                 class="mt-2 text-xs text-center"></div>
         </div>
 
         <!-- Status Messages -->
         <div x-show="message" x-text="message" 
              :class="messageType === 'success' ? 'text-green-600 bg-green-50 border-green-200' : 'text-red-600 bg-red-50 border-red-200'"
-             class="mt-4 p-4 rounded-lg border text-center font-medium"></div>
+             class="mt-2 p-2 rounded border text-center text-sm"></div>
     </div>
 
     <script>
