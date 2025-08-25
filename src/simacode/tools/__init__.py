@@ -19,7 +19,7 @@ from .file_read import FileReadTool
 from .file_write import FileWriteTool
 from .universal_ocr import UniversalOCRTool
 from .email_send import EmailSendTool
-from .smc_content_coder import MCPContentExtraction
+from .smc_content_coder import MCPContentExtraction, ContentForwardURL
 
 __all__ = [
     "Tool",
@@ -34,4 +34,5 @@ __all__ = [
     "UniversalOCRTool",
     "EmailSendTool",
     "MCPContentExtraction",
+    "ContentForwardURL",
 ]

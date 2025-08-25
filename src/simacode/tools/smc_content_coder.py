@@ -5,8 +5,11 @@ This tool extracts pure tool execution content from MCP protocol messages,
 removing the MCP message wrapper and returning only the actual tool data.
 """
 
+import base64
 import json
 import logging
+import os
+import urllib.parse
 from typing import Any, AsyncGenerator, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel, Field, validator
@@ -88,6 +91,149 @@ class MCPContentExtractionInput(ToolInput):
                 return field_value
             
             raise ValueError("No content provided. Please provide one of 'mcp_message', 'content', 'data', or any other field containing the data to extract")
+
+
+class ContentForwardURLInput(ToolInput):
+    """Input model for Content Forward URL tool."""
+    
+    content: Union[str, Dict[str, Any]] = Field(
+        ...,
+        description="Content to encode and forward via URL (can be string or JSON object)"
+    )
+    forward_url_base: Optional[str] = Field(
+        None,
+        description="Base URL for content forwarding (overrides default configuration)"
+    )
+    encoding: str = Field(
+        "base64",
+        description="Encoding method for content (currently only supports 'base64')"
+    )
+    
+    @validator('encoding')
+    def validate_encoding(cls, v):
+        allowed_encodings = ['base64']
+        if v not in allowed_encodings:
+            raise ValueError(f"encoding must be one of {allowed_encodings}")
+        return v
+
+
+class ContentForwardURL(Tool):
+    """
+    Tool for generating content forwarding URLs.
+    
+    This tool encodes content as base64 and generates a forwarding URL
+    in the format: FORWARD_URL?ct=<base64_encoded_content>
+    """
+    
+    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+        """Initialize Content Forward URL tool."""
+        super().__init__(
+            name="content_forward_url",
+            description="Generate forwarding URLs with base64-encoded content. Converts any content to a URL format for easy sharing and forwarding.",
+            version="1.0.0"
+        )
+        self.permission_manager = permission_manager or PermissionManager()
+        
+        # Load forward URL from environment or use default
+        self.default_forward_url = os.getenv("FORWARD_URL", "http://localhost/smc_forward")
+    
+    def get_input_schema(self) -> Type[ToolInput]:
+        """Return the input schema for this tool."""
+        return ContentForwardURLInput
+    
+    async def validate_input(self, input_data: Dict[str, Any]) -> ContentForwardURLInput:
+        """Validate tool input data."""
+        try:
+            return ContentForwardURLInput(**input_data)
+        except Exception as e:
+            logger.error(f"Input validation failed for content forward URL: {str(e)}")
+            raise ValueError(f"Invalid input for content_forward_url: {str(e)}")
+    
+    async def check_permissions(self, input_data: ToolInput) -> bool:
+        """Check permissions for content forward URL generation."""
+        try:
+            return await self.permission_manager.check_tool_permission(
+                self.name,
+                input_data.dict()
+            )
+        except Exception as e:
+            logger.warning(f"Permission check failed for {self.name}: {str(e)}")
+            return True  # Default to allow
+    
+    async def execute(self, input_data: ContentForwardURLInput) -> AsyncGenerator[ToolResult, None]:
+        """
+        Execute content forward URL generation.
+        
+        Args:
+            input_data: Validated input data
+            
+        Yields:
+            ToolResult: Generated forwarding URL (simplified output)
+        """
+        try:
+            # Prepare content for encoding
+            content = input_data.content
+            if isinstance(content, (dict, list)):
+                # Convert to JSON string
+                content_str = json.dumps(content, ensure_ascii=False, separators=(',', ':'))
+            else:
+                content_str = str(content)
+            
+            # Encode content as base64
+            try:
+                content_bytes = content_str.encode('utf-8')
+                base64_content = base64.b64encode(content_bytes).decode('ascii')
+            except Exception as e:
+                yield ToolResult(
+                    type=ToolResultType.ERROR,
+                    content=f"编码失败: {str(e)}",
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id
+                )
+                return
+            
+            # Determine forward URL base
+            forward_url_base = input_data.forward_url_base or self.default_forward_url
+            
+            # Generate the forwarding URL
+            try:
+                # URL encode the base64 content to handle any special characters
+                encoded_param = urllib.parse.quote(base64_content, safe='')
+                forwarding_url = f"{forward_url_base}?ct={encoded_param}"
+                
+                # First show the original content before encoding
+                yield ToolResult(
+                    type=ToolResultType.SUCCESS,
+                    content=f"原始内容: {content_str}",
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id
+                )
+                
+                # Then return the forwarding URL
+                yield ToolResult(
+                    type=ToolResultType.SUCCESS,
+                    content=f"转发链接: {forwarding_url}",
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id
+                )
+                
+            except Exception as e:
+                yield ToolResult(
+                    type=ToolResultType.ERROR,
+                    content=f"生成链接失败: {str(e)}",
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id
+                )
+                return
+            
+        except Exception as e:
+            logger.error(f"Content forward URL generation failed: {str(e)}")
+            yield ToolResult(
+                type=ToolResultType.ERROR,
+                content=f"转发链接生成失败: {str(e)}",
+                tool_name=self.name,
+                execution_id=input_data.execution_id
+            )
 
 
 class MCPContentExtraction(Tool):
@@ -1084,14 +1230,36 @@ def create_mcp_content_extraction(permission_manager: Optional[PermissionManager
     return MCPContentExtraction(permission_manager=permission_manager)
 
 
-# Auto-register the tool
+# Factory function for content forward URL tool
+def create_content_forward_url(permission_manager: Optional[PermissionManager] = None) -> ContentForwardURL:
+    """
+    Factory function to create a content forward URL tool.
+    
+    Args:
+        permission_manager: Optional permission manager instance
+        
+    Returns:
+        ContentForwardURL: Configured tool instance
+    """
+    return ContentForwardURL(permission_manager=permission_manager)
+
+
+# Auto-register the tools
 try:
     from .base import ToolRegistry
+    
     # Unregister if already exists
     if 'mcp_content_extraction' in ToolRegistry.list_tools():
         ToolRegistry.unregister('mcp_content_extraction')
-    # Register new instance
+    if 'content_forward_url' in ToolRegistry.list_tools():
+        ToolRegistry.unregister('content_forward_url')
+    
+    # Register new instances
     mcp_content_extraction_tool = MCPContentExtraction()
     ToolRegistry.register(mcp_content_extraction_tool)
+    
+    content_forward_url_tool = ContentForwardURL()
+    ToolRegistry.register(content_forward_url_tool)
+    
 except Exception as e:
-    logger.error(f"Failed to register mcp_content_extraction tool: {str(e)}")
+    logger.error(f"Failed to register tools: {str(e)}")

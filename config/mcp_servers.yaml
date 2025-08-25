@@ -9,6 +9,8 @@ mcp:
   log_level: INFO
   cache_ttl: 300
   health_check_interval: 30
+  # Content forwarding URL configuration
+  forward_url: "${FORWARD_URL:-http://localhost/smc_forward}"
 
 # MCP server definitions
 servers:
