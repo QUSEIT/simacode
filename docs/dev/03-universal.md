@@ -39,3 +39,7 @@
 3.  界面简洁美观，用户体验良好。
 
 Javascript库使用Alpine.js，样式文件使用Tailwindcss
+
+
+## 预设数据
+在/universalform/的后端增加一个功能：如果 URL存在GET参数formdata，则读取该数据并用base64 decode后得到预设数据，再使用OpenAI接口来将这些数据预填到表单中（如果得到的数据为数组，则表单改为多表单，每个表单预设一列数据内容形式）

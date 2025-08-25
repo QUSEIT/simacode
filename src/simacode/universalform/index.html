@@ -14,19 +14,19 @@
     <div class="max-w-4xl mx-auto px-3 py-4">
         <!-- Header -->
         <div class="text-center mb-4">
-            <h1 class="text-xl font-medium text-gray-800 mb-3">万能表单生成器</h1>
+            <h1 class="text-xl font-medium text-gray-800 mb-3" x-text="currentMode === 'preview' ? (formConfig.name || '未名表单') : '万能表单生成器'"></h1>
             
             <!-- Mode Toggle -->
             <div class="inline-flex items-center bg-white rounded border border-gray-200 text-sm">
                 <button @click="currentMode = 'builder'" 
-                        :class="currentMode === 'builder' ? 'bg-gray-100 text-gray-800' : 'text-gray-600 hover:text-gray-800'"
-                        class="px-4 py-1.5 rounded-l transition-colors">
+                        :class="currentMode === 'builder' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                        class="px-4 py-1.5 rounded-l transition-all duration-200">
                     构建
                 </button>
                 <button @click="currentMode = 'preview'" 
-                        :class="currentMode === 'preview' ? 'bg-gray-100 text-gray-800' : 'text-gray-600 hover:text-gray-800'"
-                        class="px-4 py-1.5 rounded-r transition-colors border-l border-gray-200">
-                    预览
+                        :class="currentMode === 'preview' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                        class="px-4 py-1.5 rounded-r transition-all duration-200 border-l border-gray-200">
+                    提交
                 </button>
             </div>
         </div>
@@ -44,11 +44,18 @@
                 </div>
             </div>
 
-            <!-- Form POST URL Configuration -->
-            <div class="mb-4 p-3 bg-gray-50 rounded border">
-                <label class="block text-sm text-gray-600 mb-1">提交地址</label>
-                <input x-model="formConfig.postUrl" type="url" placeholder="https://example.com/api/submit"
-                       class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+            <!-- Form Configuration -->
+            <div class="mb-4 p-3 bg-gray-50 rounded border space-y-2">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">表单名称</label>
+                    <input x-model="formConfig.name" type="text" placeholder="联系我们表单"
+                           class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">提交地址</label>
+                    <input x-model="formConfig.postUrl" type="url" placeholder="https://example.com/api/submit"
+                           class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                </div>
             </div>
 
             <!-- Add Field Button -->
@@ -148,55 +155,62 @@
                         <label class="block text-sm text-gray-600 mb-1" x-text="field.label + (field.required ? ' *' : '')"></label>
                         
                         <!-- Text Input -->
-                        <input x-show="field.type === 'text'" 
+                        <input x-show="field.type === 'text' && field.key" 
                                x-model="formData[field.key]" 
+                               :name="field.key"
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="text"
                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Number Input -->
-                        <input x-show="field.type === 'number'" 
+                        <input x-show="field.type === 'number' && field.key" 
                                x-model.number="formData[field.key]" 
+                               :name="field.key"
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="number"
                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Email Input -->
-                        <input x-show="field.type === 'email'" 
+                        <input x-show="field.type === 'email' && field.key" 
                                x-model="formData[field.key]" 
+                               :name="field.key"
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="email"
                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- URL Input -->
-                        <input x-show="field.type === 'url'" 
+                        <input x-show="field.type === 'url' && field.key" 
                                x-model="formData[field.key]" 
+                               :name="field.key"
                                :placeholder="field.placeholder"
                                :required="field.required"
                                type="url"
                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Date Input -->
-                        <input x-show="field.type === 'date'" 
+                        <input x-show="field.type === 'date' && field.key" 
                                x-model="formData[field.key]" 
+                               :name="field.key"
                                :required="field.required"
                                type="date"
                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                         
                         <!-- Textarea -->
-                        <textarea x-show="field.type === 'textarea'" 
+                        <textarea x-show="field.type === 'textarea' && field.key" 
                                   x-model="formData[field.key]" 
+                                  :name="field.key"
                                   :placeholder="field.placeholder"
                                   :required="field.required"
                                   rows="2"
                                   class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500"></textarea>
                         
                         <!-- Select -->
-                        <select x-show="field.type === 'select'" 
+                        <select x-show="field.type === 'select' && field.key" 
                                 x-model="formData[field.key]" 
+                                :name="field.key"
                                 :required="field.required"
                                 class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
                             <option value="">请选择...</option>
@@ -206,10 +220,11 @@
                         </select>
                         
                         <!-- Checkbox Group -->
-                        <div x-show="field.type === 'checkbox'" class="space-y-1">
+                        <div x-show="field.type === 'checkbox' && field.key" class="space-y-1">
                             <template x-for="option in getOptions(field)" :key="option">
                                 <label class="flex items-center">
                                     <input type="checkbox" 
+                                           :name="field.key + '[]'"
                                            :value="option"
                                            @change="updateCheckboxValue(field.key, option, $event.target.checked)"
                                            :checked="isChecked(field.key, option)"
@@ -249,6 +264,7 @@
                 formFields: [],
                 formData: {},
                 formConfig: {
+                    name: '',
                     postUrl: ''
                 },
                 message: '',
@@ -282,8 +298,10 @@
                 },
 
                 initializeFormData() {
-                    // Initialize form data structure for all fields
+                    // Initialize form data structure for all fields that have keys
                     this.formFields.forEach(field => {
+                        if (!field.key) return; // Skip fields without keys
+                        
                         if (field.type === 'checkbox' && !this.formData[field.key]) {
                             this.formData[field.key] = [];
                         } else if (!this.formData[field.key] && field.type !== 'checkbox') {
@@ -299,7 +317,7 @@
                         if (response.ok) {
                             const config = await response.json();
                             this.formFields = config.fields || [];
-                            this.formConfig = config.config || { postUrl: '' };
+                            this.formConfig = config.config || { name: '', postUrl: '' };
                             this.initializeFormData();
                         }
                     } catch (error) {
@@ -340,7 +358,7 @@
                         if (response.ok) {
                             const config = await response.json();
                             this.formFields = config.fields || [];
-                            this.formConfig = config.config || { postUrl: '' };
+                            this.formConfig = config.config || { name: '', postUrl: '' };
                             
                             // Initialize form data for each field
                             this.initializeFormData();
@@ -420,6 +438,9 @@
 
                 validateForm() {
                     for (let field of this.formFields) {
+                        // Skip fields without keys
+                        if (!field.key) continue;
+                        
                         if (field.required && (!this.formData[field.key] || this.formData[field.key] === '')) {
                             this.showMessage(`请填写必填字段：${field.label}`, 'error');
                             return false;

@@ -40,6 +40,7 @@ if FASTAPI_AVAILABLE:
         required: bool = False
 
     class FormConfig(BaseModel):
+        name: Optional[str] = ""
         postUrl: Optional[str] = ""
 
     class UniversalFormData(BaseModel):
@@ -91,6 +92,7 @@ if FASTAPI_AVAILABLE:
                 default_config = {
                     "fields": [],
                     "config": {
+                        "name": "",
                         "postUrl": ""
                     }
                 }
