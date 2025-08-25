@@ -31,6 +31,7 @@ logger = logging.getLogger(__name__)
 
 if FASTAPI_AVAILABLE:
     from .routes import chat, react, health, sessions
+    from ..universalform import router as universalform_router, UNIVERSALFORM_AVAILABLE
     from .models import ErrorResponse
 
     class DebugLoggingMiddleware(BaseHTTPMiddleware):
@@ -193,5 +194,10 @@ def create_app(config: Config):
     app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
     app.include_router(react.router, prefix="/api/v1/react", tags=["react"])
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
+    
+    # Include universal form router if available
+    if UNIVERSALFORM_AVAILABLE and universalform_router:
+        app.include_router(universalform_router, prefix="/universalform", tags=["universalform"])
+        app.include_router(universalform_router, prefix="/api/universalform", tags=["universalform-api"])
     
     return app

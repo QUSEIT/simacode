@@ -1,0 +1,507 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>万能表单生成器与提交系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="formBuilder()" x-cloak>
+    <div class="container mx-auto px-4 py-8">
+        <!-- Header -->
+        <div class="text-center mb-8">
+            <h1 class="text-3xl font-bold text-gray-800 mb-4">万能表单生成器与提交系统</h1>
+            
+            <!-- Mode Toggle -->
+            <div class="inline-flex items-center bg-white rounded-lg shadow-md p-1">
+                <button @click="currentMode = 'builder'" 
+                        :class="currentMode === 'builder' ? 'bg-blue-500 text-white' : 'text-gray-600'"
+                        class="px-6 py-2 rounded-md transition-all duration-200 font-medium">
+                    构建模式
+                </button>
+                <button @click="currentMode = 'preview'" 
+                        :class="currentMode === 'preview' ? 'bg-blue-500 text-white' : 'text-gray-600'"
+                        class="px-6 py-2 rounded-md transition-all duration-200 font-medium">
+                    预览模式
+                </button>
+            </div>
+        </div>
+
+        <!-- Builder Mode -->
+        <div x-show="currentMode === 'builder'" class="bg-white rounded-lg shadow-md p-6 mb-6">
+            <div class="flex justify-between items-center mb-6">
+                <h2 class="text-2xl font-semibold text-gray-800">表单构建器</h2>
+                <div class="flex space-x-2">
+                    <button @click="loadConfig()" class="bg-green-500 text-white px-4 py-2 rounded-md hover:bg-green-600 transition-colors">
+                        加载配置
+                    </button>
+                    <button @click="saveConfig()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+                        保存配置
+                    </button>
+                </div>
+            </div>
+
+            <!-- Form POST URL Configuration -->
+            <div class="mb-6 p-4 bg-gray-50 rounded-lg">
+                <label class="block text-sm font-medium text-gray-700 mb-2">表单提交地址 (POST URL)</label>
+                <input x-model="formConfig.postUrl" type="url" placeholder="https://example.com/api/submit"
+                       class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+            </div>
+
+            <!-- Add Field Button -->
+            <div class="mb-4">
+                <button @click="addField()" class="bg-blue-500 text-white px-4 py-2 rounded-md hover:bg-blue-600 transition-colors">
+                    + 添加字段
+                </button>
+            </div>
+
+            <!-- Field Definitions -->
+            <div class="space-y-4">
+                <template x-for="(field, index) in formFields" :key="index">
+                    <div class="border border-gray-200 rounded-lg p-4 bg-gray-50">
+                        <div class="grid grid-cols-12 gap-4 items-start">
+                            <!-- Field Key -->
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">字段键 *</label>
+                                <input x-model="field.key" type="text" placeholder="name" 
+                                       pattern="[a-zA-Z0-9_]+" required
+                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            
+                            <!-- Label -->
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">标签文本 *</label>
+                                <input x-model="field.label" type="text" placeholder="您的姓名" required
+                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            
+                            <!-- Type -->
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">字段类型 *</label>
+                                <select x-model="field.type" required
+                                        class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                                    <option value="text">文本</option>
+                                    <option value="number">数字</option>
+                                    <option value="email">邮箱</option>
+                                    <option value="textarea">长文本</option>
+                                    <option value="select">下拉选择</option>
+                                    <option value="checkbox">复选框</option>
+                                    <option value="date">日期</option>
+                                    <option value="url">网址</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Placeholder -->
+                            <div class="col-span-2">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">占位符</label>
+                                <input x-model="field.placeholder" type="text" placeholder="提示文字"
+                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            
+                            <!-- Options -->
+                            <div class="col-span-2" x-show="field.type === 'select' || field.type === 'checkbox'">
+                                <label class="block text-xs font-medium text-gray-700 mb-1">选项</label>
+                                <input x-model="field.options" type="text" placeholder="选项1,选项2,选项3"
+                                       class="w-full px-2 py-1 text-sm border border-gray-300 rounded focus:outline-none focus:ring-1 focus:ring-blue-500">
+                            </div>
+                            
+                            <!-- Required & Delete -->
+                            <div class="col-span-2 flex items-center justify-between pt-6">
+                                <label class="flex items-center">
+                                    <input x-model="field.required" type="checkbox" class="mr-1">
+                                    <span class="text-xs text-gray-700">必填</span>
+                                </label>
+                                <button @click="removeField(index)" class="bg-red-500 text-white px-2 py-1 text-xs rounded hover:bg-red-600 transition-colors">
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Preview Mode -->
+        <div x-show="currentMode === 'preview'" class="bg-white rounded-lg shadow-md p-6">
+            <h2 class="text-2xl font-semibold text-gray-800 mb-4">表单预览与填写</h2>
+            
+            <!-- Form Configuration Info (Top) -->
+            <div class="mb-6 p-3 bg-gray-50 rounded-lg">
+                <div class="flex items-start space-x-3">
+                    <span class="text-sm font-medium text-gray-600 min-w-0 flex-shrink-0">提交地址:</span>
+                    <div class="flex-1">
+                        <span x-show="formConfig.postUrl" x-text="formConfig.postUrl" 
+                              class="text-sm text-blue-600 break-all font-mono"></span>
+                        <span x-show="!formConfig.postUrl" class="text-sm text-gray-400 italic">未配置提交地址</span>
+                    </div>
+                </div>
+                
+                <div x-show="!formConfig.postUrl" class="mt-2 text-sm text-amber-600 bg-amber-50 p-2 rounded border border-amber-200">
+                    ⚠️ 请在构建模式下配置提交地址，或表单数据将仅输出到浏览器控制台
+                </div>
+            </div>
+            
+            <form @submit.prevent="submitForm()" class="space-y-6">
+                <template x-for="(field, index) in formFields" :key="index">
+                    <div>
+                        <label class="block text-sm font-medium text-gray-700 mb-2" x-text="field.label + (field.required ? ' *' : '')"></label>
+                        
+                        <!-- Text Input -->
+                        <input x-show="field.type === 'text'" 
+                               x-model="formData[field.key]" 
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="text"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- Number Input -->
+                        <input x-show="field.type === 'number'" 
+                               x-model.number="formData[field.key]" 
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="number"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- Email Input -->
+                        <input x-show="field.type === 'email'" 
+                               x-model="formData[field.key]" 
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="email"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- URL Input -->
+                        <input x-show="field.type === 'url'" 
+                               x-model="formData[field.key]" 
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="url"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- Date Input -->
+                        <input x-show="field.type === 'date'" 
+                               x-model="formData[field.key]" 
+                               :required="field.required"
+                               type="date"
+                               class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                        
+                        <!-- Textarea -->
+                        <textarea x-show="field.type === 'textarea'" 
+                                  x-model="formData[field.key]" 
+                                  :placeholder="field.placeholder"
+                                  :required="field.required"
+                                  rows="3"
+                                  class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"></textarea>
+                        
+                        <!-- Select -->
+                        <select x-show="field.type === 'select'" 
+                                x-model="formData[field.key]" 
+                                :required="field.required"
+                                class="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500">
+                            <option value="">请选择...</option>
+                            <template x-for="option in getOptions(field)" :key="option">
+                                <option :value="option" x-text="option"></option>
+                            </template>
+                        </select>
+                        
+                        <!-- Checkbox Group -->
+                        <div x-show="field.type === 'checkbox'" class="space-y-2">
+                            <template x-for="option in getOptions(field)" :key="option">
+                                <label class="flex items-center">
+                                    <input type="checkbox" 
+                                           :value="option"
+                                           @change="updateCheckboxValue(field.key, option, $event.target.checked)"
+                                           :checked="isChecked(field.key, option)"
+                                           class="mr-2 text-blue-500 focus:ring-blue-500">
+                                    <span x-text="option" class="text-sm text-gray-700"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                
+                <!-- Submit Button -->
+                <div class="pt-6">
+                    <button type="submit" 
+                            class="w-full bg-blue-500 text-white py-3 px-4 rounded-md hover:bg-blue-600 transition-colors font-medium text-lg">
+                        提交表单
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Submit Status -->
+            <div x-show="submitStatus" x-text="submitStatus" 
+                 :class="submitSuccess ? 'text-green-600' : 'text-red-600'"
+                 class="mt-4 text-sm font-medium text-center"></div>
+        </div>
+
+        <!-- Status Messages -->
+        <div x-show="message" x-text="message" 
+             :class="messageType === 'success' ? 'text-green-600 bg-green-50 border-green-200' : 'text-red-600 bg-red-50 border-red-200'"
+             class="mt-4 p-4 rounded-lg border text-center font-medium"></div>
+    </div>
+
+    <script>
+        function formBuilder() {
+            return {
+                currentMode: 'preview',
+                formFields: [],
+                formData: {},
+                formConfig: {
+                    postUrl: ''
+                },
+                message: '',
+                messageType: 'success',
+                submitStatus: '',
+                submitSuccess: false,
+
+                init() {
+                    // Check for stored mode preference from save/load operations
+                    const storedMode = sessionStorage.getItem('universalformMode');
+                    if (storedMode) {
+                        this.currentMode = storedMode;
+                        // Clear the stored preference after using it
+                        sessionStorage.removeItem('universalformMode');
+                    }
+                    
+                    // Load configuration and pre-fill data from URL parameters
+                    this.loadConfigSilently();
+                    this.prefillFromUrlParams();
+                },
+
+                addField() {
+                    this.formFields.push({
+                        key: '',
+                        label: '',
+                        type: 'text',
+                        placeholder: '',
+                        options: '',
+                        required: false
+                    });
+                },
+
+                initializeFormData() {
+                    // Initialize form data structure for all fields
+                    this.formFields.forEach(field => {
+                        if (field.type === 'checkbox' && !this.formData[field.key]) {
+                            this.formData[field.key] = [];
+                        } else if (!this.formData[field.key] && field.type !== 'checkbox') {
+                            this.formData[field.key] = '';
+                        }
+                    });
+                },
+
+                async loadConfigSilently() {
+                    // Load configuration without showing messages (for initialization)
+                    try {
+                        const response = await fetch('/api/universalform/config');
+                        if (response.ok) {
+                            const config = await response.json();
+                            this.formFields = config.fields || [];
+                            this.formConfig = config.config || { postUrl: '' };
+                            this.initializeFormData();
+                        }
+                    } catch (error) {
+                        console.error('静默加载配置失败:', error);
+                        // Silent failure - don't show error to user during init
+                    }
+                },
+
+                removeField(index) {
+                    this.formFields.splice(index, 1);
+                },
+
+                getOptions(field) {
+                    if (!field.options) return [];
+                    return field.options.split(',').map(opt => opt.trim()).filter(opt => opt);
+                },
+
+                updateCheckboxValue(fieldKey, option, checked) {
+                    if (!this.formData[fieldKey]) {
+                        this.formData[fieldKey] = [];
+                    }
+                    if (checked) {
+                        if (!this.formData[fieldKey].includes(option)) {
+                            this.formData[fieldKey].push(option);
+                        }
+                    } else {
+                        this.formData[fieldKey] = this.formData[fieldKey].filter(item => item !== option);
+                    }
+                },
+
+                isChecked(fieldKey, option) {
+                    return this.formData[fieldKey] && this.formData[fieldKey].includes(option);
+                },
+
+                async loadConfig() {
+                    try {
+                        const response = await fetch('/api/universalform/config');
+                        if (response.ok) {
+                            const config = await response.json();
+                            this.formFields = config.fields || [];
+                            this.formConfig = config.config || { postUrl: '' };
+                            
+                            // Initialize form data for each field
+                            this.initializeFormData();
+                            
+                            this.showMessage('配置加载成功，页面即将刷新...', 'success');
+                            
+                            // Auto refresh page after successful load
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1500);
+                        } else {
+                            this.showMessage('配置文件不存在，使用默认配置', 'info');
+                        }
+                    } catch (error) {
+                        console.error('加载配置失败:', error);
+                        this.showMessage('加载配置失败', 'error');
+                    }
+                },
+
+                async saveConfig() {
+                    if (this.formFields.length === 0) {
+                        this.showMessage('请至少添加一个字段', 'error');
+                        return;
+                    }
+
+                    // Validate required fields
+                    for (let field of this.formFields) {
+                        if (!field.key || !field.label || !field.type) {
+                            this.showMessage('请填写所有必填字段（字段键、标签文本、字段类型）', 'error');
+                            return;
+                        }
+                        // Validate key format
+                        if (!/^[a-zA-Z0-9_]+$/.test(field.key)) {
+                            this.showMessage(`字段键 "${field.key}" 只能包含英文、数字和下划线`, 'error');
+                            return;
+                        }
+                    }
+
+                    const configData = {
+                        fields: this.formFields,
+                        config: this.formConfig
+                    };
+
+                    try {
+                        const response = await fetch('/api/universalform/config', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(configData)
+                        });
+
+                        if (response.ok) {
+                            this.showMessage('配置保存成功，页面即将刷新并切换到预览模式...', 'success');
+                            
+                            // Auto refresh and switch to preview mode after successful save
+                            setTimeout(() => {
+                                // Store mode preference in sessionStorage
+                                sessionStorage.setItem('universalformMode', 'preview');
+                                window.location.reload();
+                            }, 1500);
+                        } else {
+                            throw new Error('保存失败');
+                        }
+                    } catch (error) {
+                        console.error('保存配置失败:', error);
+                        this.showMessage('保存配置失败', 'error');
+                    }
+                },
+
+                prefillFromUrlParams() {
+                    const urlParams = new URLSearchParams(window.location.search);
+                    for (const [key, value] of urlParams.entries()) {
+                        this.formData[key] = value;
+                    }
+                },
+
+                validateForm() {
+                    for (let field of this.formFields) {
+                        if (field.required && (!this.formData[field.key] || this.formData[field.key] === '')) {
+                            this.showMessage(`请填写必填字段：${field.label}`, 'error');
+                            return false;
+                        }
+                        
+                        // Validate email format
+                        if (field.type === 'email' && this.formData[field.key]) {
+                            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                            if (!emailRegex.test(this.formData[field.key])) {
+                                this.showMessage(`请输入正确的邮箱格式：${field.label}`, 'error');
+                                return false;
+                            }
+                        }
+
+                        // Validate URL format
+                        if (field.type === 'url' && this.formData[field.key]) {
+                            try {
+                                new URL(this.formData[field.key]);
+                            } catch {
+                                this.showMessage(`请输入正确的网址格式：${field.label}`, 'error');
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                },
+
+                async submitForm() {
+                    if (!this.validateForm()) return;
+
+                    // Log form data to console
+                    console.log('表单数据:', this.formData);
+
+                    // Submit to configured POST URL
+                    if (this.formConfig.postUrl) {
+                        await this.submitToUrl(this.formConfig.postUrl);
+                    } else {
+                        this.showMessage('表单数据已输出到控制台，请配置POST地址进行提交', 'success');
+                    }
+                },
+
+
+                async submitToUrl(url) {
+                    this.submitStatus = '正在提交...';
+                    this.submitSuccess = false;
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(this.formData)
+                        });
+
+                        if (response.ok) {
+                            this.submitStatus = '提交成功！';
+                            this.submitSuccess = true;
+                            this.showMessage('表单提交成功', 'success');
+                        } else {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.error('提交失败:', error);
+                        this.submitStatus = `提交失败: ${error.message}`;
+                        this.submitSuccess = false;
+                        this.showMessage('表单提交失败', 'error');
+                    }
+                },
+
+                showMessage(msg, type = 'success') {
+                    this.message = msg;
+                    this.messageType = type;
+                    setTimeout(() => {
+                        this.message = '';
+                    }, 5000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

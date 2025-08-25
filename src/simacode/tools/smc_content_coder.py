@@ -10,6 +10,8 @@ import json
 import logging
 import os
 import urllib.parse
+import yaml
+from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, List, Optional, Type, Union
 
 from pydantic import BaseModel, Field, validator
@@ -134,8 +136,36 @@ class ContentForwardURL(Tool):
         )
         self.permission_manager = permission_manager or PermissionManager()
         
-        # Load forward URL from environment or use default
-        self.default_forward_url = os.getenv("FORWARD_URL", "http://localhost/smc_forward")
+        # Load forward URL from config file, environment, or use default
+        self.default_forward_url = self._load_forward_url()
+    
+    def _load_forward_url(self) -> str:
+        """Load forward URL from .simacode/config.yaml or fallback to environment/default."""
+        try:
+            # First try to load from .simacode/config.yaml
+            config_path = Path(".simacode/config.yaml")
+            if config_path.exists():
+                with open(config_path, 'r', encoding='utf-8') as f:
+                    config = yaml.safe_load(f)
+                    forward_url = config.get("forward_url")
+                    if forward_url:
+                        logger.info(f"Loaded forward URL from config: {forward_url}")
+                        return forward_url
+            
+            # Fallback to environment variable
+            env_url = os.getenv("FORWARD_URL")
+            if env_url:
+                logger.info("Using forward URL from environment variable")
+                return env_url
+            
+            # Final fallback to default
+            default_url = "http://localhost/smc_forward"
+            logger.info(f"Using default forward URL: {default_url}")
+            return default_url
+            
+        except Exception as e:
+            logger.warning(f"Failed to load forward URL from config: {str(e)}, using default")
+            return "http://localhost/smc_forward"
     
     def get_input_schema(self) -> Type[ToolInput]:
         """Return the input schema for this tool."""

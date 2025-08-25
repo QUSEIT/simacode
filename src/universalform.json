@@ -1,0 +1,47 @@
+{
+  "fields": [
+    {
+      "key": "name",
+      "label": "Name",
+      "type": "text",
+      "placeholder": "",
+      "options": "",
+      "required": true
+    },
+    {
+      "key": "hourrate",
+      "label": "Hour Rate",
+      "type": "text",
+      "placeholder": "",
+      "options": "",
+      "required": true
+    },
+    {
+      "key": "hours",
+      "label": "Hours",
+      "type": "text",
+      "placeholder": "",
+      "options": "",
+      "required": true
+    },
+    {
+      "key": "overtime",
+      "label": "Overtime",
+      "type": "text",
+      "placeholder": "",
+      "options": "",
+      "required": true
+    },
+    {
+      "key": "tip",
+      "label": "Tip",
+      "type": "text",
+      "placeholder": "",
+      "options": "",
+      "required": true
+    }
+  ],
+  "config": {
+    "postUrl": "https://sima.chat/save"
+  }
+}
