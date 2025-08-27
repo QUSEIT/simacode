@@ -178,18 +178,14 @@ servers:
       network_access: true  # Required for browser automation and HTTP proxy
 
   # Email IMAP MCP Server (stdio) - Email checking and retrieval via IMAP
+  # Configuration is now loaded directly from .simacode/config.yaml
   email_imap:
     name: email_imap
     enabled: true  # Enable for email automation features
     type: stdio
-    command: ["python", "tools/mcp_email_imap_http_server.py"]
-    args: []
-    environment:
-      EMAIL_IMAP_SERVER: "${EMAIL_IMAP_SERVER:-imap.gmail.com}"
-      EMAIL_IMAP_PORT_IMAP: "${EMAIL_IMAP_PORT_IMAP:-993}"
-      EMAIL_USERNAME: "${EMAIL_USERNAME}"
-      EMAIL_PASSWORD: "${EMAIL_PASSWORD}"
-      EMAIL_TIMEOUT: "${EMAIL_TIMEOUT:-30}"
+    command: ["python", "tools/mcp_imap_receive_email.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment: {}  # No environment variables needed - configuration loaded from .simacode/config.yaml
     working_directory: null
     timeout: 120  # Email operations can take some time, especially for slower IMAP servers
     max_retries: 3
@@ -203,6 +199,35 @@ servers:
       forbidden_paths: []
       max_execution_time: 60
       network_access: true  # Required for IMAP connections
+
+  # Email SMTP MCP Server (stdio) - Email sending via SMTP with comprehensive validation
+  email_smtp:
+    name: email_smtp
+    enabled: true  # Enable for email sending automation features
+    type: stdio
+    command: ["python", "tools/mcp_smtp_send_email.py"]
+    args: []
+    environment:
+      EMAIL_SMTP_SERVER: "${EMAIL_SMTP_SERVER:-smtp.gmail.com}"
+      EMAIL_SMTP_PORT: "${EMAIL_SMTP_PORT:-587}"
+      EMAIL_USERNAME: "${EMAIL_USERNAME}"
+      EMAIL_PASSWORD: "${EMAIL_PASSWORD}"
+      EMAIL_FROM_NAME: "${EMAIL_FROM_NAME:-SimaCode Assistant}"
+      EMAIL_FROM_EMAIL: "${EMAIL_FROM_EMAIL}"
+      EMAIL_TIMEOUT: "${EMAIL_TIMEOUT:-60}"
+    working_directory: null
+    timeout: 120  # Email sending operations can take time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "send"      # Allow email sending operations
+        - "execute"   # Allow general execution operations
+        - "validate"  # Allow email validation operations
+      allowed_paths: []  # SMTP operations don't need file system access (except for attachments)
+      forbidden_paths: []
+      max_execution_time: 90
+      network_access: true  # Required for SMTP connections
 
 # Configuration Notes:
 #

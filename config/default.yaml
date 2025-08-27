@@ -17,7 +17,7 @@ logging:
 
 # Security and permission settings
 security:
-  allowed_paths: 
+  allowed_paths:
     - "."  # Current working directory
     - "/tmp"
   forbidden_paths:
@@ -68,16 +68,31 @@ react:
   allow_task_modification: true  # 允许用户修改任务
   auto_confirm_safe_tasks: false  # 自动确认安全任务
 
+
+#### MCP configuration #### 
+#
 # Email configuration
 email:
+  # SMTP configuration for sending emails
   smtp:
     server: null  # SMTP server address (e.g., smtp.gmail.com)
     port: 587  # SMTP port (587 for TLS, 465 for SSL, 25 for plain)
     use_tls: true  # Use TLS encryption
     use_ssl: false  # Use SSL encryption
     timeout: 30  # Connection timeout in seconds
-    username: null  # SMTP username (will be loaded from SIMACODE_SMTP_USER env var)
-    password: null  # SMTP password (will be loaded from SIMACODE_SMTP_PASS env var)
+    username: null  # SMTP username (will be loaded from EMAIL_USERNAME env var)
+    password: null  # SMTP password (will be loaded from EMAIL_PASSWORD env var)
+  
+  # IMAP configuration for receiving emails
+  imap:
+    server: null  # IMAP server address (e.g., imap.gmail.com)
+    port: 993  # IMAP port (993 for SSL, 143 for plain)
+    use_ssl: true  # Use SSL encryption for IMAP
+    timeout: 60  # Connection timeout in seconds (longer for IMAP operations)
+    username: null  # IMAP username (will be loaded from EMAIL_USERNAME env var)
+    password: null  # IMAP password (will be loaded from EMAIL_PASSWORD env var)
+  
+  # Email security settings
   security:
     max_recipients: 50  # Maximum number of recipients per email
     max_attachment_size: 26214400  # 25MB in bytes
@@ -85,9 +100,13 @@ email:
     allowed_domains: []  # Allowed recipient domains (empty = allow all)
     blocked_domains: []  # Blocked recipient domains
     allowed_attachment_types: [".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".gif", ".json", ".csv", ".xml", ".zip"]
+  
+  # Rate limiting for email operations
   rate_limiting:
     max_emails_per_hour: 100  # Maximum emails per hour
     max_emails_per_day: 1000  # Maximum emails per day
+  
+  # Default email settings
   defaults:
     from_name: "SimaCode Assistant"  # Default sender name
     from_email: null  # Default sender email (will use username if not set)

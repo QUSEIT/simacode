@@ -249,6 +249,39 @@ class EmailSMTPConfig(BaseModel):
         return v
 
 
+class EmailIMAPConfig(BaseModel):
+    """IMAP server configuration model."""
+    
+    server: Optional[str] = Field(
+        default=None,
+        description="IMAP server address"
+    )
+    port: int = Field(
+        default=993,
+        ge=1,
+        le=65535,
+        description="IMAP server port"
+    )
+    use_ssl: bool = Field(
+        default=True,
+        description="Use SSL encryption for IMAP"
+    )
+    timeout: int = Field(
+        default=60,
+        ge=1,
+        le=300,
+        description="Connection timeout in seconds"
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="IMAP username"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="IMAP password"
+    )
+
+
 class EmailSecurityConfig(BaseModel):
     """Email security configuration model."""
     
@@ -320,6 +353,10 @@ class EmailConfig(BaseModel):
     smtp: EmailSMTPConfig = Field(
         default_factory=EmailSMTPConfig,
         description="SMTP server configuration"
+    )
+    imap: EmailIMAPConfig = Field(
+        default_factory=EmailIMAPConfig,
+        description="IMAP server configuration"
     )
     security: EmailSecurityConfig = Field(
         default_factory=EmailSecurityConfig,

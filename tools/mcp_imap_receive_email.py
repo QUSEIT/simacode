@@ -45,6 +45,7 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 
 # MCP Protocol imports (using our existing MCP implementation)
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
+from src.simacode.config import Config
 
 
 # Configure logging
@@ -64,6 +65,21 @@ class EmailConfig:
     password: str = ""
     use_ssl: bool = True
     timeout: int = 60
+    
+    @classmethod
+    def from_simacode_config(cls, config: Config) -> 'EmailConfig':
+        """Create EmailConfig from SimaCode Config object only."""
+        imap_config = config.email.imap
+        
+        # Only use values from the config file, no environment variable fallbacks
+        return cls(
+            server=imap_config.server or '',
+            port=imap_config.port,
+            username=imap_config.username or '',
+            password=imap_config.password or '',
+            use_ssl=imap_config.use_ssl,
+            timeout=imap_config.timeout
+        )
 
 
 @dataclass
@@ -691,7 +707,7 @@ class EmailIMAPMCPServer:
             if tool_name == "get_email":
                 result = await self._get_email(arguments)
             elif tool_name == "get_recent_emails":
-                result = await self._get_recent_emails_json(arguments)
+                result = await self._get_recent_emails(arguments)
             elif tool_name == "extract_attachments":
                 result = await self._extract_attachments(arguments)
             else:
@@ -882,7 +898,7 @@ class EmailIMAPMCPServer:
         finally:
             await self.email_client.disconnect()
     
-    async def _get_recent_emails_json(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _get_recent_emails(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """Get recent emails and return only the latest email in pure JSON format."""
         operation_start = datetime.now()
         try:
@@ -1297,104 +1313,78 @@ class EmailIMAPMCPServer:
             logger.info("Email IMAP MCP Server stopped")
 
 
-def load_env_config():
-    """Load environment configuration from .env.mcp file."""
-    env_file = Path(__file__).parent.parent / ".env.mcp"
-    
-    logger.info(f"[ENV_LOAD] Attempting to load environment from: {env_file}")
-    logger.info(f"[ENV_LOAD] File exists: {env_file.exists()}")
-    logger.info(f"[ENV_LOAD] DOTENV_AVAILABLE: {DOTENV_AVAILABLE}")
-    
-    if DOTENV_AVAILABLE and env_file.exists():
-        logger.info(f"[ENV_LOAD] Loading environment from: {env_file}")
-        # Load with override=True to ensure .env.mcp values take precedence
-        load_dotenv(env_file, override=True)
-        
-        # Log what was loaded for debugging
-        with open(env_file, 'r') as f:
-            content = f.read()
-            logger.debug(f"[ENV_LOAD] .env.mcp content:")
-            for line_num, line in enumerate(content.splitlines(), 1):
-                if line.strip() and not line.strip().startswith('#'):
-                    if 'PASSWORD' in line:
-                        # Hide password values in logs
-                        key_part = line.split('=')[0]
-                        logger.debug(f"[ENV_LOAD]   Line {line_num}: {key_part}=***")
-                    else:
-                        logger.debug(f"[ENV_LOAD]   Line {line_num}: {line}")
-        
-        logger.info(f"[ENV_LOAD] Successfully loaded environment from .env.mcp")
-    elif env_file.exists():
-        logger.warning(f"[ENV_LOAD] Found {env_file} but python-dotenv not available. Install with: pip install python-dotenv")
-    else:
-        logger.warning(f"[ENV_LOAD] No .env.mcp file found at: {env_file}")
+def load_simacode_config(config_path: Optional[Path] = None) -> Config:
+    """Load SimaCode configuration only from .simacode/config.yaml."""
+    try:
+        # Only load from .simacode/config.yaml
+        config = Config.load(config_path=config_path)
+        logger.info("[CONFIG_LOAD] Successfully loaded SimaCode configuration")
+        return config
+    except Exception as e:
+        logger.error(f"[CONFIG_LOAD] Failed to load SimaCode config from .simacode/config.yaml: {e}")
+        raise e
 
 
 async def main():
     """Main entry point."""
     import argparse
     
-    # Load environment configuration first
-    load_env_config()
-    
-    # Log environment variables for debugging
-    logger.info("[ENV_DEBUG] Environment variables after loading .env.mcp:")
-    logger.info(f"[ENV_DEBUG]   EMAIL_IMAP_SERVER: {os.getenv('EMAIL_IMAP_SERVER', 'NOT SET')}")
-    logger.info(f"[ENV_DEBUG]   EMAIL_IMAP_PORT_IMAP: {os.getenv('EMAIL_IMAP_PORT_IMAP', 'NOT SET (default: 993)')}")
-    logger.info(f"[ENV_DEBUG]   EMAIL_USERNAME: {os.getenv('EMAIL_USERNAME', 'NOT SET')}")
-    logger.info(f"[ENV_DEBUG]   EMAIL_PASSWORD: {'SET (' + str(len(os.getenv('EMAIL_PASSWORD', ''))) + ' chars)' if os.getenv('EMAIL_PASSWORD') else 'NOT SET'}")
-    logger.info(f"[ENV_DEBUG]   EMAIL_TIMEOUT: {os.getenv('EMAIL_TIMEOUT', 'NOT SET (default: 60)')}")
-    
-    # Validate critical IMAP configuration
-    missing_config = []
-    if not os.getenv('EMAIL_IMAP_SERVER'):
-        missing_config.append('EMAIL_IMAP_SERVER')
-    if not os.getenv('EMAIL_USERNAME'):
-        missing_config.append('EMAIL_USERNAME')
-    if not os.getenv('EMAIL_PASSWORD'):
-        missing_config.append('EMAIL_PASSWORD')
-        
-    if missing_config:
-        logger.error(f"[ENV_DEBUG] Missing critical IMAP configuration: {', '.join(missing_config)}")
-        logger.error(f"[ENV_DEBUG] Please check .env.mcp file and ensure these variables are set")
-    else:
-        logger.info(f"[ENV_DEBUG] All critical IMAP configuration variables are set")
-    
     parser = argparse.ArgumentParser(description="Email IMAP MCP Server (stdio)")
-    
-    # Email IMAP configuration (read from environment by default)
-    parser.add_argument("--server", default=os.getenv("EMAIL_IMAP_SERVER"), help="IMAP server hostname")
-    parser.add_argument("--imap-port", type=int, default=int(os.getenv("EMAIL_IMAP_PORT_IMAP", "993")), help="IMAP server port")
-    parser.add_argument("--username", default=os.getenv("EMAIL_USERNAME"), help="Email username")
-    parser.add_argument("--password", default=os.getenv("EMAIL_PASSWORD"), help="Email password")
-    parser.add_argument("--no-ssl", action="store_true", help="Disable SSL/TLS")
-    parser.add_argument("--timeout", type=int, default=int(os.getenv("EMAIL_TIMEOUT", "60")), help="Connection timeout (default: 60s for better compatibility with slower IMAP servers)")
+    parser.add_argument("--config", type=Path, help="Path to SimaCode config file (default: .simacode/config.yaml)")
+    parser.add_argument("--debug", action="store_true", help="Enable debug logging")
     
     args = parser.parse_args()
     
-    # Log parsed arguments for debugging
-    logger.info("[ARGS_DEBUG] Parsed arguments:")
-    logger.info(f"[ARGS_DEBUG]   server: {args.server}")
-    logger.info(f"[ARGS_DEBUG]   imap_port: {args.imap_port}")
-    logger.info(f"[ARGS_DEBUG]   username: {args.username}")
-    logger.info(f"[ARGS_DEBUG]   password: {'SET' if args.password else 'NOT SET'}")
-    logger.info(f"[ARGS_DEBUG]   no_ssl: {args.no_ssl}")
-    logger.info(f"[ARGS_DEBUG]   timeout: {args.timeout}")
+    # Set log level
+    if args.debug:
+        logging.getLogger().setLevel(logging.DEBUG)
+        logger.debug("Debug logging enabled")
     
-    # Validate required email parameters
-    if not args.server or not args.username or not args.password:
-        logger.warning("Missing email configuration - some functionality will be limited")
-        logger.info("Set EMAIL_IMAP_SERVER, EMAIL_USERNAME, EMAIL_PASSWORD in .env.mcp for full functionality")
-    
-    # Create email configuration
-    email_config = EmailConfig(
-        server=args.server or "",
-        port=args.imap_port,
-        username=args.username or "",
-        password=args.password or "",
-        use_ssl=not args.no_ssl,
-        timeout=args.timeout
-    )
+    # Load SimaCode configuration
+    logger.info("[CONFIG] Loading SimaCode configuration...")
+    try:
+        simacode_config = load_simacode_config(config_path=args.config)
+        logger.info("[CONFIG] SimaCode configuration loaded successfully")
+        
+        # Create IMAP configuration from SimaCode config
+        email_config = EmailConfig.from_simacode_config(simacode_config)
+        
+        # Log configuration status
+        logger.info("[IMAP_CONFIG] IMAP Configuration loaded from SimaCode:")
+        logger.info(f"[IMAP_CONFIG]   Server: {email_config.server}")
+        logger.info(f"[IMAP_CONFIG]   Port: {email_config.port}")
+        logger.info(f"[IMAP_CONFIG]   Username: {email_config.username}")
+        logger.info(f"[IMAP_CONFIG]   Password: {'SET' if email_config.password else 'NOT SET'}")
+        logger.info(f"[IMAP_CONFIG]   Use SSL: {email_config.use_ssl}")
+        logger.info(f"[IMAP_CONFIG]   Timeout: {email_config.timeout}s")
+        
+        # Validate critical IMAP configuration
+        missing_config = []
+        if not email_config.server:
+            missing_config.append('IMAP server')
+        if not email_config.username:
+            missing_config.append('IMAP username')
+        if not email_config.password:
+            missing_config.append('IMAP password')
+        
+        if missing_config:
+            logger.error(f"[CONFIG] Missing critical IMAP configuration: {', '.join(missing_config)}")
+            logger.error(f"[CONFIG] Please check your .simacode/config.yaml file or set environment variables:")
+            logger.error(f"[CONFIG]   EMAIL_IMAP_SERVER, EMAIL_USERNAME, EMAIL_PASSWORD")
+            logger.info(f"[CONFIG] Example config.yaml entry:")
+            logger.info(f"[CONFIG]   email:")
+            logger.info(f"[CONFIG]     imap:")
+            logger.info(f"[CONFIG]       server: imap.gmail.com")
+            logger.info(f"[CONFIG]       port: 993")
+            logger.info(f"[CONFIG]       username: your-email@gmail.com")
+            logger.info(f"[CONFIG]       password: your-app-password")
+        else:
+            logger.info(f"[CONFIG] All critical IMAP configuration is set")
+        
+    except Exception as e:
+        logger.error(f"[CONFIG] Failed to load configuration: {e}")
+        logger.info("[CONFIG] Using minimal fallback configuration")
+        email_config = EmailConfig()
     
     # Create and start server
     server = EmailIMAPMCPServer(email_config=email_config)
