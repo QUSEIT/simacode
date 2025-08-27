@@ -75,7 +75,7 @@ self.PLANNING_SYSTEM_PROMPT = """
 
 **缺陷：**
 - 描述没有明确适用场景和边界
-- AI可能认为任何自然语言指令都适用于UI自动化
+- AI可能认为任何自然语言指令都适用于自动化
 - 缺乏使用条件和限制说明
 
 ### 问题执行链条
@@ -235,7 +235,7 @@ self.PLANNING_SYSTEM_PROMPT = """
 
 - `src/simacode/react/engine.py` - ReAct引擎主逻辑
 - `src/simacode/react/planner.py` - 任务规划器
-- `tools/mcp_ui_tars_server.py` - UI自动化工具服务器
+- `tools/mcp_browser_agent_tars_automation.py` - 浏览器自动化工具服务器
 - `config/mcp_servers.yaml` - MCP服务器配置
 
 ---

@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-UI-TARS-MCP Server
+Agent-TARS-MCP Server
 
 A MCP server that runs on a third-party server and communicates with SimaCode 
 via streamable HTTP protocol. It provides UI automation capabilities by calling
-UI-TARS with natural language instructions.
+Agent-TARS with natural language instructions.
 
 Features:
 - HTTP-based MCP server
-- UI-TARS command execution with full parameters
+- Agent-TARS command execution with full parameters
 - Natural language UI automation
 - Website opening and auto-verification
 """
@@ -56,8 +56,8 @@ logger = logging.getLogger(__name__)
 
 
 @dataclass
-class UITARSResult:
-    """Result from UI-TARS command execution."""
+class AgentTARSResult:
+    """Result from Agent-TARS command execution."""
     success: bool
     output: str
     error: Optional[str] = None
@@ -66,42 +66,42 @@ class UITARSResult:
 
 
 @dataclass
-class UITARSConfig:
-    """Configuration for UI-TARS execution."""
+class AgentTARSConfig:
+    """Configuration for Agent-TARS execution."""
     provider: str = "volcengine"
     model: str = "doubao-1-5-thinking-vision-pro-250428"
     api_key: str = ""
     command: str = "agent-tars"
 
 
-class UITARSExecutor:
+class AgentTARSExecutor:
     """
-    Executor for UI-TARS commands.
+    Executor for Agent-TARS commands.
     
-    This class handles the execution of UI-TARS commands with full parameter specification.
+    This class handles the execution of Agent-TARS commands with full parameter specification.
     Command format: agent-tars run --provider volcengine --model doubao-1-5-thinking-vision-pro-250428 --apiKey {apiKey} --input "指令"
     """
     
-    def __init__(self, config: UITARSConfig):
+    def __init__(self, config: AgentTARSConfig):
         """
-        Initialize UI-TARS executor.
+        Initialize Agent-TARS executor.
         
         Args:
-            config: UI-TARS configuration containing provider, model, API key, etc.
+            config: Agent-TARS configuration containing provider, model, API key, etc.
         """
         self.config = config
         self.execution_timeout = 300  # 5 minutes default timeout
         
-    async def execute_instruction(self, instruction: str, timeout: Optional[float] = None) -> UITARSResult:
+    async def execute_instruction(self, instruction: str, timeout: Optional[float] = None) -> AgentTARSResult:
         """
-        Execute a UI-TARS instruction.
+        Execute an Agent-TARS instruction.
         
         Args:
-            instruction: Natural language instruction for UI-TARS
+            instruction: Natural language instruction for Agent-TARS
             timeout: Optional timeout in seconds
             
         Returns:
-            UITARSResult: Execution result
+            AgentTARSResult: Execution result
         """
         start_time = asyncio.get_event_loop().time()
         
@@ -124,7 +124,7 @@ class UITARSExecutor:
             "--input", f'"{instruction}"'
         ])
         
-        logger.info(f"Executing UI-TARS command: {command_str}")
+        logger.info(f"Executing Agent-TARS command: {command_str}")
         
         try:
             # Execute command with timeout
@@ -150,7 +150,7 @@ class UITARSExecutor:
             
             success = process.returncode == 0
             
-            result = UITARSResult(
+            result = AgentTARSResult(
                 success=success,
                 output=output,
                 error=error_output if not success else None,
@@ -158,15 +158,15 @@ class UITARSExecutor:
                 command=command_str
             )
             
-            logger.info(f"UI-TARS execution completed in {execution_time:.2f}s, success: {success}")
+            logger.info(f"Agent-TARS execution completed in {execution_time:.2f}s, success: {success}")
             
             return result
             
         except asyncio.TimeoutError:
             execution_time = asyncio.get_event_loop().time() - start_time
-            logger.error(f"UI-TARS command timed out after {timeout_value}s")
+            logger.error(f"Agent-TARS command timed out after {timeout_value}s")
             
-            return UITARSResult(
+            return AgentTARSResult(
                 success=False,
                 output="",
                 error=f"Command timed out after {timeout_value} seconds",
@@ -176,9 +176,9 @@ class UITARSExecutor:
             
         except Exception as e:
             execution_time = asyncio.get_event_loop().time() - start_time
-            logger.error(f"UI-TARS command failed: {str(e)}")
+            logger.error(f"Agent-TARS command failed: {str(e)}")
             
-            return UITARSResult(
+            return AgentTARSResult(
                 success=False,
                 output="",
                 error=str(e),
@@ -187,57 +187,56 @@ class UITARSExecutor:
             )
 
 
-class UITARSMCPServer:
+class AgentTARSMCPServer:
     """
-    HTTP-based MCP server for UI-TARS integration.
+    HTTP-based MCP server for Agent-TARS integration.
     
     This server provides MCP protocol compliance over HTTP and integrates
-    with UI-TARS for UI automation tasks.
+    with Agent-TARS for UI automation tasks.
     """
     
-    def __init__(self, host: str = "0.0.0.0", port: int = 8080, ui_tars_config: Optional[UITARSConfig] = None):
+    def __init__(self, host: str = "0.0.0.0", port: int = 8080, agent_tars_config: Optional[AgentTARSConfig] = None):
         """
-        Initialize UI-TARS MCP server.
+        Initialize Agent-TARS MCP server.
         
         Args:
             host: Server host address
             port: Server port number
-            ui_tars_config: UI-TARS configuration
+            agent_tars_config: Agent-TARS configuration
         """
         self.host = host
         self.port = port
         self.app = web.Application()
         
-        # Initialize UI-TARS executor with configuration
-        self.ui_tars_config = ui_tars_config or UITARSConfig()
-        self.ui_tars = UITARSExecutor(self.ui_tars_config)
+        # Initialize Agent-TARS executor with configuration
+        self.agent_tars_config = agent_tars_config or AgentTARSConfig()
+        self.agent_tars = AgentTARSExecutor(self.agent_tars_config)
         
         # Setup routes
         self._setup_routes()
         
         # MCP server info
         self.server_info = {
-            "name": "ui-tars-mcp-server",
+            "name": "agent-tars-mcp-server",
             "version": "1.0.0",
-            "description": "UI-TARS MCP Server for UI Automation"
+            "description": "Agent-TARS MCP Server for UI Automation"
         }
         
         # Available tools
         self.tools = {
-            "open_website_with_verification": {
-                "name": "open_website_with_verification",
-                "description": "Open a website and automatically handle verification processes",
+            "browser_automation": {
+                "name": "browser_automation",
+                "description": "Execute browser automation tasks with natural language instructions",
                 "input_schema": {
                     "type": "object",
                     "properties": {
+                        "instructions": {
+                            "type": "string",
+                            "description": "Natural language instructions for browser automation tasks"
+                        },
                         "url": {
                             "type": "string",
-                            "description": "The website URL to open"
-                        },
-                        "verification_instructions": {
-                            "type": "string",
-                            "description": "Natural language instructions for handling verification (e.g., 'complete captcha', 'click verify button')",
-                            "default": "automatically handle any verification challenges"
+                            "description": "Optional website URL to navigate to first"
                         },
                         "timeout": {
                             "type": "number",
@@ -245,12 +244,12 @@ class UITARSMCPServer:
                             "default": 300
                         }
                     },
-                    "required": ["url"]
+                    "required": ["instructions"]
                 }
             }
         }
         
-        logger.info(f"UI-TARS MCP Server initialized on {host}:{port}")
+        logger.info(f"Agent-TARS MCP Server initialized on {host}:{port}")
     
     def _setup_routes(self):
         """Setup HTTP routes for MCP protocol."""
@@ -263,10 +262,10 @@ class UITARSMCPServer:
         health_data = {
             "status": "healthy",
             "server": self.server_info,
-            "ui_tars_config": {
-                "provider": self.ui_tars_config.provider,
-                "model": self.ui_tars_config.model,
-                "api_key_configured": bool(self.ui_tars_config.api_key)
+            "agent_tars_config": {
+                "provider": self.agent_tars_config.provider,
+                "model": self.agent_tars_config.model,
+                "api_key_configured": bool(self.agent_tars_config.api_key)
             },
             "timestamp": datetime.now().isoformat()
         }
@@ -439,8 +438,8 @@ class UITARSMCPServer:
                 )
             
             # Execute the appropriate tool
-            if tool_name == "open_website_with_verification":
-                result = await self._open_website_with_verification(arguments)
+            if tool_name == "browser_automation":
+                result = await self._browser_automation(arguments)
             else:
                 raise ValueError(f"Unknown tool: {tool_name}")
             
@@ -468,39 +467,42 @@ class UITARSMCPServer:
                 }
             )
     
-    async def _open_website_with_verification(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
+    async def _browser_automation(self, arguments: Dict[str, Any]) -> Dict[str, Any]:
         """
-        Open a website and automatically handle verification processes.
+        Execute browser automation tasks with natural language instructions.
         
         Args:
-            arguments: Tool arguments containing url, verification_instructions, timeout
+            arguments: Tool arguments containing instructions, url (optional), timeout
             
         Returns:
             Dict containing execution results
         """
+        instructions = arguments.get("instructions")
         url = arguments.get("url")
-        verification_instructions = arguments.get("verification_instructions", "automatically handle any verification challenges")
         timeout = arguments.get("timeout", 300)
         
-        if not url:
+        if not instructions:
             return {
                 "success": False,
-                "error": "URL parameter is required",
+                "error": "Instructions parameter is required",
                 "timestamp": datetime.now().isoformat()
             }
         
-        # Construct UI-TARS instruction
-        instruction = f"Open the website {url} and {verification_instructions}. Wait for the page to fully load and handle any security checks, captchas, or verification dialogs that appear."
+        # Construct Agent-TARS instruction
+        if url:
+            instruction = f"Navigate to {url} and then {instructions}"
+            logger.info(f"Executing browser automation on {url}: {instructions}")
+        else:
+            instruction = instructions
+            logger.info(f"Executing browser automation: {instructions}")
         
-        logger.info(f"Opening website with verification: {url}")
-        
-        # Execute UI-TARS command
-        result = await self.ui_tars.execute_instruction(instruction, timeout)
+        # Execute Agent-TARS command
+        result = await self.agent_tars.execute_instruction(instruction, timeout)
         
         return {
             "success": result.success,
+            "instructions": instructions,
             "url": url,
-            "verification_instructions": verification_instructions,
             "output": result.output,
             "error": result.error,
             "execution_time": result.execution_time,
@@ -511,13 +513,13 @@ class UITARSMCPServer:
     
     async def start_server(self):
         """Start the HTTP server."""
-        logger.info(f"Starting UI-TARS MCP Server on {self.host}:{self.port}")
+        logger.info(f"Starting Agent-TARS MCP Server on {self.host}:{self.port}")
         
-        # Log UI-TARS configuration status
-        if self.ui_tars_config.api_key:
-            logger.info(f"UI-TARS configured: {self.ui_tars_config.provider} / {self.ui_tars_config.model}")
+        # Log Agent-TARS configuration status
+        if self.agent_tars_config.api_key:
+            logger.info(f"Agent-TARS configured: {self.agent_tars_config.provider} / {self.agent_tars_config.model}")
         else:
-            logger.warning("UI-TARS API key not configured - functionality will be limited")
+            logger.warning("Agent-TARS API key not configured - functionality will be limited")
         
         runner = web.AppRunner(self.app)
         await runner.setup()
@@ -525,7 +527,7 @@ class UITARSMCPServer:
         site = web.TCPSite(runner, self.host, self.port)
         await site.start()
         
-        logger.info(f"UI-TARS MCP Server started successfully")
+        logger.info(f"Agent-TARS MCP Server started successfully")
         logger.info(f"Health check: http://{self.host}:{self.port}/health")
         logger.info(f"MCP HTTP endpoint: http://{self.host}:{self.port}/mcp")
         logger.info(f"MCP WebSocket endpoint: ws://{self.host}:{self.port}/mcp/ws")
@@ -534,11 +536,11 @@ class UITARSMCPServer:
     
     async def stop_server(self, runner):
         """Stop the HTTP server."""
-        logger.info("Shutting down UI-TARS MCP Server...")
+        logger.info("Shutting down Agent-TARS MCP Server...")
         
         # Stop HTTP server
         await runner.cleanup()
-        logger.info("UI-TARS MCP Server stopped")
+        logger.info("Agent-TARS MCP Server stopped")
 
 
 def load_env_config():
@@ -561,15 +563,15 @@ async def main():
     # Load environment configuration first
     load_env_config()
     
-    parser = argparse.ArgumentParser(description="UI-TARS MCP Server")
+    parser = argparse.ArgumentParser(description="Agent-TARS MCP Server")
     parser.add_argument("--host", default=os.getenv("UI_TARS_HOST", "0.0.0.0"), help="Server host address")
     parser.add_argument("--port", type=int, default=int(os.getenv("UI_TARS_PORT", "8080")), help="Server port number")
-    parser.add_argument("--tars-command", default=os.getenv("TARS_COMMAND", "agent-tars"), help="UI-TARS base command (default: agent-tars)")
+    parser.add_argument("--tars-command", default=os.getenv("TARS_COMMAND", "agent-tars"), help="Agent-TARS base command (default: agent-tars)")
     
-    # UI-TARS configuration (read from environment by default)
-    parser.add_argument("--provider", default=os.getenv("AGENT_PROVIDER", "volcengine"), help="UI-TARS provider (default: volcengine)")
-    parser.add_argument("--model", default=os.getenv("AGENT_MODEL", "doubao-1-5-thinking-vision-pro-250428"), help="UI-TARS model")
-    parser.add_argument("--api-key", default=os.getenv("AGENT_API_KEY"), help="UI-TARS API key (required for functionality)")
+    # Agent-TARS configuration (read from environment by default)
+    parser.add_argument("--provider", default=os.getenv("AGENT_PROVIDER", "volcengine"), help="Agent-TARS provider (default: volcengine)")
+    parser.add_argument("--model", default=os.getenv("AGENT_MODEL", "doubao-1-5-thinking-vision-pro-250428"), help="Agent-TARS model")
+    parser.add_argument("--api-key", default=os.getenv("AGENT_API_KEY"), help="Agent-TARS API key (required for functionality)")
     
     args = parser.parse_args()
     
@@ -578,8 +580,8 @@ async def main():
     model = args.model
     api_key = args.api_key
     
-    # Create UI-TARS configuration
-    ui_tars_config = UITARSConfig(
+    # Create Agent-TARS configuration
+    agent_tars_config = AgentTARSConfig(
         provider=provider,
         model=model,
         api_key=api_key or "",
@@ -587,11 +589,11 @@ async def main():
     )
     
     if not api_key:
-        logger.warning("No API key provided - UI-TARS functionality will be limited")
+        logger.warning("No API key provided - Agent-TARS functionality will be limited")
         logger.info("Use --api-key to provide API key for full functionality")
     
     # Create and start server
-    server = UITARSMCPServer(host=args.host, port=args.port, ui_tars_config=ui_tars_config)
+    server = AgentTARSMCPServer(host=args.host, port=args.port, agent_tars_config=agent_tars_config)
     
     runner = await server.start_server()
     
