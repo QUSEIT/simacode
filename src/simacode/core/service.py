@@ -73,12 +73,14 @@ class ReActRequest:
         task: str,
         session_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        execution_mode: Optional[str] = None
+        execution_mode: Optional[str] = None,
+        skip_confirmation: bool = False
     ):
         self.task = task
         self.session_id = session_id
         self.context = context or {}
         self.execution_mode = execution_mode
+        self.skip_confirmation = skip_confirmation
 
 
 class ReActResponse:
@@ -429,7 +431,8 @@ class SimaCodeService:
             async for result in self.react_service.process_user_request(
                 request.task,
                 session_id=request.session_id,  # Pass through session_id for continuity
-                context=request.context
+                context=request.context,
+                skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
             ):
                 # Pass through the result with session info
                 if isinstance(result, dict):
@@ -495,7 +498,8 @@ class SimaCodeService:
                 async for result in self.react_service.process_user_request(
                     request.task,
                     session_id=request.session_id,  # Pass through session_id for continuity
-                    context=request.context
+                    context=request.context,
+                    skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
                 ):
                     # Handle different result formats from ReActService
                     if isinstance(result, dict):

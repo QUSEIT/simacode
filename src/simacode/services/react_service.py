@@ -120,7 +120,8 @@ class ReActService:
         self, 
         user_input: str, 
         session_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        skip_confirmation: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Process a user request through the ReAct engine.
@@ -168,6 +169,10 @@ class ReActService:
             }
             if context:
                 service_context.update(context)
+            
+            # Set skip_confirmation in session metadata if provided
+            if skip_confirmation:
+                session.metadata["skip_confirmation"] = True
             
             # Process through ReAct engine with existing session
             async for update in self.react_engine.process_user_input(user_input, service_context, session):

@@ -1198,6 +1198,11 @@ class ReActEngine:
             logger.debug(f"Session {session.id} is in state {session.state.value}, skipping confirmation")
             return False
         
+        # 🆕 检查是否强制跳过确认 (programmatic usage)
+        if session.metadata.get("skip_confirmation", False):
+            logger.debug(f"Session {session.id} has skip_confirmation flag set, skipping confirmation")
+            return False
+        
         # 检查配置
         if not self.config or not hasattr(self.config, 'react'):
             return False
