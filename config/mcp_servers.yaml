@@ -105,7 +105,7 @@ servers:
   # Note: Server must be started manually using: python tools/mcp_browser_agent_tars_automation.py
   agent_tars:
     name: agent_tars
-    enabled: true  # WebSocket compatibility fixed
+    enabled: false  # WebSocket compatibility fixed
     type: websocket
     url: "${UI_TARS_MCP_URL:-ws://localhost:10001/mcp/ws}"
     headers:
@@ -181,7 +181,7 @@ servers:
   # Configuration is now loaded directly from .simacode/config.yaml
   email_imap:
     name: email_imap
-    enabled: true  # Enable for email automation features
+    enabled: false  # Enable for email automation features
     type: stdio
     command: ["python", "tools/mcp_imap_receive_email.py"]
     args: ["--config", ".simacode/config.yaml"]
@@ -203,7 +203,7 @@ servers:
   # Email SMTP MCP Server (stdio) - Email sending via SMTP with comprehensive validation
   email_smtp:
     name: email_smtp
-    enabled: true  # Enable for email sending automation features
+    enabled: false  # Enable for email sending automation features
     type: stdio
     command: ["python", "tools/mcp_smtp_send_email.py"]
     args: []
