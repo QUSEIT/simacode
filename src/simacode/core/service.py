@@ -16,6 +16,7 @@ from ..services.react_service import ReActService
 from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
+from ..tools.base import execute_tool
 from .ticmaker_detector import TICMakerDetector
 
 logger = logging.getLogger(__name__)
@@ -319,19 +320,13 @@ class SimaCodeService:
                 operation=operation
             )
             
-            # 调用TICMaker工具
+            # 直接调用TICMaker工具（使用全局execute_tool函数）
             logger.info(f"🎯 调用TICMaker工具: operation={operation}, source={source}")
             
-            # 获取工具注册表并调用TICMaker工具
-            if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
-                tool_registry = self.react_service.react_engine.tool_registry
-                
-                # 调用create_html_page工具
-                async for result in tool_registry.execute_tool("ticmaker:create_html_page", tool_input):
-                    logger.info(f"🎯 TICMaker工具执行结果: {result.content[:200]}...")
-                    # 可以根据需要处理工具执行结果
-            else:
-                logger.warning("ReAct引擎不可用，无法调用TICMaker工具")
+            # 调用create_html_page工具
+            async for result in execute_tool("ticmaker:create_html_page", tool_input):
+                logger.info(f"🎯 TICMaker工具执行结果: {result.content[:200]}...")
+                # 可以根据需要处理工具执行结果
             
         except Exception as e:
             logger.error(f"TICMaker工具调用失败: {e}")

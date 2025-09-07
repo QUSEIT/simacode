@@ -7,12 +7,15 @@ protocol handling, and communication patterns.
 
 import asyncio
 import json
+import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
 from typing import Any, Dict, List, Optional, Union
 
 from .exceptions import MCPProtocolError
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass
@@ -209,6 +212,7 @@ class MCPProtocol:
         self._pending_requests: Dict[str, asyncio.Future] = {}
         self._receive_task: Optional[asyncio.Task] = None
         self._protocol_lock = asyncio.Lock()
+        self._loop: Optional[asyncio.AbstractEventLoop] = None
         
     async def send_message(self, message: MCPMessage) -> None:
         """Send MCP message through transport."""
@@ -242,15 +246,28 @@ class MCPProtocol:
             MCPProtocolError: If method call fails
         """
         async with self._protocol_lock:
+            # Initialize loop reference on first call
+            current_loop = asyncio.get_running_loop()
+            if self._loop is None:
+                self._loop = current_loop
+            elif self._loop != current_loop:
+                # Event loop has changed, reset everything
+                logger.warning("Event loop changed, reinitializing MCP protocol")
+                self._pending_requests.clear()
+                if self._receive_task and not self._receive_task.done():
+                    self._receive_task.cancel()
+                self._receive_task = None
+                self._loop = current_loop
+                
             # Start message receiver if not already running
             if self._receive_task is None or self._receive_task.done():
-                self._receive_task = asyncio.create_task(self._message_receiver_loop())
+                self._receive_task = self._loop.create_task(self._message_receiver_loop())
             
             # Generate unique request ID
             request_id = self._generate_request_id()
             
-            # Create future for response
-            future = asyncio.Future()
+            # Create future for response (use the protocol's loop)
+            future = self._loop.create_future()
             self._pending_requests[request_id] = future
             
             try:
