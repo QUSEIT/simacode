@@ -229,6 +229,32 @@ servers:
       max_execution_time: 90
       network_access: true  # Required for SMTP connections
 
+  # TICMaker MCP Server - HTML页面创建和修改工具
+  ticmaker:
+    name: ticmaker
+    enabled: true  # Enable for TICMaker HTML generation features
+    type: stdio
+    command: ["python", "tools/mcp_ticmaker_server.py"]
+    args: []
+    environment:
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+    working_directory: null
+    timeout: 90  # HTML generation can take some time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "create"    # Allow HTML page creation
+        - "modify"    # Allow HTML page modification  
+        - "read"      # Allow reading existing files
+        - "write"     # Allow writing HTML files
+        - "list"      # Allow listing HTML files
+        - "execute"   # Allow general execution operations
+      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 60
+      network_access: false  # HTML generation doesn't need network access
+
 # Configuration Notes:
 #
 # 1. Environment Variables:

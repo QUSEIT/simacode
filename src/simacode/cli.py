@@ -159,8 +159,19 @@ def init(ctx: click.Context) -> None:
     type=str,
     help="Continue existing session",
 )
+@click.option(
+    "--ticmaker",
+    "-t",
+    is_flag=True,
+    help="🎯 Enable TICMaker processing mode for HTML page creation/modification",
+)
+@click.option(
+    "--scope",
+    type=str,
+    help="🎯 Set context scope (e.g., 'ticmaker')",
+)
 @click.pass_context
-def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str]) -> None:
+def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str], ticmaker: bool, scope: Optional[str]) -> None:
     """Start a chat session with the AI assistant."""
     config_obj = ctx.obj["config"]
     
@@ -168,7 +179,21 @@ def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: b
         console.print("[yellow]No message provided. Use --interactive for interactive mode.[/yellow]")
         return
     
-    asyncio.run(_run_chat(ctx, message, interactive, react, session_id))
+    # 🎯 构建context信息支持TICMaker
+    context = {}
+    if ticmaker or scope == "ticmaker":
+        context["scope"] = "ticmaker"
+        context["ticmaker_processing"] = True
+        context["cli_mode"] = True
+        context["trigger_ticmaker_tool"] = True
+        # 强制使用ReAct模式以便调用工具
+        react = True
+        console.print("[bold green]🎯 TICMaker模式已启用[/bold green]")
+    
+    if scope:
+        context["scope"] = scope
+    
+    asyncio.run(_run_chat(ctx, message, interactive, react, session_id, context))
 
 
 async def _get_or_create_service(config_obj) -> SimaCodeService:
@@ -181,8 +206,8 @@ async def _get_or_create_service(config_obj) -> SimaCodeService:
             _global_simacode_service = SimaCodeService(config_obj, api_mode=False)
         return _global_simacode_service
 
-async def _run_chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str]) -> None:
-    """Run the chat functionality using unified SimaCodeService."""
+async def _run_chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str], context: dict = None) -> None:
+    """Run the chat functionality using unified SimaCodeService with context support."""
     config_obj = ctx.obj["config"]
     
     try:
@@ -191,10 +216,10 @@ async def _run_chat(ctx: click.Context, message: Optional[str], interactive: boo
         
         if react:
             # Use ReAct mode for intelligent task planning and execution
-            await _handle_react_mode(simacode_service, message, interactive, session_id)
+            await _handle_react_mode(simacode_service, message, interactive, session_id, context)
         else:
             # Use traditional conversation mode
-            await _handle_chat_mode(simacode_service, message, interactive, session_id)
+            await _handle_chat_mode(simacode_service, message, interactive, session_id, context)
             
     except Exception as e:
         console.print(f"[red]Error: {e}[/red]")
@@ -202,7 +227,7 @@ async def _run_chat(ctx: click.Context, message: Optional[str], interactive: boo
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
 
-async def _handle_react_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str]) -> None:
+async def _handle_react_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str], context: dict = None) -> None:
     """Handle ReAct mode for intelligent task planning and execution."""
     console.print("[bold green]🤖 ReAct Engine Activated[/bold green]")
     console.print("[dim]Intelligent task planning and execution enabled[/dim]\n")
@@ -210,7 +235,7 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
     try:
         if not interactive and message:
             # Single message mode with ReAct - use streaming for better UX
-            request = ReActRequest(task=message, session_id=session_id)
+            request = ReActRequest(task=message, session_id=session_id, context=context or {})
             
             console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {message}\n")
             
@@ -262,7 +287,7 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                         break
                     
                     if user_input.strip():
-                        request = ReActRequest(task=user_input, session_id=session_id)
+                        request = ReActRequest(task=user_input, session_id=session_id, context=context or {})
                         
                         console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {user_input}\n")
                         
@@ -347,15 +372,22 @@ async def _handle_confirmation_request(update: dict, simacode_service: SimaCodeS
     # 这里只是显示头部信息，具体的用户交互会在engine的CLI模式分支中处理
 
 
-async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str]) -> None:
+async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str], context: dict = None) -> None:
     """Handle traditional chat mode."""
     console.print("[bold green]💬 Chat Mode Activated[/bold green]")
     console.print("[dim]Direct AI conversation enabled[/dim]\n")
     
     try:
         if not interactive and message:
-            # Single message mode - force pure chat mode (no ReAct)
-            request = ChatRequest(message=message, session_id=session_id, force_mode="chat")
+            # 🎯 根据context决定是否强制ReAct模式
+            force_mode = None if (context and context.get("trigger_ticmaker_tool")) else "chat"
+            
+            request = ChatRequest(
+                message=message, 
+                session_id=session_id, 
+                force_mode=force_mode,
+                context=context or {}  # 🎯 传递context
+            )
             response = await simacode_service.process_chat(request)
             
             if response.error:
@@ -373,8 +405,15 @@ async def _handle_chat_mode(simacode_service: SimaCodeService, message: Optional
                         break
                     
                     if user_input.strip():
-                        # Interactive mode - force pure chat mode (no ReAct)
-                        request = ChatRequest(message=user_input, session_id=session_id, force_mode="chat")
+                        # 🎯 根据context决定是否强制ReAct模式
+                        force_mode = None if (context and context.get("trigger_ticmaker_tool")) else "chat"
+                        
+                        request = ChatRequest(
+                            message=user_input, 
+                            session_id=session_id, 
+                            force_mode=force_mode,
+                            context=context or {}  # 🎯 传递context
+                        )
                         response = await simacode_service.process_chat(request)
                         session_id = response.session_id  # Update session_id
                         

@@ -16,6 +16,7 @@ from ..services.react_service import ReActService
 from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
+from .ticmaker_detector import TICMakerDetector
 
 logger = logging.getLogger(__name__)
 
@@ -186,12 +187,11 @@ class SimaCodeService:
         session_id: Optional[str] = None
     ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """
-        Enhanced chat processing with ReAct capabilities.
+        Enhanced chat processing with TICMaker detection and ReAct capabilities.
         
-        This method now automatically detects if the input requires task execution
-        and routes it appropriately:
-        - Conversational inputs: Traditional chat processing
-        - Task inputs: ReAct engine processing with tool execution
+        This method detects TICMaker requests and routes them appropriately:
+        - TICMaker requests: Force ReAct engine with TICMaker tool integration
+        - Regular requests: Normal processing flow
         
         Args:
             request: Chat request or message string
@@ -209,15 +209,28 @@ class SimaCodeService:
             )
         
         try:
-            logger.info(f"Processing enhanced chat message for session: {request.session_id}")
+            logger.info(f"Processing chat message for session: {request.session_id}")
             
             # Use session_id or generate new one
             if not request.session_id:
                 import uuid
                 request.session_id = str(uuid.uuid4())
             
-            # 🆕 统一使用 ReAct 引擎处理所有请求
-            # 检查是否强制指定纯对话模式
+            # 🎯 TICMaker检测 - 穿透对话检测机制的关键
+            is_ticmaker, reason, enhanced_context = TICMakerDetector.detect_ticmaker_request(
+                request.message, request.context
+            )
+            
+            if is_ticmaker:
+                logger.info(f"🎯 TICMaker请求检测成功: {reason}")
+                # 更新请求的context为增强后的context
+                request.context = enhanced_context
+                # TICMaker请求强制使用ReAct引擎处理（除非显式指定force_mode="chat"）
+                if request.force_mode != "chat":
+                    logger.info("TICMaker请求将使用ReAct引擎处理")
+                    return await self._process_ticmaker_with_react(request, reason)
+            
+            # 原有的处理逻辑
             if request.force_mode == "chat":
                 # 强制纯对话模式：使用传统 chat 处理
                 logger.debug("Force chat mode enabled - using traditional conversational processing")
@@ -229,12 +242,101 @@ class SimaCodeService:
                 return await self._process_with_react_engine(request)
                 
         except Exception as e:
-            logger.error(f"Error processing enhanced chat: {str(e)}")
+            logger.error(f"Error processing chat: {str(e)}")
             return ChatResponse(
-                content="",
+                content="抱歉，处理您的请求时出现了问题。",
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )
+    
+    async def _process_ticmaker_with_react(
+        self, 
+        request: ChatRequest, 
+        trigger_reason: str
+    ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
+        """
+        专门处理TICMaker请求的方法
+        
+        该方法将先调用TICMaker工具进行预处理，然后继续ReAct处理
+        确保TICMaker相关的HTML创建和修改功能正确执行
+        
+        Args:
+            request: TICMaker聊天请求
+            trigger_reason: 触发TICMaker的原因
+            
+        Returns:
+            ChatResponse或AsyncGenerator
+        """
+        try:
+            logger.info(f"🎯 开始处理TICMaker请求，触发原因: {trigger_reason}")
+            
+            # 先调用TICMaker工具进行预处理
+            await self._call_ticmaker_tool(request, trigger_reason)
+            
+            # 然后继续使用ReAct引擎处理（让ReAct引擎协调其他可能的工具调用）
+            logger.info("TICMaker工具调用完成，继续ReAct引擎处理...")
+            return await self._process_with_react_engine(request)
+            
+        except Exception as e:
+            logger.error(f"TICMaker processing failed: {e}")
+            # 失败时回退到正常ReAct处理，确保系统稳定性
+            logger.info("TICMaker处理失败，回退到正常ReAct处理")
+            return await self._process_with_react_engine(request)
+    
+    async def _call_ticmaker_tool(
+        self, 
+        request: ChatRequest, 
+        trigger_reason: str
+    ) -> None:
+        """
+        调用TICMaker工具进行HTML页面处理
+        
+        Args:
+            request: 聊天请求
+            trigger_reason: 触发原因
+        """
+        try:
+            # 确保ReAct服务已启动（因为需要使用其工具注册表）
+            await self._ensure_react_service_started()
+            
+            # 确定请求来源
+            source = "API" if getattr(request, '_from_api', False) else "CLI"
+            if request.context and request.context.get("cli_mode"):
+                source = "CLI"
+            
+            # 确定操作类型
+            operation = "modify" if TICMakerDetector.is_modification_request(
+                request.message, request.context
+            ) else "create"
+            
+            # 准备工具输入
+            tool_input = TICMakerDetector.prepare_ticmaker_tool_input(
+                message=request.message,
+                context=request.context or {},
+                session_id=request.session_id,
+                source=source,
+                trigger_reason=trigger_reason,
+                operation=operation
+            )
+            
+            # 调用TICMaker工具
+            logger.info(f"🎯 调用TICMaker工具: operation={operation}, source={source}")
+            
+            # 获取工具注册表并调用TICMaker工具
+            if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
+                tool_registry = self.react_service.react_engine.tool_registry
+                
+                # 调用create_html_page工具
+                async for result in tool_registry.execute_tool("ticmaker:create_html_page", tool_input):
+                    logger.info(f"🎯 TICMaker工具执行结果: {result.content[:200]}...")
+                    # 可以根据需要处理工具执行结果
+            else:
+                logger.warning("ReAct引擎不可用，无法调用TICMaker工具")
+            
+        except Exception as e:
+            logger.error(f"TICMaker工具调用失败: {e}")
+            # 工具调用失败不应该阻止后续处理
+            raise
     
     async def _process_conversational_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """处理对话性输入（使用传统chat逻辑）"""
