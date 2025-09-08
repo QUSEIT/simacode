@@ -54,13 +54,15 @@ class ReActService:
         
         # Initialize session manager
         sessions_dir = Path.cwd() / ".simacode" / "sessions"
+        max_sessions = config.session.max_sessions
         session_config = SessionConfig(
             sessions_directory=sessions_dir,
             auto_save_interval=30,
             max_session_age=7,
-            max_sessions_to_keep=100
+            max_sessions_to_keep=max_sessions
         )
         self.session_manager = SessionManager(session_config)
+        logger.info(f"Session manager configured with max_sessions: {max_sessions}")
         
         # Service state
         self.is_running = False
@@ -82,7 +84,7 @@ class ReActService:
             # Cleanup old sessions
             cleanup_count = await self.session_manager.cleanup_old_sessions()
             if cleanup_count > 0:
-                logger.info(f"Cleaned up {cleanup_count} old sessions on startup")
+                logger.debug(f"Cleaned up {cleanup_count} old sessions on startup")
             
             # Initialize MCP integration
             await self._initialize_mcp_integration()
@@ -118,7 +120,8 @@ class ReActService:
         self, 
         user_input: str, 
         session_id: Optional[str] = None,
-        context: Optional[Dict[str, Any]] = None
+        context: Optional[Dict[str, Any]] = None,
+        skip_confirmation: bool = False
     ) -> AsyncGenerator[Dict[str, Any], None]:
         """
         Process a user request through the ReAct engine.
@@ -132,7 +135,8 @@ class ReActService:
             Dict[str, Any]: Status updates and results from ReAct processing
         """
         if not self.is_running:
-            raise ReActError("ReAct service is not running")
+            # Lazy start if not running instead of raising error
+            await self.start()
         
         try:
             # Get or create session
@@ -165,6 +169,10 @@ class ReActService:
             }
             if context:
                 service_context.update(context)
+            
+            # Set skip_confirmation in session metadata if provided
+            if skip_confirmation:
+                session.metadata["skip_confirmation"] = True
             
             # Process through ReAct engine with existing session
             async for update in self.react_engine.process_user_input(user_input, service_context, session):
@@ -211,6 +219,30 @@ class ReActService:
             logger.error(f"Error getting session info: {str(e)}")
             return None
     
+    async def generate_task_summary_content(self, session_id: str) -> str:
+        """
+        Generate task execution summary content for completion messages.
+        
+        Args:
+            session_id: Session identifier
+            
+        Returns:
+            str: Task summary content
+        """
+        try:
+            session = await self.session_manager.get_session(session_id)
+            if not session:
+                from ..utils.task_summary import DEFAULT_TASK_SUCCESS_MESSAGE
+                return DEFAULT_TASK_SUCCESS_MESSAGE
+            
+            from ..utils.task_summary import generate_task_summary_content
+            return generate_task_summary_content(session)
+            
+        except Exception as e:
+            logger.error(f"Error generating task summary: {str(e)}")
+            from ..utils.task_summary import DEFAULT_TASK_SUCCESS_MESSAGE
+            return DEFAULT_TASK_SUCCESS_MESSAGE
+    
     async def list_sessions(self, limit: Optional[int] = None) -> List[Dict[str, Any]]:
         """
         List available sessions.
@@ -229,6 +261,11 @@ class ReActService:
     
     async def _initialize_mcp_integration(self) -> None:
         """Initialize MCP integration for the ReAct engine."""
+        # Skip if already initialized
+        if self.mcp_integration is not None:
+            logger.debug("MCP integration already initialized, skipping")
+            return
+            
         try:
             logger.info("Initializing MCP integration for ReAct engine...")
             

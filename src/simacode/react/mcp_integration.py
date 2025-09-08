@@ -77,7 +77,7 @@ class MCPReActIntegration:
             # Get all available tools (both built-in and MCP)
             all_tools = await self.tool_registry.list_tools()
             
-            logger.info(f"Registering {len(all_tools)} tools with ReAct engine")
+            logger.debug(f"Registering {len(all_tools)} tools with ReAct engine")
             
             registered_count = 0
             
@@ -96,7 +96,7 @@ class MCPReActIntegration:
                         else:
                             logger.debug(f"Tool '{tool_name}' already registered, skipping")
             
-            logger.info(f"Successfully registered {registered_count} tools with ReAct engine")
+            logger.debug(f"Successfully registered {registered_count} tools with ReAct engine")
             
         except Exception as e:
             logger.error(f"Failed to register MCP tools with ReAct: {str(e)}")

@@ -31,15 +31,8 @@ class MCPStateManager:
     def __init__(self, state_dir: Optional[Path] = None):
         """Initialize state manager with optional custom state directory."""
         if state_dir is None:
-            # Use user's config directory or fallback to temp
-            if os.getenv('XDG_CONFIG_HOME'):
-                base_dir = Path(os.getenv('XDG_CONFIG_HOME'))
-            elif os.getenv('HOME'):
-                base_dir = Path(os.getenv('HOME')) / '.config'
-            else:
-                base_dir = Path.cwd()
-            
-            self.state_dir = base_dir / 'simacode' / 'mcp'
+            # Use project-local .simacode directory instead of user config
+            self.state_dir = Path.cwd() / '.simacode' / 'mcp'
         else:
             self.state_dir = state_dir
         
@@ -141,11 +134,21 @@ class SimaCodeToolRegistry:
         if self.mcp_enabled:
             return True
         
+        # Prevent duplicate initialization attempts
+        if hasattr(self, '_initializing_mcp') and self._initializing_mcp:
+            logger.debug("MCP initialization already in progress, skipping")
+            return False
+        
         # Check if we should auto-initialize
         if self.state_manager.is_initialized():
-            logger.info("Auto-initializing MCP from saved state...")
+            logger.debug("Auto-initializing MCP from saved state...")
             config_path = self.state_manager.get_config_path()
-            return await self.initialize_mcp(config_path)
+            self._initializing_mcp = True
+            try:
+                result = await self.initialize_mcp(config_path)
+                return result
+            finally:
+                self._initializing_mcp = False
         
         return False
     
@@ -159,6 +162,11 @@ class SimaCodeToolRegistry:
         Returns:
             bool: True if MCP was successfully initialized
         """
+        # Skip if already enabled
+        if self.mcp_enabled:
+            logger.debug("MCP integration already initialized, skipping")
+            return True
+            
         try:
             logger.info("Initializing MCP integration")
             

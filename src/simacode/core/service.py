@@ -16,6 +16,8 @@ from ..services.react_service import ReActService
 from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
+from ..tools.base import execute_tool
+from .ticmaker_detector import TICMakerDetector
 
 logger = logging.getLogger(__name__)
 
@@ -73,12 +75,14 @@ class ReActRequest:
         task: str,
         session_id: Optional[str] = None,
         context: Optional[Dict[str, Any]] = None,
-        execution_mode: Optional[str] = None
+        execution_mode: Optional[str] = None,
+        skip_confirmation: bool = False
     ):
         self.task = task
         self.session_id = session_id
         self.context = context or {}
         self.execution_mode = execution_mode
+        self.skip_confirmation = skip_confirmation
 
 
 class ReActResponse:
@@ -170,7 +174,10 @@ class SimaCodeService:
     async def _ensure_react_service_started(self):
         """Ensure ReAct service is started before processing requests."""
         if not self.react_service.is_running:
+            logger.debug("Starting ReAct service on demand")
             await self.react_service.start()
+        else:
+            logger.debug("ReAct service already running")
     
     # 🗑️ 已删除 _is_conversational_input 方法
     # 现在统一使用 ReAct 引擎处理所有请求，让 TaskPlanner 内部进行分类
@@ -181,12 +188,11 @@ class SimaCodeService:
         session_id: Optional[str] = None
     ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """
-        Enhanced chat processing with ReAct capabilities.
+        Enhanced chat processing with TICMaker detection and ReAct capabilities.
         
-        This method now automatically detects if the input requires task execution
-        and routes it appropriately:
-        - Conversational inputs: Traditional chat processing
-        - Task inputs: ReAct engine processing with tool execution
+        This method detects TICMaker requests and routes them appropriately:
+        - TICMaker requests: Force ReAct engine with TICMaker tool integration
+        - Regular requests: Normal processing flow
         
         Args:
             request: Chat request or message string
@@ -204,15 +210,28 @@ class SimaCodeService:
             )
         
         try:
-            logger.info(f"Processing enhanced chat message for session: {request.session_id}")
+            logger.info(f"Processing chat message for session: {request.session_id}")
             
             # Use session_id or generate new one
             if not request.session_id:
                 import uuid
                 request.session_id = str(uuid.uuid4())
             
-            # 🆕 统一使用 ReAct 引擎处理所有请求
-            # 检查是否强制指定纯对话模式
+            # 🎯 TICMaker检测 - 穿透对话检测机制的关键
+            is_ticmaker, reason, enhanced_context = TICMakerDetector.detect_ticmaker_request(
+                request.message, request.context
+            )
+            
+            if is_ticmaker:
+                logger.info(f"🎯 TICMaker请求检测成功: {reason}")
+                # 更新请求的context为增强后的context
+                request.context = enhanced_context
+                # TICMaker请求强制使用ReAct引擎处理（除非显式指定force_mode="chat"）
+                if request.force_mode != "chat":
+                    logger.info("TICMaker请求将使用ReAct引擎处理")
+                    return await self._process_ticmaker_with_react(request, reason)
+            
+            # 原有的处理逻辑
             if request.force_mode == "chat":
                 # 强制纯对话模式：使用传统 chat 处理
                 logger.debug("Force chat mode enabled - using traditional conversational processing")
@@ -224,12 +243,95 @@ class SimaCodeService:
                 return await self._process_with_react_engine(request)
                 
         except Exception as e:
-            logger.error(f"Error processing enhanced chat: {str(e)}")
+            logger.error(f"Error processing chat: {str(e)}")
             return ChatResponse(
-                content="",
+                content="抱歉，处理您的请求时出现了问题。",
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )
+    
+    async def _process_ticmaker_with_react(
+        self, 
+        request: ChatRequest, 
+        trigger_reason: str
+    ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
+        """
+        专门处理TICMaker请求的方法
+        
+        该方法将先调用TICMaker工具进行预处理，然后继续ReAct处理
+        确保TICMaker相关的HTML创建和修改功能正确执行
+        
+        Args:
+            request: TICMaker聊天请求
+            trigger_reason: 触发TICMaker的原因
+            
+        Returns:
+            ChatResponse或AsyncGenerator
+        """
+        try:
+            logger.info(f"🎯 开始处理TICMaker请求，触发原因: {trigger_reason}")
+            
+            # 先调用TICMaker工具进行预处理
+            await self._call_ticmaker_tool(request, trigger_reason)
+            
+            # 然后继续使用ReAct引擎处理（让ReAct引擎协调其他可能的工具调用）
+            logger.info("TICMaker工具调用完成，继续ReAct引擎处理...")
+            return await self._process_with_react_engine(request)
+            
+        except Exception as e:
+            logger.error(f"TICMaker processing failed: {e}")
+            # 失败时回退到正常ReAct处理，确保系统稳定性
+            logger.info("TICMaker处理失败，回退到正常ReAct处理")
+            return await self._process_with_react_engine(request)
+    
+    async def _call_ticmaker_tool(
+        self, 
+        request: ChatRequest, 
+        trigger_reason: str
+    ) -> None:
+        """
+        调用TICMaker工具进行HTML页面处理
+        
+        Args:
+            request: 聊天请求
+            trigger_reason: 触发原因
+        """
+        try:
+            # 确保ReAct服务已启动（因为需要使用其工具注册表）
+            await self._ensure_react_service_started()
+            
+            # 确定请求来源
+            source = "API" if getattr(request, '_from_api', False) else "CLI"
+            if request.context and request.context.get("cli_mode"):
+                source = "CLI"
+            
+            # 确定操作类型
+            operation = "modify" if TICMakerDetector.is_modification_request(
+                request.message, request.context
+            ) else "create"
+            
+            # 准备工具输入
+            tool_input = TICMakerDetector.prepare_ticmaker_tool_input(
+                message=request.message,
+                context=request.context or {},
+                session_id=request.session_id,
+                source=source,
+                trigger_reason=trigger_reason,
+                operation=operation
+            )
+            
+            # 直接调用TICMaker工具（使用全局execute_tool函数）
+            logger.info(f"🎯 调用TICMaker工具: operation={operation}, source={source}")
+            
+            # 调用create_html_page工具
+            async for result in execute_tool("ticmaker:create_html_page", tool_input):
+                logger.info(f"🎯 TICMaker工具执行结果: {result.content[:200]}...")
+                # 可以根据需要处理工具执行结果
+            
+        except Exception as e:
+            logger.error(f"TICMaker工具调用失败: {e}")
+            # 工具调用失败不应该阻止后续处理
+            raise
     
     async def _process_conversational_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """处理对话性输入（使用传统chat逻辑）"""
@@ -349,16 +451,43 @@ class SimaCodeService:
                 
                 if update_type == "conversational_response":
                     yield content
-                elif update_type == "final_result":
-                    yield content
+                #elif update_type == "final_result":
+                #    yield f"[status_update] {content}"
                 #elif update_type == "sub_task_result":
                 #    yield content
                 elif update_type == "confirmation_request":
-                    # 🆕 处理确认请求类型
-                    yield content
+                    # 🆕 保持确认请求的完整结构信息，但扁平化以匹配客户端期望
+                    import json
+                    
+                    # 从嵌套结构中提取数据并创建扁平化结构
+                    confirmation_request = update.get("confirmation_request", {})
+                    tasks_summary = update.get("tasks_summary", {})
+                    
+                    logger.debug(f"[CONFIRM_DEBUG] Service processing confirmation_request update")
+                    logger.debug(f"[CONFIRM_DEBUG] confirmation_request: {confirmation_request}")
+                    logger.debug(f"[CONFIRM_DEBUG] tasks_summary: {tasks_summary}")
+                    
+                    confirmation_data = {
+                        "type": "confirmation_request",
+                        "content": content,
+                        "session_id": update.get("session_id"),
+                        # 扁平化：直接提供 tasks 和其他字段，匹配客户端期望
+                        "tasks": confirmation_request.get("tasks", []),
+                        "timeout_seconds": confirmation_request.get("timeout_seconds", 300),
+                        "confirmation_round": update.get("confirmation_round", 1),
+                        "risk_level": tasks_summary.get("risk_level", "unknown"),
+                        # 保留原始结构供其他用途
+                        "confirmation_request": confirmation_request,
+                        "tasks_summary": tasks_summary
+                    }
+                    logger.debug(f"[CONFIRM_DEBUG] Final confirmation_data tasks count: {len(confirmation_data.get('tasks', []))}")
+                    yield f"[confirmation_request]{json.dumps(confirmation_data)}"
                 elif update_type == "task_init":
                     # 🆕 Handle task_init message type
                     yield f"[task_init] {content}"
+                elif update_type == "confirmation_skipped":
+                    # 🆕 Handle confirmation_skipped message type
+                    yield f"[confirmation_skipped] {content}"
                 elif update_type in ["tool_execution", "status_update"]:
                     # 为工具执行和状态更新添加前缀标识
                     yield f"[{update_type}] {content}"
@@ -399,7 +528,8 @@ class SimaCodeService:
             async for result in self.react_service.process_user_request(
                 request.task,
                 session_id=request.session_id,  # Pass through session_id for continuity
-                context=request.context
+                context=request.context,
+                skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
             ):
                 # Pass through the result with session info
                 if isinstance(result, dict):
@@ -465,7 +595,8 @@ class SimaCodeService:
                 async for result in self.react_service.process_user_request(
                     request.task,
                     session_id=request.session_id,  # Pass through session_id for continuity
-                    context=request.context
+                    context=request.context,
+                    skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
                 ):
                     # Handle different result formats from ReActService
                     if isinstance(result, dict):
@@ -515,7 +646,11 @@ class SimaCodeService:
                     "session_id": session_id,
                     "created_at": session_info.get("created_at"),
                     "message_count": len(session_info.get("metadata", {}).get("conversation_history", [])),
-                    "status": session_info.get("state", "active")
+                    "status": session_info.get("state", "active"),
+                    "tasks": session_info.get("tasks", []),
+                    "updated_at": session_info.get("updated_at"),
+                    "evaluations": session_info.get("evaluations", {}),
+                    "task_results": session_info.get("task_results", {})
                 }
             else:
                 return {"error": "Session not found"}
@@ -594,9 +729,12 @@ class SimaCodeService:
                 "error": str(e)
             }
     
-    def submit_confirmation(self, response) -> bool:
+    async def submit_confirmation(self, response) -> bool:
         """提交用户确认响应的便捷方法"""
         try:
+            logger.debug(f"[CONFIRM_DEBUG] SimaCodeService.submit_confirmation called")
+            logger.debug(f"[CONFIRM_DEBUG] Response: {response}, API mode: {self.api_mode}")
+            
             if hasattr(self.react_service, 'react_engine') and self.react_service.react_engine:
                 # 在CLI模式下，确认是同步处理的，不需要通过ConfirmationManager
                 if not self.api_mode:
@@ -604,7 +742,10 @@ class SimaCodeService:
                     return True
                 else:
                     # API模式下才使用ConfirmationManager
-                    return self.react_service.react_engine.submit_confirmation(response)
+                    logger.info("API mode: confirmation handled synchronously")
+                    result = await self.react_service.react_engine.submit_confirmation(response)
+                    logger.debug(f"[CONFIRM_DEBUG] Engine submit_confirmation result: {result}")
+                    return result
             else:
                 logger.warning("ReAct engine not available for confirmation submission")
                 return False

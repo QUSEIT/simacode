@@ -4,11 +4,13 @@
 # Global MCP settings
 mcp:
   enabled: true
-  timeout: 30
+  timeout: 60
   max_concurrent: 5
   log_level: INFO
   cache_ttl: 300
   health_check_interval: 30
+  # Content forwarding URL configuration
+  forward_url: "${FORWARD_URL:-http://localhost/smc_forward}"
 
 # MCP server definitions
 servers:
@@ -100,10 +102,10 @@ servers:
       network_access: true
 
   # UI-TARS MCP Server (HTTP/WebSocket)
-  # Note: Server must be started manually using: python tools/mcp_ui_tars_server.py
-  ui_tars:
-    name: ui_tars
-    enabled: true  # WebSocket compatibility fixed
+  # Note: Server must be started manually using: python tools/mcp_browser_agent_tars_automation.py
+  agent_tars:
+    name: agent_tars
+    enabled: false  # WebSocket compatibility fixed
     type: websocket
     url: "${UI_TARS_MCP_URL:-ws://localhost:10001/mcp/ws}"
     headers:
@@ -146,8 +148,115 @@ servers:
       max_execution_time: 60
       network_access: true
 
+  # Browser-use MCP Proxy Server (WebSocket) - AI-driven Browser Automation via Remote REST Service
+  # Note: Server must be started manually using: python tools/mcp_browser_use_proxy_server.py
+  browser_use_proxy:
+    name: browser_use_proxy
+    enabled: false  # Enable for remote browser-use integration
+    type: websocket
+    url: "${BROWSER_USE_PROXY_URL:-ws://localhost:8082/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
+    args: []
+    environment:
+      BROWSER_USE_PROXY_URL: "${BROWSER_USE_PROXY_URL:-ws://localhost:8082/mcp/ws}"
+      BROWSER_USE_REST_URL: "${BROWSER_USE_REST_URL:-http://localhost:8000}"
+      BROWSER_USE_TIMEOUT: "${BROWSER_USE_TIMEOUT:-600}"
+      BROWSER_USE_MAX_RETRIES: "${BROWSER_USE_MAX_RETRIES:-3}"
+      BROWSER_USE_RETRY_DELAY: "${BROWSER_USE_RETRY_DELAY:-2.0}"
+    working_directory: null
+    timeout: 300  # Longer timeout for complex browser automation tasks
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "browser_use_execute_task"
+      allowed_paths: []  # Browser automation doesn't need file system access
+      forbidden_paths: []
+      max_execution_time: 300
+      network_access: true  # Required for browser automation and HTTP proxy
+
+  # Email IMAP MCP Server (stdio) - Email checking and retrieval via IMAP
+  # Configuration is now loaded directly from .simacode/config.yaml
+  email_imap:
+    name: email_imap
+    enabled: false  # Enable for email automation features
+    type: stdio
+    command: ["python", "tools/mcp_imap_receive_email.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment: {}  # No environment variables needed - configuration loaded from .simacode/config.yaml
+    working_directory: null
+    timeout: 120  # Email operations can take some time, especially for slower IMAP servers
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "read"      # Allow reading operations (get_email, get_recent_emails, list_folders)
+        - "execute"   # Allow general execution operations  
+        - "access"    # Allow access operations (check_emails)
+      allowed_paths: []  # Email operations don't need file system access
+      forbidden_paths: []
+      max_execution_time: 60
+      network_access: true  # Required for IMAP connections
+
+  # Email SMTP MCP Server (stdio) - Email sending via SMTP with comprehensive validation
+  email_smtp:
+    name: email_smtp
+    enabled: false  # Enable for email sending automation features
+    type: stdio
+    command: ["python", "tools/mcp_smtp_send_email.py"]
+    args: []
+    environment:
+      EMAIL_SMTP_SERVER: "${EMAIL_SMTP_SERVER:-smtp.gmail.com}"
+      EMAIL_SMTP_PORT: "${EMAIL_SMTP_PORT:-587}"
+      EMAIL_USERNAME: "${EMAIL_USERNAME}"
+      EMAIL_PASSWORD: "${EMAIL_PASSWORD}"
+      EMAIL_FROM_NAME: "${EMAIL_FROM_NAME:-SimaCode Assistant}"
+      EMAIL_FROM_EMAIL: "${EMAIL_FROM_EMAIL}"
+      EMAIL_TIMEOUT: "${EMAIL_TIMEOUT:-60}"
+    working_directory: null
+    timeout: 120  # Email sending operations can take time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "send"      # Allow email sending operations
+        - "execute"   # Allow general execution operations
+        - "validate"  # Allow email validation operations
+      allowed_paths: []  # SMTP operations don't need file system access (except for attachments)
+      forbidden_paths: []
+      max_execution_time: 90
+      network_access: true  # Required for SMTP connections
+
+  # TICMaker MCP Server - HTML页面创建和修改工具
+  ticmaker:
+    name: ticmaker
+    enabled: true  # Enable for TICMaker HTML generation features
+    type: stdio
+    command: ["python", "tools/mcp_ticmaker_server.py"]
+    args: []
+    environment:
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+    working_directory: null
+    timeout: 90  # HTML generation can take some time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "create"    # Allow HTML page creation
+        - "modify"    # Allow HTML page modification  
+        - "read"      # Allow reading existing files
+        - "write"     # Allow writing HTML files
+        - "list"      # Allow listing HTML files
+        - "execute"   # Allow general execution operations
+      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 60
+      network_access: false  # HTML generation doesn't need network access
+
 # Configuration Notes:
-# 
+#
 # 1. Environment Variables:
 #    - Use ${VAR_NAME} syntax for environment variable substitution
 #    - Provide defaults with ${VAR_NAME:-default_value} syntax

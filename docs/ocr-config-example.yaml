@@ -1,0 +1,47 @@
+# Universal OCR Tool 配置示例
+# 将此配置添加到 .simacode/config.yaml 文件中
+
+# OCR Claude AI 引擎配置
+ocr_claudeai:
+  # Claude API 配置
+  api_key: "${ANTHROPIC_API_KEY}"  # 环境变量或直接设置API密钥
+  # api_key: "your-anthropic-api-key-here"  # 或直接设置密钥
+  base_url: "https://api.anthropic.com"
+  model: "claude-3-5-sonnet-20241022"
+  max_tokens: 4000
+  temperature: 0.1
+  timeout: 30
+
+# OCR 全局设置
+ocr:
+  # 文件大小限制
+  max_file_size: 10485760  # 10MB
+  
+  # 默认使用的OCR引擎（按优先级排序）
+  default_engines: ["claude"]
+  
+  # 缓存设置
+  cache_enabled: true
+  
+  # 是否启用图片质量增强
+  quality_enhancement: true
+  
+  # 支持的文件格式
+  supported_formats:
+    images: [".jpg", ".jpeg", ".png", ".gif", ".webp", ".bmp", ".tiff"]
+    documents: [".pdf"]
+  
+  # 处理设置
+  processing:
+    pdf_dpi: 300           # PDF转图片的DPI
+    max_pages: 50          # 最大处理页数
+    concurrent_pages: 2    # 并发处理页数
+
+# 可选：OpenAI OCR 引擎配置（用于未来扩展）
+# ocr_openai:
+#   api_key: "${OPENAI_API_KEY}"
+#   base_url: "https://api.openai.com/v1"
+#   model: "gpt-4-vision-preview"
+#   max_tokens: 4000
+#   temperature: 0.1
+#   timeout: 30

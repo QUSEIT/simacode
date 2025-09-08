@@ -192,3 +192,6 @@ test_results
 react_test_results.json
 .simacode
 .env.mcp
+uploads
+ecomaiagent
+data

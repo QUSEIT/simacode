@@ -270,7 +270,7 @@ class SessionManager:
             if backup_file.exists():
                 backup_file.unlink()
             
-            logger.info(f"Session deleted: {session_id}")
+            logger.debug(f"Session deleted: {session_id}")
             return True
             
         except Exception as e:
@@ -362,7 +362,7 @@ class SessionManager:
                         logger.warning(f"Failed to delete excess session {session_info['id']}: {str(e)}")
             
             if cleanup_count > 0:
-                logger.info(f"Cleaned up {cleanup_count} old sessions")
+                logger.debug(f"Cleaned up {cleanup_count} old sessions")
             
         except Exception as e:
             logger.error(f"Failed to cleanup old sessions: {str(e)}")

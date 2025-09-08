@@ -8,7 +8,7 @@ environment variable overrides.
 
 import os
 from pathlib import Path
-from typing import Any, Dict, Optional, Union
+from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, validator
@@ -51,6 +51,7 @@ class SecurityConfig(BaseModel):
         default_factory=lambda: [Path.cwd()],
         description="List of allowed file system paths"
     )
+    
     forbidden_paths: list[Path] = Field(
         default_factory=lambda: [
             Path("/etc"),
@@ -176,6 +177,201 @@ class ReactConfig(BaseModel):
     )
 
 
+class DevelopmentConfig(BaseModel):
+    """Development configuration model."""
+    
+    debug_mode: bool = Field(
+        default=False,
+        description="Enable debug mode for development"
+    )
+    profiling_enabled: bool = Field(
+        default=False,
+        description="Enable profiling for performance analysis"
+    )
+    test_mode: bool = Field(
+        default=False,
+        description="Enable test mode"
+    )
+    mock_ai_responses: bool = Field(
+        default=False,
+        description="Use mock AI responses for testing"
+    )
+
+
+class EmailSMTPConfig(BaseModel):
+    """SMTP server configuration model."""
+    
+    server: Optional[str] = Field(
+        default=None,
+        description="SMTP server address"
+    )
+    port: int = Field(
+        default=587,
+        ge=1,
+        le=65535,
+        description="SMTP server port"
+    )
+    use_tls: bool = Field(
+        default=True,
+        description="Use TLS encryption"
+    )
+    use_ssl: bool = Field(
+        default=False,
+        description="Use SSL encryption"
+    )
+    timeout: int = Field(
+        default=30,
+        ge=1,
+        le=300,
+        description="Connection timeout in seconds"
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="SMTP username"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="SMTP password"
+    )
+    
+    @validator('username', pre=True, always=True)
+    def load_username_from_env(cls, v: Optional[str]) -> Optional[str]:
+        """Load SMTP username from environment variables if not provided."""
+        if v is None:
+            return os.getenv("SIMACODE_SMTP_USER")
+        return v
+    
+    @validator('password', pre=True, always=True)
+    def load_password_from_env(cls, v: Optional[str]) -> Optional[str]:
+        """Load SMTP password from environment variables if not provided."""
+        if v is None:
+            return os.getenv("SIMACODE_SMTP_PASS")
+        return v
+
+
+class EmailIMAPConfig(BaseModel):
+    """IMAP server configuration model."""
+    
+    server: Optional[str] = Field(
+        default=None,
+        description="IMAP server address"
+    )
+    port: int = Field(
+        default=993,
+        ge=1,
+        le=65535,
+        description="IMAP server port"
+    )
+    use_ssl: bool = Field(
+        default=True,
+        description="Use SSL encryption for IMAP"
+    )
+    timeout: int = Field(
+        default=60,
+        ge=1,
+        le=300,
+        description="Connection timeout in seconds"
+    )
+    username: Optional[str] = Field(
+        default=None,
+        description="IMAP username"
+    )
+    password: Optional[str] = Field(
+        default=None,
+        description="IMAP password"
+    )
+
+
+class EmailSecurityConfig(BaseModel):
+    """Email security configuration model."""
+    
+    max_recipients: int = Field(
+        default=50,
+        ge=1,
+        le=1000,
+        description="Maximum number of recipients per email"
+    )
+    max_attachment_size: int = Field(
+        default=26214400,  # 25MB
+        ge=1024,  # 1KB minimum
+        le=104857600,  # 100MB maximum
+        description="Maximum attachment size in bytes"
+    )
+    max_body_size: int = Field(
+        default=1048576,  # 1MB
+        ge=1024,  # 1KB minimum
+        le=10485760,  # 10MB maximum
+        description="Maximum email body size in bytes"
+    )
+    allowed_domains: List[str] = Field(
+        default_factory=list,
+        description="Allowed recipient domains (empty = allow all)"
+    )
+    blocked_domains: List[str] = Field(
+        default_factory=list,
+        description="Blocked recipient domains"
+    )
+    allowed_attachment_types: List[str] = Field(
+        default_factory=lambda: [".txt", ".pdf", ".doc", ".docx", ".xls", ".xlsx", ".jpg", ".jpeg", ".png", ".gif", ".json", ".csv", ".xml", ".zip"],
+        description="Allowed attachment file types"
+    )
+
+
+class EmailRateLimitConfig(BaseModel):
+    """Email rate limiting configuration model."""
+    
+    max_emails_per_hour: int = Field(
+        default=100,
+        ge=1,
+        le=10000,
+        description="Maximum emails per hour"
+    )
+    max_emails_per_day: int = Field(
+        default=1000,
+        ge=1,
+        le=100000,
+        description="Maximum emails per day"
+    )
+
+
+class EmailDefaultsConfig(BaseModel):
+    """Email default settings configuration model."""
+    
+    from_name: str = Field(
+        default="SimaCode Assistant",
+        description="Default sender name"
+    )
+    from_email: Optional[str] = Field(
+        default=None,
+        description="Default sender email (will use username if not set)"
+    )
+
+
+class EmailConfig(BaseModel):
+    """Email configuration model."""
+    
+    smtp: EmailSMTPConfig = Field(
+        default_factory=EmailSMTPConfig,
+        description="SMTP server configuration"
+    )
+    imap: EmailIMAPConfig = Field(
+        default_factory=EmailIMAPConfig,
+        description="IMAP server configuration"
+    )
+    security: EmailSecurityConfig = Field(
+        default_factory=EmailSecurityConfig,
+        description="Email security settings"
+    )
+    rate_limiting: EmailRateLimitConfig = Field(
+        default_factory=EmailRateLimitConfig,
+        description="Email rate limiting settings"
+    )
+    defaults: EmailDefaultsConfig = Field(
+        default_factory=EmailDefaultsConfig,
+        description="Email default settings"
+    )
+
+
 class ConversationContextConfig(BaseModel):
     """Conversation context configuration model."""
     
@@ -213,6 +409,7 @@ class ConversationContextConfig(BaseModel):
 class Config(BaseModel):
     """Main configuration model for SimaCode."""
     
+    
     project_name: str = Field(
         default="SimaCode Project",
         description="Project name for display purposes"
@@ -240,6 +437,14 @@ class Config(BaseModel):
     react: ReactConfig = Field(
         default_factory=ReactConfig,
         description="ReAct engine configuration"
+    )
+    development: DevelopmentConfig = Field(
+        default_factory=DevelopmentConfig,
+        description="Development configuration"
+    )
+    email: EmailConfig = Field(
+        default_factory=EmailConfig,
+        description="Email configuration"
     )
     
     @classmethod

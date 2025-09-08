@@ -47,7 +47,11 @@ class PermissionManager:
     
     def __init__(self, config: Optional[Config] = None):
         """Initialize permission manager with configuration."""
-        self.config = config or Config()
+        if config is None:
+            from ..config import Config
+            self.config = Config.load()
+        else:
+            self.config = config
         self._permission_cache: Dict[str, PermissionResult] = {}
         self._cache_timeout = 300  # 5 minutes
         self._cache_timestamps: Dict[str, float] = {}
@@ -83,6 +87,8 @@ class PermissionManager:
             self.allowed_paths: List[str] = [
                 str(Path.cwd()),  # Current working directory
                 str(Path.home() / "tmp"),  # User temp directory
+                str(Path.home() / "Desktop"),  # User Desktop for development
+                "/tmp",  # System temp directory
             ]
             
             self.forbidden_paths: List[str] = [
@@ -152,6 +158,16 @@ class PermissionManager:
         Returns:
             PermissionResult: Permission check result
         """
+        # Development mode: allow all file operations for development
+        development_mode = hasattr(self.config, 'development') and hasattr(self.config.development, 'debug_mode') and self.config.development.debug_mode
+        
+        if development_mode:
+            return PermissionResult(
+                granted=True,
+                level=PermissionLevel.ALLOWED,
+                reason="Development mode - permissions granted"
+            )
+        
         cache_key = self._get_cache_key("file", file_path, op=operation)
         cached_result = self._get_cached_permission(cache_key)
         if cached_result:
@@ -183,7 +199,9 @@ class PermissionManager:
         # Check against allowed paths
         path_allowed = False
         for allowed in self.allowed_paths:
-            if normalized_path.startswith(os.path.abspath(allowed)):
+            # Expand user path and normalize
+            expanded_allowed = os.path.abspath(os.path.expanduser(allowed))
+            if normalized_path.startswith(expanded_allowed):
                 path_allowed = True
                 break
         
@@ -338,7 +356,9 @@ class PermissionManager:
         # Check against allowed paths
         path_allowed = False
         for allowed in self.allowed_paths:
-            if normalized_path.startswith(os.path.abspath(allowed)):
+            # Expand user path and normalize
+            expanded_allowed = os.path.abspath(os.path.expanduser(allowed))
+            if normalized_path.startswith(expanded_allowed):
                 path_allowed = True
                 break
         

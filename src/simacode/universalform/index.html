@@ -1,0 +1,968 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>万能表单生成器与提交系统</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/alpinejs@3.x.x/dist/cdn.min.js" defer></script>
+    <style>
+        [x-cloak] { display: none !important; }
+    </style>
+</head>
+<body class="bg-gray-50 min-h-screen" x-data="formBuilder()" x-cloak>
+    <div :class="isMultipleFormsMode && currentMode === 'preview' ? 'w-full px-4 py-4' : 'max-w-4xl mx-auto px-3 py-4'">
+        <!-- Header -->
+        <div class="text-center mb-4 relative">
+            <h1 class="text-xl font-medium text-gray-800 mb-3" x-text="currentMode === 'preview' ? (formConfig.name || '未名表单') : '万能表单生成器'"></h1>
+            
+            <!-- Mode Toggle (Top Right) -->
+            <div class="absolute top-0 right-0">
+                <div class="inline-flex items-center bg-white rounded border border-gray-200 text-xs shadow">
+                    <button @click="currentMode = 'builder'" 
+                            :class="currentMode === 'builder' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                            class="px-3 py-1 rounded-l transition-all duration-200">
+                        构建
+                    </button>
+                    <button @click="currentMode = 'preview'" 
+                            :class="currentMode === 'preview' ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                            class="px-3 py-1 rounded-r transition-all duration-200 border-l border-gray-200">
+                        提交
+                    </button>
+                </div>
+            </div>
+            
+            <!-- Data Mode Toggle Tab (Center) -->
+            <div x-show="currentMode === 'preview' && formFields.length > 0" 
+                 class="inline-flex items-center bg-white rounded border border-gray-200 text-sm">
+                <button @click="switchToSingleMode()" 
+                        :class="!isMultipleFormsMode ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                        class="px-4 py-1.5 rounded-l transition-all duration-200">
+                    单数据
+                </button>
+                <button @click="addNewFormRow()" 
+                        :class="isMultipleFormsMode ? 'bg-blue-500 text-white shadow-sm' : 'text-gray-600 hover:text-gray-800 hover:bg-gray-50'"
+                        class="px-4 py-1.5 rounded-r transition-all duration-200 border-l border-gray-200">
+                    多数据
+                </button>
+            </div>
+        </div>
+
+        <!-- Builder Mode -->
+        <div x-show="currentMode === 'builder'" class="bg-white rounded border border-gray-200 p-4 mb-4">
+            <div class="flex justify-between items-center mb-4">
+                <div class="flex space-x-2">
+                    <button @click="loadConfig()" class="bg-gray-600 text-white px-3 py-1 rounded text-sm hover:bg-gray-700 transition-colors">
+                        加载配置
+                    </button>
+                    <button @click="saveConfig()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                        保存配置
+                    </button>
+                </div>
+            </div>
+
+            <!-- Form Configuration -->
+            <div class="mb-4 p-3 bg-gray-50 rounded border space-y-2">
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">表单名称</label>
+                    <input x-model="formConfig.name" type="text" placeholder="联系我们表单"
+                           class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                </div>
+                <div>
+                    <label class="block text-sm text-gray-600 mb-1">提交地址</label>
+                    <input x-model="formConfig.postUrl" type="url" placeholder="https://example.com/api/submit"
+                           class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                </div>
+            </div>
+
+            <!-- Add Field Button -->
+            <div class="mb-3">
+                <button @click="addField()" class="bg-blue-600 text-white px-3 py-1 rounded text-sm hover:bg-blue-700 transition-colors">
+                    + 添加字段
+                </button>
+            </div>
+
+            <!-- Field Definitions -->
+            <div class="space-y-2">
+                <template x-for="(field, index) in formFields" :key="index">
+                    <div class="border border-gray-200 rounded p-3 bg-gray-50">
+                        <div class="grid grid-cols-12 gap-2 items-start text-xs">
+                            <!-- Field Key -->
+                            <div class="col-span-2">
+                                <label class="block text-gray-600 mb-1">字段键 *</label>
+                                <input x-model="field.key" type="text" placeholder="name" 
+                                       pattern="[a-zA-Z0-9_]+" required
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            
+                            <!-- Label -->
+                            <div class="col-span-2">
+                                <label class="block text-gray-600 mb-1">标签 *</label>
+                                <input x-model="field.label" type="text" placeholder="您的姓名" required
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            
+                            <!-- Type -->
+                            <div class="col-span-2">
+                                <label class="block text-gray-600 mb-1">类型 *</label>
+                                <select x-model="field.type" required
+                                        class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                                    <option value="text">文本</option>
+                                    <option value="number">数字</option>
+                                    <option value="email">邮箱</option>
+                                    <option value="textarea">长文本</option>
+                                    <option value="select">下拉选择</option>
+                                    <option value="checkbox">复选框</option>
+                                    <option value="date">日期</option>
+                                    <option value="url">网址</option>
+                                </select>
+                            </div>
+                            
+                            <!-- Placeholder -->
+                            <div class="col-span-2">
+                                <label class="block text-gray-600 mb-1">占位符</label>
+                                <input x-model="field.placeholder" type="text" placeholder="提示文字"
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            
+                            <!-- Options -->
+                            <div class="col-span-2" x-show="field.type === 'select' || field.type === 'checkbox'">
+                                <label class="block text-gray-600 mb-1">选项</label>
+                                <input x-model="field.options" type="text" placeholder="选项1,选项2"
+                                       class="w-full px-2 py-1 border border-gray-300 rounded focus:outline-none focus:border-blue-500">
+                            </div>
+                            
+                            <!-- Required & Delete -->
+                            <div class="col-span-2 flex items-center justify-between pt-5">
+                                <label class="flex items-center">
+                                    <input x-model="field.required" type="checkbox" class="mr-1">
+                                    <span class="text-gray-600">必填</span>
+                                </label>
+                                <button @click="removeField(index)" class="bg-red-500 text-white px-2 py-1 rounded hover:bg-red-600 transition-colors">
+                                    删除
+                                </button>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+            </div>
+        </div>
+
+        <!-- Preview Mode -->
+        <div x-show="currentMode === 'preview'" class="bg-white rounded border border-gray-200 p-4">
+            <!-- Legacy Multiple Forms Mode Header (Hidden - using fullscreen header instead) -->
+
+            <!-- Form Configuration Info (Top) - Hidden in Multiple Forms Mode -->
+            <div x-show="!isMultipleFormsMode" class="mb-3 p-2 bg-gray-50 rounded border text-sm">
+                <div class="flex items-start space-x-2">
+                    <span class="text-gray-600 min-w-0 flex-shrink-0">提交:</span>
+                    <div class="flex-1">
+                        <span x-show="formConfig.postUrl" x-text="formConfig.postUrl" 
+                              class="text-blue-600 break-all font-mono"></span>
+                        <span x-show="!formConfig.postUrl" class="text-gray-400 italic">未配置</span>
+                    </div>
+                </div>
+                
+                <div x-show="!formConfig.postUrl" class="mt-1 text-xs text-amber-600 bg-amber-50 p-1 rounded">
+                    ⚠️ 数据将仅输出到控制台
+                </div>
+            </div>
+            
+            <!-- Multiple Forms Table View (Full Screen) -->
+            <div x-show="isMultipleFormsMode" class="w-full">
+                <!-- Fullscreen Header -->
+                <div class="bg-white border-b border-gray-200 pb-4 mb-4">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <h2 class="text-lg font-semibold text-gray-800" x-text="formConfig.name || '数据录入表格'"></h2>
+                            <p class="text-sm text-gray-600">
+                                当前共 <span x-text="multipleFormsData.length" class="font-medium text-blue-600"></span> 行数据
+                            </p>
+                        </div>
+                        <div class="flex space-x-2">
+                            <button @click="addNewFormRow()" 
+                                    class="bg-green-500 text-white px-4 py-2 rounded hover:bg-green-600 transition-colors flex items-center">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                新增行
+                            </button>
+                            <button @click="submitAllForms()" 
+                                    class="bg-blue-500 text-white px-4 py-2 rounded hover:bg-blue-600 transition-colors flex items-center">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                提交全部
+                            </button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Fullscreen Table -->
+                <div class="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
+                    <!-- Table Header -->
+                    <div class="bg-gray-50 border-b border-gray-200">
+                        <div class="flex">
+                            <div class="w-16 px-3 py-3 text-sm font-medium text-gray-700 border-r border-gray-200 text-center">#</div>
+                            <template x-for="field in formFields.filter(f => f.key)" :key="'header-' + field.key">
+                                <div class="flex-1 min-w-0 px-3 py-3 text-sm font-medium text-gray-700 border-r border-gray-200 last:border-r-0" 
+                                     x-text="field.label + (field.required ? ' *' : '')"></div>
+                            </template>
+                            <div class="w-20 px-3 py-3 text-sm font-medium text-gray-700 text-center">操作</div>
+                        </div>
+                    </div>
+                    
+                    <!-- Table Body -->
+                    <div class="divide-y divide-gray-200">
+                        <template x-for="(rowData, rowIndex) in multipleFormsData" :key="'row-' + rowIndex">
+                            <div class="flex hover:bg-blue-50 transition-colors duration-150">
+                                <!-- Row Number -->
+                                <div class="w-16 px-3 py-3 text-sm text-gray-600 border-r border-gray-200 text-center flex items-center justify-center font-medium" 
+                                     x-text="rowIndex + 1"></div>
+                                
+                                <!-- Form Fields -->
+                                <template x-for="field in formFields.filter(f => f.key)" :key="'cell-' + rowIndex + '-' + field.key">
+                                    <div class="flex-1 min-w-0 px-3 py-2 border-r border-gray-200 last:border-r-0">
+                                        <!-- Text Input -->
+                                        <input x-show="field.type === 'text'"
+                                               x-model="multipleFormsData[rowIndex][field.key]"
+                                               :placeholder="field.placeholder"
+                                               type="text"
+                                               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                        
+                                        <!-- Number Input -->
+                                        <input x-show="field.type === 'number'"
+                                               x-model.number="multipleFormsData[rowIndex][field.key]"
+                                               :placeholder="field.placeholder"
+                                               type="number"
+                                               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                        
+                                        <!-- Email Input -->
+                                        <input x-show="field.type === 'email'"
+                                               x-model="multipleFormsData[rowIndex][field.key]"
+                                               :placeholder="field.placeholder"
+                                               type="email"
+                                               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                        
+                                        <!-- URL Input -->
+                                        <input x-show="field.type === 'url'"
+                                               x-model="multipleFormsData[rowIndex][field.key]"
+                                               :placeholder="field.placeholder"
+                                               type="url"
+                                               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                        
+                                        <!-- Date Input -->
+                                        <input x-show="field.type === 'date'"
+                                               x-model="multipleFormsData[rowIndex][field.key]"
+                                               type="date"
+                                               class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                        
+                                        <!-- Select -->
+                                        <select x-show="field.type === 'select'"
+                                                x-model="multipleFormsData[rowIndex][field.key]"
+                                                class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors">
+                                            <option value="">请选择...</option>
+                                            <template x-for="option in getOptions(field)" :key="option">
+                                                <option :value="option" x-text="option"></option>
+                                            </template>
+                                        </select>
+                                        
+                                        <!-- Textarea -->
+                                        <textarea x-show="field.type === 'textarea'"
+                                                  x-model="multipleFormsData[rowIndex][field.key]"
+                                                  :placeholder="field.placeholder"
+                                                  rows="2"
+                                                  class="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500 focus:border-blue-500 hover:border-gray-400 transition-colors resize-none"></textarea>
+                                    </div>
+                                </template>
+                                
+                                <!-- Actions -->
+                                <div class="w-20 px-3 py-3 text-center">
+                                    <button @click="removeFormRow(rowIndex)" 
+                                            type="button"
+                                            class="inline-flex items-center px-2 py-1 text-xs font-medium text-red-600 bg-red-100 rounded-md hover:bg-red-200 hover:text-red-800 transition-colors">
+                                        <svg class="w-3 h-3 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 7l-.867 12.142A2 2 0 0116.138 21H7.862a2 2 0 01-1.995-1.858L5 7m5 4v6m4-6v6m1-10V4a1 1 0 00-1-1h-4a1 1 0 00-1 1v3M4 7h16"></path>
+                                        </svg>
+                                        删除
+                                    </button>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+
+                <!-- Sticky Bottom Bar for Multiple Forms -->
+                <div class="sticky bottom-0 bg-white border-t border-gray-200 p-4 mt-6 shadow-lg rounded-t-lg">
+                    <div class="flex items-center justify-between">
+                        <div class="flex items-center space-x-4">
+                            <span class="text-sm text-gray-600">
+                                总计: <span x-text="multipleFormsData.length" class="font-semibold text-blue-600"></span> 行数据
+                            </span>
+                            <div x-show="submitStatus" x-text="submitStatus" 
+                                 :class="submitSuccess ? 'text-green-600' : 'text-orange-600'"
+                                 class="text-sm font-medium"></div>
+                        </div>
+                        <div class="flex items-center space-x-3">
+                            <button @click="addNewFormRow()" 
+                                    class="inline-flex items-center px-3 py-1.5 text-sm font-medium text-green-700 bg-green-100 rounded-md hover:bg-green-200 transition-colors">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M12 6v6m0 0v6m0-6h6m-6 0H6"></path>
+                                </svg>
+                                新增
+                            </button>
+                            <button @click="submitAllForms()" 
+                                    class="inline-flex items-center px-4 py-2 text-sm font-medium text-white bg-blue-600 rounded-md hover:bg-blue-700 transition-colors shadow-sm">
+                                <svg class="w-4 h-4 mr-1" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"></path>
+                                </svg>
+                                提交全部
+                            </button>
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Single Form View -->
+            <form x-show="!isMultipleFormsMode" @submit.prevent="submitForm()" class="space-y-3">
+                <template x-for="(field, index) in formFields" :key="index">
+                    <div>
+                        <label class="block text-sm text-gray-600 mb-1" x-text="field.label + (field.required ? ' *' : '')"></label>
+                        
+                        <!-- Text Input -->
+                        <input x-show="field.type === 'text' && field.key" 
+                               x-model="formData[field.key]" 
+                               :name="field.key"
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="text"
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                        
+                        <!-- Number Input -->
+                        <input x-show="field.type === 'number' && field.key" 
+                               x-model.number="formData[field.key]" 
+                               :name="field.key"
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="number"
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                        
+                        <!-- Email Input -->
+                        <input x-show="field.type === 'email' && field.key" 
+                               x-model="formData[field.key]" 
+                               :name="field.key"
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="email"
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                        
+                        <!-- URL Input -->
+                        <input x-show="field.type === 'url' && field.key" 
+                               x-model="formData[field.key]" 
+                               :name="field.key"
+                               :placeholder="field.placeholder"
+                               :required="field.required"
+                               type="url"
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                        
+                        <!-- Date Input -->
+                        <input x-show="field.type === 'date' && field.key" 
+                               x-model="formData[field.key]" 
+                               :name="field.key"
+                               :required="field.required"
+                               type="date"
+                               class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                        
+                        <!-- Textarea -->
+                        <textarea x-show="field.type === 'textarea' && field.key" 
+                                  x-model="formData[field.key]" 
+                                  :name="field.key"
+                                  :placeholder="field.placeholder"
+                                  :required="field.required"
+                                  rows="2"
+                                  class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500"></textarea>
+                        
+                        <!-- Select -->
+                        <select x-show="field.type === 'select' && field.key" 
+                                x-model="formData[field.key]" 
+                                :name="field.key"
+                                :required="field.required"
+                                class="w-full px-2 py-1 border border-gray-300 rounded text-sm focus:outline-none focus:border-blue-500">
+                            <option value="">请选择...</option>
+                            <template x-for="option in getOptions(field)" :key="option">
+                                <option :value="option" x-text="option"></option>
+                            </template>
+                        </select>
+                        
+                        <!-- Checkbox Group -->
+                        <div x-show="field.type === 'checkbox' && field.key" class="space-y-1">
+                            <template x-for="option in getOptions(field)" :key="option">
+                                <label class="flex items-center">
+                                    <input type="checkbox" 
+                                           :name="field.key + '[]'"
+                                           :value="option"
+                                           @change="updateCheckboxValue(field.key, option, $event.target.checked)"
+                                           :checked="isChecked(field.key, option)"
+                                           class="mr-1">
+                                    <span x-text="option" class="text-sm text-gray-700"></span>
+                                </label>
+                            </template>
+                        </div>
+                    </div>
+                </template>
+                
+                <!-- Submit Button -->
+                <div class="pt-4">
+                    <button type="submit" 
+                            class="w-full bg-blue-600 text-white py-2 px-3 rounded hover:bg-blue-700 transition-colors text-sm">
+                        提交表单
+                    </button>
+                </div>
+            </form>
+            
+            <!-- Submit Status -->
+            <div x-show="submitStatus" x-text="submitStatus" 
+                 :class="submitSuccess ? 'text-green-600' : 'text-red-600'"
+                 class="mt-2 text-xs text-center"></div>
+        </div>
+
+        <!-- Status Messages -->
+        <div x-show="message" x-text="message" 
+             :class="messageType === 'success' ? 'text-green-600 bg-green-50 border-green-200' : 'text-red-600 bg-red-50 border-red-200'"
+             class="mt-2 p-2 rounded border text-center text-sm"></div>
+    </div>
+
+    <script>
+        function formBuilder() {
+            return {
+                currentMode: 'preview',
+                formFields: [],
+                formData: {},
+                formConfig: {
+                    name: '',
+                    postUrl: ''
+                },
+                message: '',
+                messageType: 'success',
+                submitStatus: '',
+                submitSuccess: false,
+                presetData: null,
+                isMultipleFormsMode: false,
+                currentFormIndex: 0,
+                multipleFormsData: [],
+
+                init() {
+                    // Check for stored mode preference from save/load operations
+                    const storedMode = sessionStorage.getItem('universalformMode');
+                    if (storedMode) {
+                        this.currentMode = storedMode;
+                        // Clear the stored preference after using it
+                        sessionStorage.removeItem('universalformMode');
+                    }
+                    
+                    // Check for m=1 parameter to enable multi-form mode by default
+                    if (window.multiFormMode === true) {
+                        console.log('Multi-form mode enabled via m=1 parameter');
+                        this.isMultipleFormsMode = true;
+                        // Initialize with empty data array if no preset data will be loaded
+                        if (!window.processedPresetData || !window.processedPresetData.success) {
+                            this.multipleFormsData = [];
+                            // Add one empty row after configuration is loaded
+                            setTimeout(() => {
+                                if (this.multipleFormsData.length === 0) {
+                                    this.addNewFormRow();
+                                }
+                            }, 100);
+                        }
+                    }
+                    
+                    // Load configuration and pre-fill data from URL parameters
+                    this.loadConfigSilently();
+                    this.prefillFromUrlParams();
+                },
+
+                addField() {
+                    this.formFields.push({
+                        key: '',
+                        label: '',
+                        type: 'text',
+                        placeholder: '',
+                        options: '',
+                        required: false
+                    });
+                },
+
+                initializeFormData() {
+                    // Initialize form data structure for all fields that have keys
+                    this.formFields.forEach(field => {
+                        if (!field.key) return; // Skip fields without keys
+                        
+                        if (field.type === 'checkbox' && !this.formData[field.key]) {
+                            this.formData[field.key] = [];
+                        } else if (!this.formData[field.key] && field.type !== 'checkbox') {
+                            this.formData[field.key] = '';
+                        }
+                    });
+                },
+
+                async loadConfigSilently() {
+                    // Load configuration without showing messages (for initialization)
+                    try {
+                        const response = await fetch('/api/universalform/config');
+                        if (response.ok) {
+                            const config = await response.json();
+                            this.formFields = config.fields || [];
+                            this.formConfig = config.config || { name: '', postUrl: '' };
+                            this.initializeFormData();
+                        }
+                    } catch (error) {
+                        console.error('静默加载配置失败:', error);
+                        // Silent failure - don't show error to user during init
+                    }
+                },
+
+                removeField(index) {
+                    this.formFields.splice(index, 1);
+                },
+
+                getOptions(field) {
+                    if (!field.options) return [];
+                    return field.options.split(',').map(opt => opt.trim()).filter(opt => opt);
+                },
+
+                updateCheckboxValue(fieldKey, option, checked) {
+                    if (!this.formData[fieldKey]) {
+                        this.formData[fieldKey] = [];
+                    }
+                    if (checked) {
+                        if (!this.formData[fieldKey].includes(option)) {
+                            this.formData[fieldKey].push(option);
+                        }
+                    } else {
+                        this.formData[fieldKey] = this.formData[fieldKey].filter(item => item !== option);
+                    }
+                },
+
+                isChecked(fieldKey, option) {
+                    return this.formData[fieldKey] && this.formData[fieldKey].includes(option);
+                },
+
+                async loadConfig() {
+                    try {
+                        const response = await fetch('/api/universalform/config');
+                        if (response.ok) {
+                            const config = await response.json();
+                            this.formFields = config.fields || [];
+                            this.formConfig = config.config || { name: '', postUrl: '' };
+                            
+                            // Initialize form data for each field
+                            this.initializeFormData();
+                            
+                            this.showMessage('配置加载成功，页面即将刷新...', 'success');
+                            
+                            // Auto refresh page after successful load
+                            setTimeout(() => {
+                                window.location.reload();
+                            }, 1500);
+                        } else {
+                            this.showMessage('配置文件不存在，使用默认配置', 'info');
+                        }
+                    } catch (error) {
+                        console.error('加载配置失败:', error);
+                        this.showMessage('加载配置失败', 'error');
+                    }
+                },
+
+                async saveConfig() {
+                    if (this.formFields.length === 0) {
+                        this.showMessage('请至少添加一个字段', 'error');
+                        return;
+                    }
+
+                    // Validate required fields
+                    for (let field of this.formFields) {
+                        if (!field.key || !field.label || !field.type) {
+                            this.showMessage('请填写所有必填字段（字段键、标签文本、字段类型）', 'error');
+                            return;
+                        }
+                        // Validate key format
+                        if (!/^[a-zA-Z0-9_]+$/.test(field.key)) {
+                            this.showMessage(`字段键 "${field.key}" 只能包含英文、数字和下划线`, 'error');
+                            return;
+                        }
+                    }
+
+                    const configData = {
+                        fields: this.formFields,
+                        config: this.formConfig
+                    };
+
+                    try {
+                        const response = await fetch('/api/universalform/config', {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(configData)
+                        });
+
+                        if (response.ok) {
+                            this.showMessage('配置保存成功，页面即将刷新并切换到预览模式...', 'success');
+                            
+                            // Auto refresh and switch to preview mode after successful save
+                            setTimeout(() => {
+                                // Store mode preference in sessionStorage
+                                sessionStorage.setItem('universalformMode', 'preview');
+                                window.location.reload();
+                            }, 1500);
+                        } else {
+                            throw new Error('保存失败');
+                        }
+                    } catch (error) {
+                        console.error('保存配置失败:', error);
+                        this.showMessage('保存配置失败', 'error');
+                    }
+                },
+
+                prefillFromUrlParams() {
+                    // Debug logging
+                    console.log('Checking for preset data...');
+                    console.log('window.processedPresetData:', window.processedPresetData);
+                    console.log('window.presetFormData:', window.presetFormData);
+                    
+                    // Check if there's processed preset data from server
+                    if (window.processedPresetData && window.processedPresetData.success) {
+                        this.handlePresetData(window.processedPresetData);
+                        return;
+                    }
+                    
+                    // If there's processed preset data but it failed, still show info
+                    if (window.processedPresetData) {
+                        console.log('Preset data processing result:', window.processedPresetData);
+                        if (window.processedPresetData.error) {
+                            this.showMessage(`预设数据处理失败: ${window.processedPresetData.error}`, 'error');
+                        }
+                    }
+                    
+                    // No fallback to URL parameters needed since we only process formdata
+                },
+
+                handlePresetData(presetResult) {
+                    try {
+                        console.log('Handling preset data:', presetResult);
+                        
+                        if (!presetResult.success) {
+                            this.showMessage(`预设数据处理失败: ${presetResult.error || '未知错误'}`, 'error');
+                            // If multi-form mode is enabled via m=1 parameter, still initialize multi-form mode
+                            if (window.multiFormMode === true) {
+                                this.isMultipleFormsMode = true;
+                                this.multipleFormsData = [];
+                                this.addNewFormRow(); // Add one empty row to start
+                            }
+                            return;
+                        }
+                        
+                        if (!presetResult.processed_data) {
+                            this.showMessage('预设数据为空，请检查输入数据格式', 'error');
+                            // If multi-form mode is enabled via m=1 parameter, still initialize multi-form mode
+                            if (window.multiFormMode === true) {
+                                this.isMultipleFormsMode = true;
+                                this.multipleFormsData = [];
+                                this.addNewFormRow(); // Add one empty row to start
+                            }
+                            return;
+                        }
+                        
+                        // Check if processed_data is empty
+                        if (!presetResult.processed_data || 
+                            (Array.isArray(presetResult.processed_data) && presetResult.processed_data.length === 0) ||
+                            (typeof presetResult.processed_data === 'object' && !Array.isArray(presetResult.processed_data) && Object.keys(presetResult.processed_data).length === 0)) {
+                            
+                            this.showMessage('预设数据处理结果为空，可能需要配置OpenAI API密钥', 'error');
+                            // If multi-form mode is enabled via m=1 parameter, still initialize multi-form mode
+                            if (window.multiFormMode === true) {
+                                this.isMultipleFormsMode = true;
+                                this.multipleFormsData = [];
+                                this.addNewFormRow(); // Add one empty row to start
+                            }
+                            return;
+                        }
+
+                        // Determine mode based on preset data or m parameter
+                        const shouldUseMultipleMode = presetResult.is_multiple || window.multiFormMode === true;
+
+                        if (shouldUseMultipleMode) {
+                            // Handle multiple forms mode
+                            this.isMultipleFormsMode = true;
+                            
+                            if (presetResult.is_multiple && Array.isArray(presetResult.processed_data)) {
+                                this.multipleFormsData = presetResult.processed_data;
+                                this.showMessage(`已加载 ${this.multipleFormsData.length} 个表单的预设数据`, 'success');
+                            } else {
+                                // Single data item but multi-form mode requested via m=1
+                                this.multipleFormsData = [presetResult.processed_data];
+                                this.showMessage('已加载预设数据并启用多表单模式', 'success');
+                            }
+                            
+                            this.currentFormIndex = 0;
+                            
+                            // Pre-fill first form for legacy single-form display
+                            if (this.multipleFormsData.length > 0) {
+                                this.formData = { ...this.multipleFormsData[0] };
+                            }
+                        } else {
+                            // Handle single form mode
+                            this.isMultipleFormsMode = false;
+                            this.formData = { ...presetResult.processed_data };
+                            this.showMessage('已加载预设数据', 'success');
+                        }
+                        
+                        // Switch to preview mode to show filled form
+                        this.currentMode = 'preview';
+                        
+                    } catch (error) {
+                        console.error('Error handling preset data:', error);
+                        this.showMessage('预设数据处理出错', 'error');
+                        
+                        // If multi-form mode is enabled via m=1 parameter, still initialize multi-form mode
+                        if (window.multiFormMode === true) {
+                            this.isMultipleFormsMode = true;
+                            this.multipleFormsData = [];
+                            this.addNewFormRow(); // Add one empty row to start
+                        }
+                    }
+                },
+
+                nextForm() {
+                    if (this.isMultipleFormsMode && this.currentFormIndex < this.multipleFormsData.length - 1) {
+                        this.currentFormIndex++;
+                        this.formData = { ...this.multipleFormsData[this.currentFormIndex] };
+                        this.clearSubmitStatus();
+                    }
+                },
+
+                prevForm() {
+                    if (this.isMultipleFormsMode && this.currentFormIndex > 0) {
+                        this.currentFormIndex--;
+                        this.formData = { ...this.multipleFormsData[this.currentFormIndex] };
+                        this.clearSubmitStatus();
+                    }
+                },
+
+                clearSubmitStatus() {
+                    this.submitStatus = '';
+                    this.submitSuccess = false;
+                },
+
+                addNewFormRow() {
+                    if (!this.isMultipleFormsMode) {
+                        // Switch to multiple forms mode
+                        this.isMultipleFormsMode = true;
+                        // Initialize with current form data as first row
+                        this.multipleFormsData = [{ ...this.formData }];
+                    }
+                    
+                    // Create new empty row with default values
+                    const newRow = {};
+                    this.formFields.forEach(field => {
+                        if (field.key) {
+                            newRow[field.key] = '';
+                        }
+                    });
+                    
+                    this.multipleFormsData.push(newRow);
+                    this.showMessage('已添加新的数据行', 'success');
+                },
+
+                removeFormRow(rowIndex) {
+                    if (this.multipleFormsData.length > 1) {
+                        this.multipleFormsData.splice(rowIndex, 1);
+                        this.showMessage('已删除数据行', 'success');
+                    } else {
+                        this.showMessage('至少需要保留一行数据', 'error');
+                    }
+                },
+
+                async submitAllForms() {
+                    if (!this.isMultipleFormsMode || this.multipleFormsData.length === 0) {
+                        this.showMessage('没有要提交的数据', 'error');
+                        return;
+                    }
+
+                    // Validate all rows
+                    let hasErrors = false;
+                    const errors = [];
+
+                    for (let i = 0; i < this.multipleFormsData.length; i++) {
+                        const rowData = this.multipleFormsData[i];
+                        for (let field of this.formFields) {
+                            if (field.required && field.key && (!rowData[field.key] || rowData[field.key].toString().trim() === '')) {
+                                hasErrors = true;
+                                errors.push(`第 ${i + 1} 行的 "${field.label}" 为必填项`);
+                            }
+                        }
+                    }
+
+                    if (hasErrors) {
+                        this.showMessage(`表单验证失败:\n${errors.slice(0, 3).join('\n')}${errors.length > 3 ? '\n...' : ''}`, 'error');
+                        return;
+                    }
+
+                    // Prepare submission data
+                    const submissionData = {
+                        mode: 'multiple',
+                        forms: this.multipleFormsData,
+                        config: this.formConfig,
+                        total_count: this.multipleFormsData.length
+                    };
+
+                    try {
+                        this.submitStatus = '正在提交多表单数据...';
+                        this.submitSuccess = false;
+
+                        console.log('Multi-form submission data:', submissionData);
+
+                        // Submit to configured URL or log to console
+                        if (this.formConfig.postUrl) {
+                            const response = await fetch('/universalform/submit', {
+                                method: 'POST',
+                                headers: {
+                                    'Content-Type': 'application/json',
+                                },
+                                body: JSON.stringify(submissionData)
+                            });
+
+                            if (response.ok) {
+                                const result = await response.json();
+                                this.submitStatus = `成功提交 ${this.multipleFormsData.length} 个表单`;
+                                this.submitSuccess = true;
+                                this.showMessage(`多表单提交成功 (共 ${this.multipleFormsData.length} 条记录)`, 'success');
+                            } else {
+                                throw new Error(`HTTP ${response.status}`);
+                            }
+                        } else {
+                            // No URL configured, just log
+                            this.submitStatus = `已输出 ${this.multipleFormsData.length} 个表单数据到控制台`;
+                            this.submitSuccess = true;
+                            this.showMessage(`多表单数据已输出到控制台 (共 ${this.multipleFormsData.length} 条记录)`, 'success');
+                        }
+
+                    } catch (error) {
+                        console.error('Multi-form submission failed:', error);
+                        this.submitStatus = '多表单提交失败: ' + error.message;
+                        this.submitSuccess = false;
+                        this.showMessage('多表单提交失败', 'error');
+                    }
+                },
+
+                switchToSingleMode() {
+                    if (this.isMultipleFormsMode) {
+                        // Switch back to single form mode
+                        this.isMultipleFormsMode = false;
+                        
+                        // Use the first row as the single form data, or create empty if no data
+                        if (this.multipleFormsData.length > 0) {
+                            this.formData = { ...this.multipleFormsData[0] };
+                        } else {
+                            this.formData = {};
+                            this.formFields.forEach(field => {
+                                if (field.key) {
+                                    this.formData[field.key] = '';
+                                }
+                            });
+                        }
+                        
+                        this.multipleFormsData = [];
+                        this.currentFormIndex = 0;
+                        this.clearSubmitStatus();
+                        this.showMessage('已切换到单数据模式', 'success');
+                    }
+                },
+
+                validateForm() {
+                    for (let field of this.formFields) {
+                        // Skip fields without keys
+                        if (!field.key) continue;
+                        
+                        if (field.required && (!this.formData[field.key] || this.formData[field.key] === '')) {
+                            this.showMessage(`请填写必填字段：${field.label}`, 'error');
+                            return false;
+                        }
+                        
+                        // Validate email format
+                        if (field.type === 'email' && this.formData[field.key]) {
+                            const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+                            if (!emailRegex.test(this.formData[field.key])) {
+                                this.showMessage(`请输入正确的邮箱格式：${field.label}`, 'error');
+                                return false;
+                            }
+                        }
+
+                        // Validate URL format
+                        if (field.type === 'url' && this.formData[field.key]) {
+                            try {
+                                new URL(this.formData[field.key]);
+                            } catch {
+                                this.showMessage(`请输入正确的网址格式：${field.label}`, 'error');
+                                return false;
+                            }
+                        }
+                    }
+                    return true;
+                },
+
+                async submitForm() {
+                    if (!this.validateForm()) return;
+
+                    // Log form data to console
+                    console.log('表单数据:', this.formData);
+
+                    // Submit to configured POST URL
+                    if (this.formConfig.postUrl) {
+                        await this.submitToUrl(this.formConfig.postUrl);
+                    } else {
+                        this.showMessage('表单数据已输出到控制台，请配置POST地址进行提交', 'success');
+                    }
+                },
+
+
+                async submitToUrl(url) {
+                    this.submitStatus = '正在提交...';
+                    this.submitSuccess = false;
+
+                    try {
+                        const response = await fetch(url, {
+                            method: 'POST',
+                            headers: {
+                                'Content-Type': 'application/json',
+                            },
+                            body: JSON.stringify(this.formData)
+                        });
+
+                        if (response.ok) {
+                            this.submitStatus = '提交成功！';
+                            this.submitSuccess = true;
+                            this.showMessage('表单提交成功', 'success');
+                        } else {
+                            throw new Error(`HTTP ${response.status}`);
+                        }
+                    } catch (error) {
+                        console.error('提交失败:', error);
+                        this.submitStatus = `提交失败: ${error.message}`;
+                        this.submitSuccess = false;
+                        this.showMessage('表单提交失败', 'error');
+                    }
+                },
+
+                showMessage(msg, type = 'success') {
+                    this.message = msg;
+                    this.messageType = type;
+                    setTimeout(() => {
+                        this.message = '';
+                    }, 5000);
+                }
+            }
+        }
+    </script>
+</body>
+</html>

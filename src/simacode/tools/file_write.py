@@ -105,7 +105,8 @@ class FileWriteTool(Tool):
             version="1.0.0"
         )
         self.permission_manager = permission_manager or PermissionManager()
-        self.path_validator = PathValidator()
+        # Initialize PathValidator with the allowed paths from permission manager
+        self.path_validator = PathValidator(self.permission_manager.get_allowed_paths())
     
     def get_input_schema(self) -> Type[ToolInput]:
         """Return the input schema for this tool."""

@@ -17,6 +17,10 @@ from .base import Tool, ToolResult, ToolInput, ToolRegistry, ToolResultType, exe
 from .bash import BashTool
 from .file_read import FileReadTool
 from .file_write import FileWriteTool
+from .universal_ocr import UniversalOCRTool
+# EmailSendTool has been migrated to MCP server: tools/mcp_smtp_send_email.py
+# from .email_send import EmailSendTool
+from .smc_content_coder import MCPContentExtraction, ContentForwardURL
 
 __all__ = [
     "Tool",
@@ -28,4 +32,8 @@ __all__ = [
     "BashTool",
     "FileReadTool",
     "FileWriteTool",
+    "UniversalOCRTool",
+    # "EmailSendTool",  # Migrated to MCP server: tools/mcp_smtp_send_email.py
+    "MCPContentExtraction",
+    "ContentForwardURL",
 ]

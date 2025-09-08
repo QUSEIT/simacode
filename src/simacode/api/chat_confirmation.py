@@ -48,7 +48,7 @@ class ChatStreamConfirmationManager:
     async def request_confirmation(
         self, 
         session_id: str, 
-        tasks: List[Dict[str, Any]], 
+        tasks: List[Any], 
         timeout_seconds: int = 300
     ) -> Dict[str, Any]:
         """
@@ -67,13 +67,16 @@ class ChatStreamConfirmationManager:
             self._confirmation_rounds[session_id] = self._confirmation_rounds.get(session_id, 0) + 1
             confirmation_round = self._confirmation_rounds[session_id]
             
+            # 统一转换tasks为字典格式
+            normalized_tasks = self._normalize_tasks(tasks)
+            
             confirmation_data = {
-                "tasks": tasks,
-                "total_tasks": len(tasks),
+                "tasks": normalized_tasks,
+                "total_tasks": len(normalized_tasks),
                 "options": ["confirm", "modify", "cancel"],
                 "timeout_seconds": timeout_seconds,
                 "confirmation_round": confirmation_round,
-                "risk_level": self._assess_risk_level(tasks)
+                "risk_level": self._assess_risk_level(normalized_tasks)
             }
             
             # 创建暂停事件
@@ -110,6 +113,10 @@ class ChatStreamConfirmationManager:
             是否成功提交
         """
         async with self._lock:
+            logger.debug(f"[CONFIRM_DEBUG] ChatStreamConfirmationManager.submit_confirmation called")
+            logger.debug(f"[CONFIRM_DEBUG] Session: {session_id}, Action: {action}")
+            logger.debug(f"[CONFIRM_DEBUG] Pending confirmations: {list(self.pending_confirmations.keys())}")
+            
             if session_id not in self.pending_confirmations:
                 logger.warning(f"No pending confirmation for session {session_id}")
                 return False
@@ -151,6 +158,10 @@ class ChatStreamConfirmationManager:
         Returns:
             用户确认响应，超时返回None
         """
+        logger.debug(f"[CONFIRM_DEBUG] ChatStreamConfirmationManager.wait_for_confirmation called for {session_id}")
+        logger.debug(f"[CONFIRM_DEBUG] Stream events: {list(self.stream_events.keys())}")
+        logger.debug(f"[CONFIRM_DEBUG] Pending confirmations: {list(self.pending_confirmations.keys())}")
+        
         if session_id not in self.stream_events or session_id not in self.pending_confirmations:
             logger.warning(f"No confirmation setup for session {session_id}")
             return None
@@ -160,14 +171,17 @@ class ChatStreamConfirmationManager:
         
         try:
             # 等待确认响应
+            logger.debug(f"[CONFIRM_DEBUG] Starting to wait for event, timeout: {timeout_seconds}s")
             await asyncio.wait_for(
                 self.stream_events[session_id].wait(), 
                 timeout=timeout_seconds
             )
+            logger.debug(f"[CONFIRM_DEBUG] Event received, processing response")
             
             # 返回用户响应
             response = confirmation.user_response
             logger.info(f"Received confirmation for session {session_id}: {response.action if response else 'None'}")
+            logger.debug(f"[CONFIRM_DEBUG] Returning response: {response}")
             
             return response
         
@@ -184,10 +198,12 @@ class ChatStreamConfirmationManager:
             )
             confirmation.user_response = timeout_response
             
+
             return timeout_response
         
         finally:
             # 清理状态
+            logger.debug(f"[CONFIRM_DEBUG] Cleaning up confirmation for session {session_id}")
             self._cleanup_confirmation(session_id)
     
     def get_confirmation_status(self, session_id: str) -> Optional[Dict[str, Any]]:
@@ -213,6 +229,47 @@ class ChatStreamConfirmationManager:
             "is_expired": confirmation.is_expired,
             "has_response": confirmation.user_response is not None
         }
+    
+    def _normalize_tasks(self, tasks: List[Any]) -> List[Dict[str, Any]]:
+        """
+        统一转换tasks为字典格式
+        
+        Args:
+            tasks: 任务列表，可能是Task对象或字典
+            
+        Returns:
+            字典格式的任务列表
+        """
+        normalized = []
+        for task in tasks:
+            if hasattr(task, 'to_dict'):
+                # Task对象，转换为字典
+                normalized.append(task.to_dict())
+            elif isinstance(task, dict):
+                # 已经是字典
+                normalized.append(task)
+            else:
+                # 其他类型，尝试转换为字典
+                try:
+                    if hasattr(task, '__dict__'):
+                        normalized.append(task.__dict__)
+                    else:
+                        # 最后的回退，创建一个基本的任务描述
+                        normalized.append({
+                            "id": getattr(task, 'id', 'unknown'),
+                            "description": str(task),
+                            "type": "unknown",
+                            "tool": "unknown"
+                        })
+                except Exception as e:
+                    logger.warning(f"Failed to normalize task {task}: {e}")
+                    normalized.append({
+                        "id": "unknown",
+                        "description": str(task),
+                        "type": "unknown",
+                        "tool": "unknown"
+                    })
+        return normalized
     
     def _assess_risk_level(self, tasks: List[Dict[str, Any]]) -> str:
         """

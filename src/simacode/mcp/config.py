@@ -185,27 +185,123 @@ class MCPConfigManager:
         # Return default path for creation
         return Path.cwd() / "config" / "mcp_servers.yaml"
     
+    def _resolve_user_config_path(self) -> Path:
+        """Resolve user configuration file path (.simacode/config.yaml)."""
+        # Try project-level config first, then user-level config
+        project_config = Path.cwd() / ".simacode" / "config.yaml"
+        if project_config.exists():
+            return project_config
+        
+        user_config = Path.home() / ".simacode" / "config.yaml"
+        return user_config
+    
+    def _merge_config_data(self, default_data: Dict[str, Any], user_data: Dict[str, Any]) -> Dict[str, Any]:
+        """Merge user configuration data with default data."""
+        merged_data = default_data.copy()
+        
+        # Handle MCP global settings merge
+        if "mcp" in user_data:
+            if "mcp" in merged_data:
+                merged_data["mcp"].update(user_data["mcp"])
+            else:
+                merged_data["mcp"] = user_data["mcp"]
+        
+        # Handle server-specific configurations
+        if "servers" in user_data:
+            if "servers" not in merged_data:
+                merged_data["servers"] = {}
+            
+            for server_name, user_server_config in user_data["servers"].items():
+                if server_name in merged_data["servers"]:
+                    # Merge with existing server config
+                    merged_server_config = merged_data["servers"][server_name].copy()
+                    
+                    # Handle nested dictionaries like environment and security
+                    for key, value in user_server_config.items():
+                        if key == "environment" and isinstance(value, dict):
+                            if "environment" in merged_server_config:
+                                merged_server_config["environment"].update(value)
+                            else:
+                                merged_server_config["environment"] = value
+                        elif key == "security" and isinstance(value, dict):
+                            if "security" in merged_server_config:
+                                merged_server_config["security"].update(value)
+                            else:
+                                merged_server_config["security"] = value
+                        elif key == "headers" and isinstance(value, dict):
+                            if "headers" in merged_server_config:
+                                merged_server_config["headers"].update(value)
+                            else:
+                                merged_server_config["headers"] = value
+                        else:
+                            # Direct override for simple values
+                            merged_server_config[key] = value
+                    
+                    merged_data["servers"][server_name] = merged_server_config
+                else:
+                    # Add new server configuration
+                    merged_data["servers"][server_name] = user_server_config
+        
+        return merged_data
+    
     async def load_config(self) -> MCPConfig:
-        """Load MCP configuration from file."""
+        """Load MCP configuration from file with user config merging."""
         try:
-            if not self.config_path.exists():
-                # Create default configuration
+            # Load default configuration first
+            default_config_data = {}
+            if self.config_path.exists():
+                with open(self.config_path, 'r', encoding='utf-8') as f:
+                    raw_data = f.read()
+                
+                # Process templates (environment variables)
+                processed_data = self._template_engine.process(raw_data)
+                default_config_data = yaml.safe_load(processed_data) or {}
+            else:
+                # Create default configuration if it doesn't exist
                 self.config = MCPConfig()
                 await self.save_config()
                 return self.config
             
-            with open(self.config_path, 'r', encoding='utf-8') as f:
-                raw_data = f.read()
+            # Load user configuration for overrides
+            user_config_path = self._resolve_user_config_path()
+            user_config_data = {}
             
-            # Process templates (environment variables)
-            processed_data = self._template_engine.process(raw_data)
-            config_data = yaml.safe_load(processed_data)
+            if user_config_path.exists():
+                try:
+                    with open(user_config_path, 'r', encoding='utf-8') as f:
+                        raw_user_data = f.read()
+                    
+                    # Process templates in user config too
+                    processed_user_data = self._template_engine.process(raw_user_data)
+                    loaded_user_data = yaml.safe_load(processed_user_data) or {}
+                    
+                    # Extract MCP-related configuration from user config
+                    if "mcp" in loaded_user_data:
+                        user_config_data["mcp"] = loaded_user_data["mcp"]
+                    
+                    # Look for MCP server configurations in user config
+                    if "mcp_servers" in loaded_user_data:
+                        user_config_data["servers"] = loaded_user_data["mcp_servers"]
+                    
+                    # Also check for servers section directly
+                    if "servers" in loaded_user_data:
+                        if "servers" not in user_config_data:
+                            user_config_data["servers"] = loaded_user_data["servers"]
+                        else:
+                            # Merge both servers sections if they exist
+                            user_config_data["servers"].update(loaded_user_data["servers"])
+                            
+                except Exception as e:
+                    # Log warning but don't fail - continue with default config only
+                    import logging
+                    logger = logging.getLogger(__name__)
+                    logger.warning(f"Failed to load user config from {user_config_path}: {str(e)}")
             
-            if not config_data:
-                config_data = {}
+            # Merge configurations
+            final_config_data = self._merge_config_data(default_config_data, user_config_data)
             
             # Parse and validate configuration
-            self.config = MCPConfig(**config_data)
+            self.config = MCPConfig(**final_config_data)
             return self.config
             
         except yaml.YAMLError as e:
@@ -215,7 +311,7 @@ class MCPConfigManager:
             )
         except Exception as e:
             raise MCPConfigurationError(
-                f"Failed to load configuration from {self.config_path}: {str(e)}"
+                f"Failed to load configuration: {str(e)}"
             )
     
     async def save_config(self, config: Optional[MCPConfig] = None) -> None:

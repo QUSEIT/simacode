@@ -98,7 +98,7 @@ class FileReadTool(Tool):
             version="1.0.0"
         )
         self.permission_manager = permission_manager or PermissionManager()
-        self.path_validator = PathValidator()
+        self.path_validator = PathValidator(self.permission_manager.get_allowed_paths())
         
         # Common text encodings to try
         self.common_encodings = [
