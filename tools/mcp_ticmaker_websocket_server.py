@@ -51,7 +51,7 @@ except ImportError:
 
 # Configure logging
 logging.basicConfig(
-    level=logging.INFO,
+    level=logging.DEBUG,  # Changed to DEBUG for detailed logging
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stderr
 )
@@ -168,31 +168,51 @@ class TICMakerWebSocketServer:
         ws = web.WebSocketResponse()
         await ws.prepare(request)
         
-        logger.info("WebSocket connection established")
+        client_ip = request.remote
+        logger.info(f"🔗 WebSocket connection established from {client_ip}")
+        logger.debug(f"📊 Connection headers: {dict(request.headers)}")
+        
+        message_count = 0
         
         try:
             async for msg in ws:
                 if msg.type == WSMsgType.TEXT:
+                    message_count += 1
+                    logger.debug(f"📥 [{message_count}] Received WebSocket message ({len(msg.data)} bytes)")
+                    
                     try:
                         # Parse MCP message
                         request_data = json.loads(msg.data)
+                        logger.debug(f"📋 [{message_count}] Parsed JSON: {json.dumps(request_data, indent=2)}")
+                        
                         mcp_message = MCPMessage.from_dict(request_data)
+                        logger.info(f"🔧 [{message_count}] Processing MCP method: {mcp_message.method}")
                         
                         # Process message
                         response = await self._process_mcp_message(mcp_message)
                         
                         # Send response (only if not None - notifications don't need responses)
                         if response is not None:
-                            await ws.send_str(response.to_json())
+                            response_json = response.to_json()
+                            logger.debug(f"📤 [{message_count}] Sending response ({len(response_json)} bytes)")
+                            logger.debug(f"📋 [{message_count}] Response JSON: {json.dumps(json.loads(response_json), indent=2)}")
+                            await ws.send_str(response_json)
+                        else:
+                            logger.debug(f"📤 [{message_count}] No response needed (notification)")
                         
+                    except json.JSONDecodeError as e:
+                        logger.error(f"❌ [{message_count}] JSON decode error: {str(e)}")
+                        logger.error(f"📄 [{message_count}] Raw message: {msg.data}")
                     except Exception as e:
-                        logger.error(f"Error processing WebSocket message: {str(e)}")
+                        logger.error(f"❌ [{message_count}] Error processing WebSocket message: {str(e)}")
+                        logger.debug(f"📄 [{message_count}] Message data: {msg.data}")
                         
                         # Try to extract request ID for error response
                         request_id = None
                         try:
                             if 'request_data' in locals():
                                 request_id = request_data.get("id")
+                                logger.debug(f"🔍 [{message_count}] Extracted request ID: {request_id}")
                         except:
                             pass
                         
@@ -207,27 +227,38 @@ class TICMakerWebSocketServer:
                         await ws.send_str(error_response.to_json())
                         
                 elif msg.type == WSMsgType.ERROR:
-                    logger.error(f"WebSocket error: {ws.exception()}")
+                    logger.error(f"💥 WebSocket error: {ws.exception()}")
                     break
+                elif msg.type == WSMsgType.CLOSE:
+                    logger.info(f"🔌 WebSocket close message received: {msg.data}")
+                    break
+                else:
+                    logger.debug(f"📨 Received WebSocket message type: {msg.type}")
                     
         except Exception as e:
-            logger.error(f"WebSocket connection error: {str(e)}")
+            logger.error(f"💥 WebSocket connection error: {str(e)}")
+            import traceback
+            logger.debug(f"📚 Exception traceback:\n{traceback.format_exc()}")
         finally:
-            logger.info("WebSocket connection closed")
+            logger.info(f"🔌 WebSocket connection closed from {client_ip} (processed {message_count} messages)")
         
         return ws
     
     async def _process_mcp_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Process an MCP message and return response (None for notifications)."""
         
+        logger.debug(f"🔍 Processing MCP message: method={message.method}, id={message.id}")
+        logger.debug(f"📝 Message params: {message.params}")
+        
         # Handle notifications (no response needed)
         if message.method == "notifications/initialized":
-            logger.info("Received initialized notification")
+            logger.info("✅ Received initialized notification")
             return None
         
         if message.method == MCPMethods.INITIALIZE:
             # Handle initialization
-            return MCPMessage(
+            logger.info("🚀 Processing INITIALIZE request")
+            response = MCPMessage(
                 id=message.id,
                 result={
                     "serverInfo": self.server_info,
@@ -237,10 +268,14 @@ class TICMakerWebSocketServer:
                     }
                 }
             )
+            logger.debug(f"✅ INITIALIZE response: {response.result}")
+            return response
             
         elif message.method == MCPMethods.TOOLS_LIST:
             # List available tools
+            logger.info("🔧 Processing TOOLS_LIST request")
             tools_list = list(self.tools.values())
+            logger.debug(f"📋 Available tools: {[tool['name'] for tool in tools_list]}")
             return MCPMessage(
                 id=message.id,
                 result={"tools": tools_list}
@@ -251,16 +286,20 @@ class TICMakerWebSocketServer:
             tool_name = message.params.get("name")
             arguments = message.params.get("arguments", {})
             
-            logger.info(f"Calling tool: {tool_name}")
+            logger.info(f"🛠️ Processing TOOLS_CALL request for: {tool_name}")
+            logger.debug(f"📝 Tool arguments: {json.dumps(arguments, ensure_ascii=False, indent=2)}")
             
             try:
                 if tool_name == "create_interactive_course":
+                    logger.info("🎯 Executing create_interactive_course tool")
                     result = await self._create_interactive_course(arguments)
+                    logger.info(f"✅ Tool execution completed, result length: {len(result)}")
                     return MCPMessage(
                         id=message.id,
                         result={"content": result}
                     )
                 else:
+                    logger.error(f"❌ Unknown tool requested: {tool_name}")
                     return MCPMessage(
                         id=message.id,
                         error={
@@ -270,7 +309,9 @@ class TICMakerWebSocketServer:
                     )
                     
             except Exception as e:
-                logger.error(f"Tool execution error: {str(e)}")
+                logger.error(f"💥 Tool execution error: {str(e)}")
+                import traceback
+                logger.debug(f"📚 Tool execution traceback:\n{traceback.format_exc()}")
                 return MCPMessage(
                     id=message.id,
                     error={
@@ -278,8 +319,40 @@ class TICMakerWebSocketServer:
                         "message": f"Tool execution failed: {str(e)}"
                     }
                 )
+            
+        elif message.method == MCPMethods.PING:
+            # Ping response
+            logger.info("🏓 Processing PING request")
+            response = MCPMessage(
+                id=message.id,
+                result={"pong": True}
+            )
+            logger.debug("✅ PING response: pong")
+            return response
+            
+        elif message.method == MCPMethods.RESOURCES_LIST:
+            # List available resources (none for TICMaker)
+            logger.info("📚 Processing RESOURCES_LIST request")
+            response = MCPMessage(
+                id=message.id,
+                result={"resources": []}
+            )
+            logger.debug("✅ RESOURCES_LIST response: empty list")
+            return response
+            
+        elif message.method == MCPMethods.PROMPTS_LIST:
+            # List available prompts (none for TICMaker)
+            logger.info("💬 Processing PROMPTS_LIST request")
+            response = MCPMessage(
+                id=message.id,
+                result={"prompts": []}
+            )
+            logger.debug("✅ PROMPTS_LIST response: empty list")
+            return response
+            
         else:
             # Unknown method
+            logger.error(f"❌ Unknown method requested: {message.method}")
             return MCPMessage(
                 id=message.id,
                 error={
@@ -290,17 +363,19 @@ class TICMakerWebSocketServer:
     
     async def _create_interactive_course(self, args: Dict[str, Any]) -> List[Dict[str, Any]]:
         """Create interactive teaching content."""
+        logger.info("🎯 ===== TICMaker Course Creation Started =====")
+        
         user_input = args.get("user_input", "")
         course_title = args.get("course_title", "")
         file_path = args.get("file_path")
         
         # Log request details
-        logger.info("=" * 80)
-        logger.info("🎯 TICMaker - Interactive Teaching Course Creation Request")
-        logger.info(f"💬 User Requirements: {user_input}")
-        logger.info(f"📄 Course Title: {course_title or 'Not specified'}")
-        logger.info(f"📁 File Path: {file_path or 'Auto-generate'}")
-        logger.info("=" * 80)
+        logger.info("📋 Input Parameters:")
+        logger.info(f"   💬 User Requirements: {user_input}")
+        logger.info(f"   📄 Course Title: {course_title or 'Not specified'}")
+        logger.info(f"   📁 File Path: {file_path or 'Auto-generate'}")
+        logger.debug(f"📝 Full arguments: {json.dumps(args, ensure_ascii=False, indent=2)}")
+        logger.info("=" * 60)
         
         if not file_path:
             # Generate default filename
@@ -308,39 +383,59 @@ class TICMakerWebSocketServer:
             random_id = str(uuid.uuid4())[:8]
             filename = f"ticmaker_page_{timestamp}_{random_id}.html"
             file_path = self.output_dir / filename
+            logger.info(f"📁 Generated filename: {filename}")
         else:
+            original_path = file_path
             file_path = Path(file_path)
             # Ensure file is in safe directory
             if not str(file_path).startswith(str(self.output_dir)):
                 file_path = self.output_dir / Path(file_path).name
+                logger.warning(f"⚠️ File path adjusted for security: {original_path} → {file_path}")
+            logger.info(f"📁 Using specified file path: {file_path}")
+        
+        logger.info(f"📂 Output directory: {self.output_dir}")
+        logger.info(f"📄 Final file path: {file_path}")
         
         try:
+            logger.info("🔍 Checking if file exists...")
             # Check if modifying existing file
             loop = asyncio.get_event_loop()
             file_exists = await loop.run_in_executor(None, lambda: file_path.exists())
+            logger.info(f"📋 File exists: {file_exists}")
             
             if file_exists:
+                logger.info("📖 Reading existing file content...")
                 # Read existing content and modify
                 existing_content = await loop.run_in_executor(None, lambda: file_path.read_text(encoding='utf-8'))
+                logger.info(f"📏 Existing content length: {len(existing_content)} characters")
+                
+                logger.info("🔧 Modifying existing HTML content...")
                 html_content = await self._modify_html_content(existing_content, user_input)
             else:
+                logger.info("🆕 Creating new HTML content...")
                 # Create new page
                 html_content = await self._generate_html_content(user_input, course_title)
             
+            logger.info(f"📏 Generated HTML content length: {len(html_content)} characters")
+            
             # Determine operation type
             action = "Modified" if file_exists else "Created"
+            logger.info(f"🎬 Action: {action}")
             
+            logger.info("💾 Writing HTML content to file...")
             # Write file using executor to avoid blocking event loop
             await loop.run_in_executor(None, lambda: file_path.write_text(html_content, encoding='utf-8'))
             
             # Get file size
             file_size = await loop.run_in_executor(None, lambda: file_path.stat().st_size)
+            logger.info(f"📊 File written successfully, size: {file_size} bytes")
             
             # Log success
             result_msg = f"✅ Interactive course {action.lower()} successfully"
-            logger.info(f"\n{result_msg}")
-            logger.info(f"File path: {file_path}")
-            logger.info(f"File size: {file_size} bytes")
+            logger.info(f"🎉 {result_msg}")
+            logger.info(f"📁 File path: {file_path}")
+            logger.info(f"📏 File size: {file_size} bytes")
+            logger.info("🎯 ===== TICMaker Course Creation Completed =====")
             
             return [
                 {
@@ -354,8 +449,11 @@ class TICMakerWebSocketServer:
             
         except Exception as e:
             error_msg = f"❌ Interactive course creation failed: {str(e)}"
-            logger.error(f"\n{error_msg}")
-            logger.error(f"Interactive course creation error: {e}")
+            logger.error(f"💥 {error_msg}")
+            logger.error(f"📚 Exception details: {e}")
+            import traceback
+            logger.debug(f"📚 Full traceback:\n{traceback.format_exc()}")
+            logger.error("🎯 ===== TICMaker Course Creation Failed =====")
             
             return [
                 {
