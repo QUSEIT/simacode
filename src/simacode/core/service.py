@@ -17,6 +17,7 @@ from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
 from ..tools.base import execute_tool
+from ..mcp.loop_safe_client import safe_call_mcp_tool
 from .ticmaker_detector import TICMakerDetector
 
 logger = logging.getLogger(__name__)
@@ -288,7 +289,7 @@ class SimaCodeService:
         self, 
         request: ChatRequest, 
         trigger_reason: str
-    ) -> None:
+    ):
         """
         调用TICMaker工具进行HTML页面处理
         
@@ -320,13 +321,28 @@ class SimaCodeService:
                 operation=operation
             )
             
-            # 直接调用TICMaker工具（使用全局execute_tool函数）
+            # 使用事件循环安全的 MCP 工具调用
             logger.info(f"🎯 调用TICMaker工具: operation={operation}, source={source}")
+            logger.debug(f"🔧 工具输入参数: {tool_input}")
             
-            # 调用create_html_page工具
-            async for result in execute_tool("ticmaker:create_html_page", tool_input):
-                logger.info(f"🎯 TICMaker工具执行结果: {result.content[:200]}...")
-                # 可以根据需要处理工具执行结果
+            # 获取当前事件循环信息用于调试
+            try:
+                current_loop = asyncio.get_running_loop()
+                logger.debug(f"🌐 当前事件循环: {current_loop}")
+            except RuntimeError:
+                logger.debug("🌐 没有运行中的事件循环")
+            
+            # 使用事件循环安全的调用方式
+            result = await safe_call_mcp_tool("ticmaker:create_html_page", tool_input)
+            
+            if result.success:
+                logger.info(f"✅ TICMaker工具执行成功: {str(result.content)[:200]}...")
+            else:
+                logger.error(f"❌ TICMaker工具执行失败: {result.error}")
+                # 记录更多调试信息
+                logger.debug(f"🔍 失败的工具元数据: {result.metadata}")
+            
+            return result
             
         except Exception as e:
             logger.error(f"TICMaker工具调用失败: {e}")
