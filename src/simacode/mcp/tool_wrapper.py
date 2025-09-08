@@ -423,7 +423,7 @@ class MCPToolWrapper(Tool):
         }
         
         # 🎯 TICMaker特殊处理：确保必需的message参数存在
-        if self.original_name == "create_html_page" and self.server_name == "ticmaker":
+        if self.original_name == "create_interactive_course" and self.server_name == "ticmaker":
             if "message" not in mcp_args or not mcp_args.get("message"):
                 # 尝试从多个可能的源获取消息
                 possible_message = None

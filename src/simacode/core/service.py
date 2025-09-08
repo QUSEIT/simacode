@@ -333,7 +333,7 @@ class SimaCodeService:
                 logger.debug("🌐 没有运行中的事件循环")
             
             # 使用事件循环安全的调用方式
-            result = await safe_call_mcp_tool("ticmaker:create_html_page", tool_input)
+            result = await safe_call_mcp_tool("ticmaker:create_interactive_course", tool_input)
             
             if result.success:
                 logger.info(f"✅ TICMaker工具执行成功: {str(result.content)[:200]}...")

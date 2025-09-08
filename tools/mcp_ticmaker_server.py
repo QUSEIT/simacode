@@ -1,8 +1,8 @@
 #!/usr/bin/env python3
 """
 TICMaker MCP Server for SimaCode
-专门处理HTML网页创建和修改的MCP服务器
-支持CLI和API双模式
+专门处理互动教学HTML页面创建和修改的MCP服务器
+支持多种模板类型和智能内容生成
 """
 
 import asyncio
@@ -37,7 +37,15 @@ logger = logging.getLogger(__name__)
 
 
 class TICMakerMCPServer:
-    """TICMaker专用MCP服务器 - 处理HTML网页创建和修改"""
+    """
+    TICMaker专用MCP服务器 - 处理互动教学HTML页面创建和修改
+    
+    功能特性：
+    - 智能模板选择（基础、互动、教育类型）
+    - 多种样式风格支持
+    - 安全的文件路径管理
+    - 详细的操作日志记录
+    """
     
     def __init__(self):
         if Server is None:
@@ -53,8 +61,8 @@ class TICMakerMCPServer:
         async def list_tools(params: Optional[types.PaginatedRequestParams] = None) -> List[types.Tool]:
             return [
                 types.Tool(
-                    name="create_html_page",
-                    description="创建或修改HTML网页文件",
+                    name="create_interactive_course",
+                    description="创建或修改互动教学课程",
                     inputSchema={
                         "type": "object",
                         "properties": {
@@ -66,14 +74,15 @@ class TICMakerMCPServer:
                                 "type": "object", 
                                 "description": "请求上下文信息",
                                 "properties": {
-                                    "scope": {"type": "string"},
+                                    "scope": {"type": "string", "description": "作用域，通常为'ticmaker'"},
+                                    "courseTitle": {"type": "string", "description": "课程标题"},
                                     "file_path": {"type": "string", "description": "可选的文件路径"},
-                                    "template": {"type": "string", "description": "可选的HTML模板"},
-                                    "style": {"type": "string", "description": "可选的样式要求"}
+                                    "template": {"type": "string", "description": "模板类型: basic, interactive, educational", "enum": ["basic", "interactive", "educational"]},
+                                    "style": {"type": "string", "description": "样式风格: modern, classic, colorful", "enum": ["modern", "classic", "colorful"]}
                                 }
                             },
                             "session_id": {"type": "string", "description": "会话标识符"},
-                            "source": {"type": "string", "description": "请求来源: CLI或API"},
+                            "source": {"type": "string", "description": "请求来源: CLI, API, ReAct"},
                             "operation": {
                                 "type": "string", 
                                 "description": "操作类型: create（创建新页面）或modify（修改现有页面）",
@@ -82,43 +91,34 @@ class TICMakerMCPServer:
                         },
                         "required": ["message"]
                     }
-                ),
-                types.Tool(
-                    name="list_html_pages",
-                    description="列出已创建的HTML页面",
-                    inputSchema={
-                        "type": "object",
-                        "properties": {
-                            "pattern": {"type": "string", "description": "可选的文件名匹配模式"}
-                        }
-                    }
                 )
             ]
         
         @self.server.call_tool()
         async def call_tool(name: str, arguments: Dict[str, Any]) -> List[types.TextContent]:
-            if name == "create_html_page":
-                return await self._create_html_page(arguments)
-            elif name == "list_html_pages":
-                return await self._list_html_pages(arguments)
-            raise ValueError(f"Unknown tool: {name}")
+            if name == "create_interactive_course":
+                return await self._create_interactive_course(arguments)
+            else:
+                raise ValueError(f"Unknown tool: {name}")
     
-    async def _create_html_page(self, args: Dict[str, Any]) -> List[types.TextContent]:
-        """创建或修改HTML网页"""
+    async def _create_interactive_course(self, args: Dict[str, Any]) -> List[types.TextContent]:
+        """创建或修改互动教学课程"""
         message = args.get("message", "")
         context = args.get("context", {})
         session_id = args.get("session_id", "unknown")
         source = args.get("source", "unknown")
         operation = args.get("operation", "create")
         
-        # 日志记录到stderr
+        # 详细的请求日志记录
         logger.info("=" * 80)
-        logger.info("🎯 TICMaker - HTML页面处理请求")
-        logger.info(f"操作类型: {operation}")
-        logger.info(f"来源: {source}")
-        logger.info(f"会话ID: {session_id}")
-        logger.info(f"用户需求: {message}")
-        logger.info(f"上下文: {json.dumps(context, indent=2, ensure_ascii=False)}")
+        logger.info("🎯 TICMaker - 互动教学课程创建请求")
+        logger.info(f"📋 操作类型: {operation}")
+        logger.info(f"🌐 请求来源: {source}")
+        logger.info(f"🔗 会话ID: {session_id}")
+        logger.info(f"💬 用户需求: {message}")
+        logger.info(f"📄 课程标题: {context.get('courseTitle', '未指定')}")
+        logger.info(f"🎨 模板类型: {context.get('template', '智能选择')}")
+        logger.info(f"✨ 样式风格: {context.get('style', 'modern')}")
         logger.info("=" * 80)
         
         # 确定文件路径
@@ -148,7 +148,7 @@ class TICMakerMCPServer:
             file_path.write_text(html_content, encoding='utf-8')
             
             # 记录成功
-            result_msg = f"✅ HTML页面已{'修改' if operation == 'modify' else '创建'}成功"
+            result_msg = f"✅ 互动课程已{'修改' if operation == 'modify' else '创建'}成功"
             logger.info(f"\n{result_msg}")
             logger.info(f"文件路径: {file_path}")
             logger.info(f"文件大小: {file_path.stat().st_size} bytes")
@@ -165,9 +165,9 @@ class TICMakerMCPServer:
             ]
             
         except Exception as e:
-            error_msg = f"❌ HTML页面处理失败: {str(e)}"
+            error_msg = f"❌ 互动课程创建失败: {str(e)}"
             logger.error(f"\n{error_msg}")
-            logger.error(f"HTML creation error: {e}")
+            logger.error(f"Interactive course creation error: {e}")
             
             return [
                 types.TextContent(
@@ -177,23 +177,30 @@ class TICMakerMCPServer:
             ]
     
     async def _generate_html_content(self, message: str, context: Dict[str, Any]) -> str:
-        """根据用户需求生成HTML内容"""
+        """根据用户需求生成互动课程内容"""
         title = self._extract_title_from_message(message)
         style = context.get("style", "modern")
         template = context.get("template", "basic")
+        course_title = context.get("courseTitle", "")
         
-        # 基础HTML模板
+        # 根据模板类型生成相应的HTML内容
         if template == "interactive":
-            html_content = self._generate_interactive_template(title, message, style)
+            html_content = self._generate_interactive_template(title, message, style, course_title)
         elif template == "educational":
-            html_content = self._generate_educational_template(title, message, style)
+            html_content = self._generate_educational_template(title, message, style, course_title)
         else:
-            html_content = self._generate_basic_template(title, message, style)
+            # 默认使用基础模板，但根据消息内容智能选择
+            if any(keyword in message.lower() for keyword in ["互动", "游戏", "点击", "按钮"]):
+                html_content = self._generate_interactive_template(title, message, style, course_title)
+            elif any(keyword in message.lower() for keyword in ["学习", "教学", "课程", "练习"]):
+                html_content = self._generate_educational_template(title, message, style, course_title)
+            else:
+                html_content = self._generate_basic_template(title, message, style, course_title)
         
         return html_content
     
     async def _modify_html_content(self, existing_content: str, message: str, context: Dict[str, Any]) -> str:
-        """修改现有HTML内容"""
+        """修改现有课程内容"""
         # 简单的修改逻辑 - 在实际应用中可以更复杂
         modification_note = f"\n<!-- 修改记录: {datetime.now().isoformat()} - {message} -->\n"
         
@@ -209,18 +216,25 @@ class TICMakerMCPServer:
     
     def _extract_title_from_message(self, message: str) -> str:
         """从用户消息中提取标题"""
-        # 简单的标题提取逻辑
-        if "创建" in message or "制作" in message:
-            if "游戏" in message:
-                return "互动教学游戏"
-            elif "活动" in message:
-                return "教学活动页面"
-            elif "课程" in message:
-                return "课程内容页面"
+        # 智能标题提取逻辑
+        message_lower = message.lower()
         
-        return "TICMaker生成页面"
+        # 检测特定类型内容
+        if any(keyword in message_lower for keyword in ["游戏", "小游戏", "互动游戏"]):
+            return "互动教学游戏"
+        elif any(keyword in message_lower for keyword in ["活动", "练习", "训练"]):
+            return "教学活动页面"
+        elif any(keyword in message_lower for keyword in ["课程", "课堂", "教学"]):
+            return "课程内容页面"
+        elif any(keyword in message_lower for keyword in ["测验", "考试", "测试"]):
+            return "在线测验页面"
+        elif any(keyword in message_lower for keyword in ["演示", "展示", "介绍"]):
+            return "内容展示页面"
+        
+        # 默认标题
+        return "TICMaker互动页面"
     
-    def _generate_basic_template(self, title: str, message: str, style: str) -> str:
+    def _generate_basic_template(self, title: str, message: str, style: str, course_title: str = "") -> str:
         """生成基础HTML模板"""
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -269,8 +283,9 @@ class TICMakerMCPServer:
     <div class="container">
         <h1>{title}</h1>
         <div class="content">
-            <p><strong>用户需求:</strong> {message}</p>
-            <p>这是由TICMaker生成的HTML页面，专为互动教学设计。</p>
+            {f'<p><strong>课程:</strong> {course_title}</p>' if course_title else ''}
+            <p><strong>课程需求:</strong> {message}</p>
+            <p>这是由TICMaker生成的互动教学课程，专为现代化课堂教学设计。</p>
         </div>
         <div class="timestamp">
             生成时间: {datetime.now().strftime("%Y年%m月%d日 %H:%M:%S")}
@@ -279,7 +294,7 @@ class TICMakerMCPServer:
 </body>
 </html>"""
     
-    def _generate_interactive_template(self, title: str, message: str, style: str) -> str:
+    def _generate_interactive_template(self, title: str, message: str, style: str, course_title: str = "") -> str:
         """生成互动HTML模板"""
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -336,6 +351,7 @@ class TICMakerMCPServer:
 <body>
     <div class="game-container">
         <h1>{title}</h1>
+        {f'<h2>📚 课程: {course_title}</h2>' if course_title else ''}
         <p><strong>需求描述:</strong> {message}</p>
         
         <div class="interaction-area">
@@ -373,7 +389,7 @@ class TICMakerMCPServer:
 </body>
 </html>"""
     
-    def _generate_educational_template(self, title: str, message: str, style: str) -> str:
+    def _generate_educational_template(self, title: str, message: str, style: str, course_title: str = "") -> str:
         """生成教育类HTML模板"""
         return f"""<!DOCTYPE html>
 <html lang="zh-CN">
@@ -433,6 +449,7 @@ class TICMakerMCPServer:
     <div class="edu-container">
         <div class="header">
             <h1>{title}</h1>
+            {f'<h2>{course_title}</h2>' if course_title else ''}
             <p>互动教学内容平台</p>
         </div>
         
@@ -496,49 +513,6 @@ class TICMakerMCPServer:
 </body>
 </html>"""
     
-    async def _list_html_pages(self, args: Dict[str, Any]) -> List[types.TextContent]:
-        """列出已创建的HTML页面"""
-        pattern = args.get("pattern", "*.html")
-        
-        try:
-            # 获取HTML文件列表
-            html_files = list(self.output_dir.glob(pattern))
-            
-            if not html_files:
-                return [
-                    types.TextContent(
-                        type="text",
-                        text="📁 暂无HTML页面文件"
-                    )
-                ]
-            
-            # 构建文件列表
-            file_list = []
-            for file_path in sorted(html_files, key=lambda f: f.stat().st_mtime, reverse=True):
-                stat = file_path.stat()
-                size = stat.st_size
-                modified = datetime.fromtimestamp(stat.st_mtime)
-                
-                file_list.append(f"📄 {file_path.name}")
-                file_list.append(f"   大小: {size} bytes")
-                file_list.append(f"   修改时间: {modified.strftime('%Y-%m-%d %H:%M:%S')}")
-                file_list.append("")
-            
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"📁 HTML页面列表 (共{len(html_files)}个文件):\n\n" + "\n".join(file_list)
-                )
-            ]
-            
-        except Exception as e:
-            return [
-                types.TextContent(
-                    type="text",
-                    text=f"❌ 列出文件失败: {str(e)}"
-                )
-            ]
-
 
     async def run(self):
         """运行MCP服务器使用stdio传输"""
