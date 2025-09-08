@@ -415,7 +415,9 @@ class MCPServerManager:
         async with self.executor:
             start_time = time.time()
             try:
+                # Call tool directly using standard MCP client
                 result = await client.call_tool(tool_name, arguments)
+                
                 execution_time = time.time() - start_time
                 
                 # Record tool usage statistics
@@ -557,7 +559,7 @@ class MCPServerManager:
             callback: Callback function to remove
         """
         self.health_monitor.remove_alert_callback(callback)
-    
+
     def get_manager_stats(self) -> Dict[str, Any]:
         """Get manager statistics."""
         connected_count = sum(1 for client in self.servers.values() if client.is_connected())

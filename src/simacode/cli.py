@@ -160,18 +160,12 @@ def init(ctx: click.Context) -> None:
     help="Continue existing session",
 )
 @click.option(
-    "--ticmaker",
-    "-t",
-    is_flag=True,
-    help="🎯 Enable TICMaker processing mode for HTML page creation/modification",
-)
-@click.option(
     "--scope",
     type=str,
     help="🎯 Set context scope (e.g., 'ticmaker')",
 )
 @click.pass_context
-def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str], ticmaker: bool, scope: Optional[str]) -> None:
+def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: bool, session_id: Optional[str], scope: Optional[str]) -> None:
     """Start a chat session with the AI assistant."""
     config_obj = ctx.obj["config"]
     
@@ -179,18 +173,15 @@ def chat(ctx: click.Context, message: Optional[str], interactive: bool, react: b
         console.print("[yellow]No message provided. Use --interactive for interactive mode.[/yellow]")
         return
     
-    # 🎯 构建context信息支持TICMaker
+    # 🎯 构建context信息支持作用域
     context = {}
-    if ticmaker or scope == "ticmaker":
+    if scope == "ticmaker":
         context["scope"] = "ticmaker"
         context["ticmaker_processing"] = True
         context["cli_mode"] = True
         context["trigger_ticmaker_tool"] = True
-        # 强制使用ReAct模式以便调用工具
-        react = True
         console.print("[bold green]🎯 TICMaker模式已启用[/bold green]")
-    
-    if scope:
+    elif scope:
         context["scope"] = scope
     
     asyncio.run(_run_chat(ctx, message, interactive, react, session_id, context))

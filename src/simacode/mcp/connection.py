@@ -204,10 +204,23 @@ class WebSocketTransport(MCPTransport):
                 try:
                     # Connect to WebSocket with headers if supported
                     if self.headers:
-                        self.websocket = await websockets.connect(
-                            self.url,
-                            additional_headers=self.headers
-                        )
+                        try:
+                            # Try with additional_headers first (websockets >= 10.0)
+                            self.websocket = await websockets.connect(
+                                self.url,
+                                additional_headers=self.headers
+                            )
+                        except TypeError:
+                            # Fall back to extra_headers for older versions
+                            try:
+                                self.websocket = await websockets.connect(
+                                    self.url,
+                                    extra_headers=self.headers
+                                )
+                            except TypeError:
+                                # Fall back to connection without headers
+                                logger.warning("WebSocket headers not supported in this websockets version, connecting without headers")
+                                self.websocket = await websockets.connect(self.url)
                     else:
                         self.websocket = await websockets.connect(self.url)
                     self._connected = True

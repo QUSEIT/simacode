@@ -422,48 +422,6 @@ class MCPToolWrapper(Tool):
             if key not in {"execution_id", "metadata"}
         }
         
-        # 🎯 TICMaker特殊处理：确保必需的message参数存在
-        if self.original_name == "create_html_page" and self.server_name == "ticmaker":
-            if "message" not in mcp_args or not mcp_args.get("message"):
-                # 尝试从多个可能的源获取消息
-                possible_message = None
-                
-                # 1. 尝试从description字段获取
-                if "description" in mcp_args and mcp_args["description"]:
-                    possible_message = mcp_args["description"]
-                # 2. 尝试从task_description字段获取
-                elif "task_description" in mcp_args and mcp_args["task_description"]:
-                    possible_message = mcp_args["task_description"]
-                # 3. 尝试从input字段获取
-                elif "input" in mcp_args and mcp_args["input"]:
-                    possible_message = mcp_args["input"]
-                # 4. 尝试从query字段获取
-                elif "query" in mcp_args and mcp_args["query"]:
-                    possible_message = mcp_args["query"]
-                # 5. 尝试从request字段获取
-                elif "request" in mcp_args and mcp_args["request"]:
-                    possible_message = mcp_args["request"]
-                
-                if possible_message:
-                    mcp_args["message"] = str(possible_message)
-                    logger.info(f"🎯 TICMaker参数映射: 从其他字段获取message -> '{possible_message[:50]}...'")
-                else:
-                    # 最后的默认值
-                    mcp_args["message"] = "创建HTML页面"
-                    logger.warning(f"🎯 TICMaker参数映射: 使用默认message -> '创建HTML页面'")
-                
-            # 确保其他必要参数有默认值
-            if "context" not in mcp_args:
-                mcp_args["context"] = {"scope": "ticmaker"}
-            if "session_id" not in mcp_args:
-                mcp_args["session_id"] = "react-generated"
-            if "source" not in mcp_args:
-                mcp_args["source"] = "ReAct"
-            if "operation" not in mcp_args:
-                mcp_args["operation"] = "create"
-                
-            logger.debug(f"🎯 TICMaker工具参数: {mcp_args}")
-        
         return mcp_args
     
     async def _convert_mcp_result_to_tool_result(

@@ -409,7 +409,7 @@ Always classify the input type first, then respond appropriately.
             response = await self.ai_client.chat(messages)
             
             # Parse response - could be tasks or conversational
-            result = await self._parse_planning_response(response.content)
+            result = await self._parse_planning_response(response.content, context)
             
             if result["type"] == "conversational_response":
                 # Store conversational response in context for the engine to use
@@ -487,7 +487,7 @@ Respond with a JSON array of alternative task objects.
             ]
             
             response = await self.ai_client.chat(messages)
-            alternative_tasks = await self._parse_tasks_from_response(response.content)
+            alternative_tasks = await self._parse_tasks_from_response(response.content, context)
             
             return await self._validate_and_enhance_tasks(alternative_tasks, context)
             
@@ -772,7 +772,7 @@ Respond with a JSON array of alternative task objects.
         
         return truncated_context + "\n[Context truncated due to token limit]"
     
-    async def _parse_planning_response(self, response_content: str) -> Dict[str, Any]:
+    async def _parse_planning_response(self, response_content: str, context: PlanningContext) -> Dict[str, Any]:
         """Parse planning response that can be either conversational or task-oriented."""
         try:
             # Extract JSON from response
@@ -799,7 +799,7 @@ Respond with a JSON array of alternative task objects.
             elif parsed_data.get("type") == "task_plan":
                 # Parse task list
                 task_data = parsed_data.get("tasks", [])
-                tasks = await self._parse_task_list(task_data)
+                tasks = await self._parse_task_list(task_data, context)
                 return {
                     "type": "task_plan", 
                     "tasks": tasks
@@ -835,7 +835,7 @@ Respond with a JSON array of alternative task objects.
                         }
                     elif parsed_data.get("type") == "task_plan":
                         task_data = parsed_data.get("tasks", [])
-                        tasks = await self._parse_task_list(task_data)
+                        tasks = await self._parse_task_list(task_data, context)
                         return {
                             "type": "task_plan", 
                             "tasks": tasks
@@ -857,7 +857,7 @@ Respond with a JSON array of alternative task objects.
         except Exception as e:
             raise PlanningError(f"Failed to parse planning response: {str(e)}")
     
-    async def _parse_task_list(self, task_data: List[Dict[str, Any]]) -> List[Task]:
+    async def _parse_task_list(self, task_data: List[Dict[str, Any]], context: PlanningContext) -> List[Task]:
         """Parse a list of task dictionaries into Task objects."""
         if not isinstance(task_data, list):
             raise ValueError("Task data must be a JSON array")
@@ -890,6 +890,8 @@ Respond with a JSON array of alternative task objects.
                 task.description = task_dict.get("description", f"Task {i+1}")
                 task.tool_name = task_dict.get("tool_name", "")
                 task.tool_input = task_dict.get("tool_input", {})
+                # 为所有工具添加用户输入
+                task.tool_input["user_input"] = context.user_input
                 task.expected_outcome = task_dict.get("expected_outcome", "")
                 task.dependencies = task_dict.get("dependencies", [])
                 task.priority = task_dict.get("priority", 1)
@@ -966,9 +968,9 @@ Respond with a JSON array of alternative task objects.
         except:
             return content
 
-    async def _parse_tasks_from_response(self, response_content: str) -> List[Task]:
+    async def _parse_tasks_from_response(self, response_content: str, context: PlanningContext) -> List[Task]:
         """Parse task list from AI response (legacy method for compatibility)."""
-        result = await self._parse_planning_response(response_content)
+        result = await self._parse_planning_response(response_content, context)
         if result["type"] == "conversational_response":
             return []  # No tasks for conversational responses
         return result["tasks"]
