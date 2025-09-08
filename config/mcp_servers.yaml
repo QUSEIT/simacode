@@ -229,17 +229,22 @@ servers:
       max_execution_time: 90
       network_access: true  # Required for SMTP connections
 
-  # TICMaker MCP Server - HTML页面创建和修改工具
+  # TICMaker WebSocket MCP Server - HTML页面创建和修改工具
+  # Note: Server must be started manually using: python tools/mcp_ticmaker_websocket_server.py
   ticmaker:
     name: ticmaker
-    enabled: true  # Enable for TICMaker HTML generation features
-    type: stdio
-    command: ["python", "tools/mcp_ticmaker_server.py"]
+    enabled: true  # Enable for TICMaker WebSocket HTML generation features
+    type: websocket
+    url: "${TICMAKER_WS_URL:-ws://localhost:10002/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
     args: []
     environment:
+      TICMAKER_WS_URL: "${TICMAKER_WS_URL:-ws://localhost:10002/mcp/ws}"
       TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
     working_directory: null
-    timeout: 90  # HTML generation can take some time
+    timeout: 300  # Longer timeout for complex content generation
     max_retries: 3
     retry_delay: 2.0
     security:
@@ -248,12 +253,11 @@ servers:
         - "modify"    # Allow HTML page modification  
         - "read"      # Allow reading existing files
         - "write"     # Allow writing HTML files
-        - "list"      # Allow listing HTML files
         - "execute"   # Allow general execution operations
       allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
-      max_execution_time: 60
-      network_access: false  # HTML generation doesn't need network access
+      max_execution_time: 300  # Extended timeout for WebSocket operations
+      network_access: true  # Required for WebSocket connections
 
 # Configuration Notes:
 #

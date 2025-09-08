@@ -281,7 +281,7 @@ class MCPProtocol:
                 await self.send_message(request)
                 
                 # Wait for response with timeout
-                response = await asyncio.wait_for(future, timeout=30.0)
+                response = await asyncio.wait_for(future, timeout=300.0)
                 
                 # Validate response
                 if response.is_error():

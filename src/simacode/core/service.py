@@ -17,8 +17,6 @@ from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
 from ..tools.base import execute_tool
-from ..mcp.loop_safe_client import safe_call_mcp_tool
-from .ticmaker_detector import TICMakerDetector
 
 logger = logging.getLogger(__name__)
 
@@ -218,21 +216,8 @@ class SimaCodeService:
                 import uuid
                 request.session_id = str(uuid.uuid4())
             
-            # 🎯 TICMaker检测 - 穿透对话检测机制的关键
-            is_ticmaker, reason, enhanced_context = TICMakerDetector.detect_ticmaker_request(
-                request.message, request.context
-            )
+            # 统一使用ReAct引擎处理所有请求（除非显式指定force_mode="chat"）
             
-            if is_ticmaker:
-                logger.info(f"🎯 TICMaker请求检测成功: {reason}")
-                # 更新请求的context为增强后的context
-                request.context = enhanced_context
-                # TICMaker请求强制使用ReAct引擎处理（除非显式指定force_mode="chat"）
-                if request.force_mode != "chat":
-                    logger.info("TICMaker请求将使用ReAct引擎处理")
-                    return await self._process_ticmaker_with_react(request, reason)
-            
-            # 原有的处理逻辑
             if request.force_mode == "chat":
                 # 强制纯对话模式：使用传统 chat 处理
                 logger.debug("Force chat mode enabled - using traditional conversational processing")
@@ -250,104 +235,6 @@ class SimaCodeService:
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )
-    
-    async def _process_ticmaker_with_react(
-        self, 
-        request: ChatRequest, 
-        trigger_reason: str
-    ) -> Union[ChatResponse, AsyncGenerator[str, None]]:
-        """
-        专门处理TICMaker请求的方法
-        
-        该方法将先调用TICMaker工具进行预处理，然后继续ReAct处理
-        确保TICMaker相关的HTML创建和修改功能正确执行
-        
-        Args:
-            request: TICMaker聊天请求
-            trigger_reason: 触发TICMaker的原因
-            
-        Returns:
-            ChatResponse或AsyncGenerator
-        """
-        try:
-            logger.info(f"🎯 开始处理TICMaker请求，触发原因: {trigger_reason}")
-            
-            # 先调用TICMaker工具进行预处理
-            await self._call_ticmaker_tool(request, trigger_reason)
-            
-            # 然后继续使用ReAct引擎处理（让ReAct引擎协调其他可能的工具调用）
-            logger.info("TICMaker工具调用完成，继续ReAct引擎处理...")
-            return await self._process_with_react_engine(request)
-            
-        except Exception as e:
-            logger.error(f"TICMaker processing failed: {e}")
-            # 失败时回退到正常ReAct处理，确保系统稳定性
-            logger.info("TICMaker处理失败，回退到正常ReAct处理")
-            return await self._process_with_react_engine(request)
-    
-    async def _call_ticmaker_tool(
-        self, 
-        request: ChatRequest, 
-        trigger_reason: str
-    ):
-        """
-        调用TICMaker工具进行HTML页面处理
-        
-        Args:
-            request: 聊天请求
-            trigger_reason: 触发原因
-        """
-        try:
-            # 确保ReAct服务已启动（因为需要使用其工具注册表）
-            await self._ensure_react_service_started()
-            
-            # 确定请求来源
-            source = "API" if getattr(request, '_from_api', False) else "CLI"
-            if request.context and request.context.get("cli_mode"):
-                source = "CLI"
-            
-            # 确定操作类型
-            operation = "modify" if TICMakerDetector.is_modification_request(
-                request.message, request.context
-            ) else "create"
-            
-            # 准备工具输入
-            tool_input = TICMakerDetector.prepare_ticmaker_tool_input(
-                message=request.message,
-                context=request.context or {},
-                session_id=request.session_id,
-                source=source,
-                trigger_reason=trigger_reason,
-                operation=operation
-            )
-            
-            # 使用事件循环安全的 MCP 工具调用
-            logger.info(f"🎯 调用TICMaker工具: operation={operation}, source={source}")
-            logger.debug(f"🔧 工具输入参数: {tool_input}")
-            
-            # 获取当前事件循环信息用于调试
-            try:
-                current_loop = asyncio.get_running_loop()
-                logger.debug(f"🌐 当前事件循环: {current_loop}")
-            except RuntimeError:
-                logger.debug("🌐 没有运行中的事件循环")
-            
-            # 使用事件循环安全的调用方式
-            result = await safe_call_mcp_tool("ticmaker:create_interactive_course", tool_input)
-            
-            if result.success:
-                logger.info(f"✅ TICMaker工具执行成功: {str(result.content)[:200]}...")
-            else:
-                logger.error(f"❌ TICMaker工具执行失败: {result.error}")
-                # 记录更多调试信息
-                logger.debug(f"🔍 失败的工具元数据: {result.metadata}")
-            
-            return result
-            
-        except Exception as e:
-            logger.error(f"TICMaker工具调用失败: {e}")
-            # 工具调用失败不应该阻止后续处理
-            raise
     
     async def _process_conversational_chat(self, request: ChatRequest) -> Union[ChatResponse, AsyncGenerator[str, None]]:
         """处理对话性输入（使用传统chat逻辑）"""
