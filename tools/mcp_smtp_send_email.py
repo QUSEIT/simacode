@@ -677,9 +677,8 @@ class EmailSMTPMCPServer:
                     "type": "object",
                     "properties": {
                         "to": {
-                            "type": ["string", "array"],
-                            "items": {"type": "string"},
-                            "description": "Recipient email address(es) - can be string or array"
+                            "type": "string",
+                            "description": "Recipient email address(es) - comma-separated if multiple"
                         },
                         "subject": {
                             "type": "string",
@@ -697,14 +696,12 @@ class EmailSMTPMCPServer:
                             "default": "text"
                         },
                         "cc": {
-                            "type": ["string", "array"],
-                            "items": {"type": "string"},
-                            "description": "CC email address(es) - optional"
+                            "type": "string",
+                            "description": "CC email address(es) - comma-separated if multiple, optional"
                         },
                         "bcc": {
-                            "type": ["string", "array"],
-                            "items": {"type": "string"},
-                            "description": "BCC email address(es) - optional"
+                            "type": "string",
+                            "description": "BCC email address(es) - comma-separated if multiple, optional"
                         },
                         "reply_to": {
                             "type": "string",
@@ -887,13 +884,13 @@ class EmailSMTPMCPServer:
             to = arguments.get("to")
             subject = arguments.get("subject")
             body = arguments.get("body")
-            content_type = arguments.get("content_type", "text")
+            content_type = arguments.get("content_type", "text") or "text"
             cc = arguments.get("cc")
             bcc = arguments.get("bcc")
             reply_to = arguments.get("reply_to")
             attachments = arguments.get("attachments")
-            priority = arguments.get("priority", "normal")
-            send_delay = arguments.get("send_delay", 0)
+            priority = arguments.get("priority", "normal") or "normal"
+            send_delay = arguments.get("send_delay", 0) or 0
             from_name = arguments.get("from_name")
             from_email = arguments.get("from_email")
             
@@ -916,9 +913,21 @@ class EmailSMTPMCPServer:
                     error="'body' field is required"
                 )
             
-            # Convert single string to list for 'to' field
-            if isinstance(to, str):
-                to = [to]
+            # Convert string to list for email fields (support comma-separated)
+            def parse_email_list(value):
+                """Parse email string or list into a list of emails."""
+                if not value:
+                    return None
+                if isinstance(value, str):
+                    # Split by comma and strip whitespace
+                    return [email.strip() for email in value.split(',') if email.strip()]
+                if isinstance(value, list):
+                    return value
+                return None
+            
+            to = parse_email_list(to)
+            cc = parse_email_list(cc) 
+            bcc = parse_email_list(bcc)
             
             # Send email
             return await self.email_client.send_email(

@@ -3,7 +3,7 @@
 
 # Global MCP settings
 mcp:
-  enabled: true
+  enabled: false
   timeout: 60
   max_concurrent: 5
   log_level: INFO
