@@ -129,7 +129,25 @@ if FASTAPI_AVAILABLE:
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting SimaCode API server...")
+    
+    # Start the SimaCode service in the current event loop
+    simacode_service = app.state.simacode_service
+    try:
+        await simacode_service.start_async()
+        logger.info("SimaCode service started in application lifespan")
+    except Exception as e:
+        logger.error(f"Failed to start SimaCode service: {e}")
+        raise
+    
     yield
+    
+    # Stop the service when shutting down
+    try:
+        await simacode_service.stop_async()
+        logger.info("SimaCode service stopped")
+    except Exception as e:
+        logger.error(f"Error stopping SimaCode service: {e}")
+    
     logger.info("Shutting down SimaCode API server...")
 
 

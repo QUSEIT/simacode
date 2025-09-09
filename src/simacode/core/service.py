@@ -146,35 +146,45 @@ class SimaCodeService:
         sessions_dir.mkdir(parents=True, exist_ok=True)
         self.conversation_manager = ConversationManager(sessions_dir)
         
-        # Start ReAct service asynchronously
-        import asyncio
-        try:
-            loop = asyncio.get_event_loop()
-            if loop.is_running():
-                # If we're in an event loop, schedule the start for later
-                asyncio.create_task(self._start_react_service())
-            else:
-                # If no event loop is running, run synchronously
-                asyncio.run(self.react_service.start())
-        except Exception as e:
-            logger.warning(f"Could not start ReAct service during initialization: {e}")
-            logger.info("ReAct service will be started lazily on first use")
+        # Don't start ReAct service in __init__ - will be started in async context
+        self._react_service_started = False
         
-        logger.info("SimaCodeService initialized successfully")
+        logger.info("SimaCodeService initialized successfully (async startup pending)")
     
-    async def _start_react_service(self):
-        """Start the ReAct service asynchronously."""
+    async def start_async(self):
+        """Start the service asynchronously in the current event loop."""
+        if self._react_service_started:
+            logger.debug("SimaCodeService already started")
+            return
+            
         try:
+            logger.info("Starting SimaCodeService asynchronously...")
             await self.react_service.start()
-            logger.info("ReAct service started successfully")
+            self._react_service_started = True
+            logger.info("SimaCodeService started successfully")
         except Exception as e:
-            logger.error(f"Failed to start ReAct service: {e}")
+            logger.error(f"Failed to start SimaCodeService: {e}")
+            raise
+    
+    async def stop_async(self):
+        """Stop the service asynchronously."""
+        if not self._react_service_started:
+            logger.debug("SimaCodeService not started, nothing to stop")
+            return
+            
+        try:
+            logger.info("Stopping SimaCodeService...")
+            await self.react_service.stop()
+            self._react_service_started = False
+            logger.info("SimaCodeService stopped successfully")
+        except Exception as e:
+            logger.error(f"Failed to stop SimaCodeService: {e}")
     
     async def _ensure_react_service_started(self):
         """Ensure ReAct service is started before processing requests."""
-        if not self.react_service.is_running:
-            logger.debug("Starting ReAct service on demand")
-            await self.react_service.start()
+        if not self._react_service_started:
+            logger.warning("ReAct service not started - this should not happen in API mode")
+            await self.start_async()
         else:
             logger.debug("ReAct service already running")
     
