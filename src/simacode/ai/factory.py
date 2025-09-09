@@ -12,6 +12,7 @@ class AIClientFactory:
     
     _providers = {
         "openai": OpenAIClient,
+        "deepseek": OpenAIClient,
     }
     
     @classmethod
