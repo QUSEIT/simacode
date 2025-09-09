@@ -167,8 +167,8 @@ servers:
 
   # TICMaker WebSocket MCP Server - HTML页面创建和修改工具
   # Note: Server must be started manually using: python tools/mcp_ticmaker_websocket_server.py
-  ticmaker:
-    name: ticmaker
+  ticmaker_websocket:
+    name: ticmaker_websocket
     enabled: false  # Enable for TICMaker WebSocket HTML generation features
     type: websocket
     url: "${TICMAKER_WS_URL:-ws://localhost:10002/mcp/ws}"
@@ -194,6 +194,33 @@ servers:
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 300  # Extended timeout for WebSocket operations
       network_access: true  # Required for WebSocket connections
+
+  # TICMaker stdio MCP Server - HTML页面创建和修改工具 (推荐)
+  # Configuration is loaded directly from .simacode/config.yaml
+  ticmaker:
+    name: ticmaker
+    enabled: false  # Enable for TICMaker stdio HTML generation features
+    type: stdio
+    command: ["python", "tools/mcp_ticmaker_stdio_server.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment:
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
+    working_directory: null
+    timeout: 120  # Interactive content creation can take some time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "create"    # Allow HTML page creation
+        - "modify"    # Allow HTML page modification  
+        - "read"      # Allow reading existing files
+        - "write"     # Allow writing HTML files
+        - "execute"   # Allow general execution operations
+      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 120
+      network_access: false  # stdio operations don't need network access
 
 # Configuration Notes:
 #
