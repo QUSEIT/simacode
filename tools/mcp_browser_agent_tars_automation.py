@@ -121,7 +121,7 @@ class AgentTARSExecutor:
             "--provider", self.config.provider,
             "--model", self.config.model,
             "--apiKey", self.config.api_key,
-            "--input", f'"{instruction} && Do not exit, waiting for further instructions."'
+            "--input", f'"{instruction}"'
         ])
         
         logger.info(f"Executing Agent-TARS command: {command_str}")

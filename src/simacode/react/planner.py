@@ -31,6 +31,8 @@ class TaskType(Enum):
     COMMAND_EXECUTION = "command_execution"
     CODE_ANALYSIS = "code_analysis"
     SEARCH_QUERY = "search_query"
+    EMAIL_SEND = "email_send"
+    EMAIL_CHECK = "email_check"
     COMPOSITE = "composite"
 
 
@@ -196,7 +198,7 @@ REQUIRED placeholders:
 
 Example WRONG way:
 {{
-  "tool_name": "email_send",
+  "tool_name": "email_smtp:send_email",
   "tool_input": {{
     "body": "The image has been processed successfully."  // ❌ NO PLACEHOLDER
   }}
@@ -204,7 +206,7 @@ Example WRONG way:
 
 Example CORRECT way:
 {{
-  "tool_name": "email_send", 
+  "tool_name": "email_smtp:send_email", 
   "tool_input": {{
     "body": "识别结果：<extracted_text_here>"  // ✅ USES PLACEHOLDER
   }}
@@ -216,7 +218,7 @@ Email sending example:
 {{
   "type": "email_send",
   "description": "Send email to user about project update",
-  "tool_name": "email_send", 
+  "tool_name": "email_smtp:send_email", 
   "tool_input": {{
     "to": "user@example.com",
     "subject": "Project Update",
@@ -232,7 +234,7 @@ Email sending with OCR content example (MANDATORY for OCR+Email tasks):
 {{
   "type": "email_send",
   "description": "Send email with extracted OCR content",
-  "tool_name": "email_send",
+  "tool_name": "email_smtp:send_email",
   "tool_input": {{
     "to": "recipient@example.com",
     "subject": "OCR识别结果",
@@ -248,7 +250,7 @@ Email sending with attachment example:
 {{
   "type": "email_send",
   "description": "Send email with file attachment",
-  "tool_name": "email_send",
+  "tool_name": "email_smtp:send_email",
   "tool_input": {{
     "to": "recipient@example.com",
     "subject": "文件发送",
@@ -257,6 +259,38 @@ Email sending with attachment example:
     "attachments": ["./sample.json"]
   }},
   "expected_outcome": "Email sent with attachment",
+  "dependencies": [],
+  "priority": 1
+}}
+
+Email checking example:
+{{
+  "type": "email_check",
+  "description": "Check recent emails from inbox",
+  "tool_name": "email_imap:get_recent_emails",
+  "tool_input": {{
+    "folder": "INBOX",
+    "limit": 5,
+    "days": 7,
+    "include_attachments": false
+  }},
+  "expected_outcome": "Recent emails retrieved successfully",
+  "dependencies": [],
+  "priority": 1
+}}
+
+Email retrieval by UID example:
+{{
+  "type": "email_check", 
+  "description": "Get specific email by UID",
+  "tool_name": "email_imap:get_email",
+  "tool_input": {{
+    "uid": "123",
+    "folder": "INBOX",
+    "include_attachments": true,
+    "include_headers": false
+  }},
+  "expected_outcome": "Email content retrieved successfully",
   "dependencies": [],
   "priority": 1
 }}
@@ -278,7 +312,7 @@ When user requests to send a file as email attachment (e.g., "作为邮件附件
 Example for attachment email:
 {{
   "description": "Send file as email attachment",
-  "tool_name": "email_send",
+  "tool_name": "email_smtp:send_email",
   "tool_input": {{
     "to": "recipient@example.com",
     "subject": "文件附件",
@@ -350,7 +384,7 @@ MANDATORY sequence for "识别图片并发邮件" requests:
   }},
   {{
     "description": "发送邮件包含识别结果",
-    "tool_name": "email_send",
+    "tool_name": "email_smtp:send_email",
     "tool_input": {{
       "to": "user@example.com",
       "subject": "图片识别结果", 
@@ -426,7 +460,7 @@ Always classify the input type first, then respond appropriately.
                 logger.warning(f"  Tool: {task.tool_name}")
                 logger.warning(f"  Input: {task.tool_input}")
                 logger.warning(f"  Dependencies: {task.dependencies}")
-                if task.tool_name == "email_send":
+                if task.tool_name == "email_smtp:send_email":
                     logger.warning(f"  *** EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}' ***")
             logger.warning("=== END PLANNER DEBUG ===")
             
@@ -438,7 +472,7 @@ Always classify the input type first, then respond appropriately.
             # 🔍 DEBUG: 记录验证后的任务
             logger.warning(f"=== PLANNER DEBUG: After validation ===")
             for i, task in enumerate(validated_tasks):
-                if task.tool_name == "email_send":
+                if task.tool_name == "email_smtp:send_email":
                     logger.warning(f"Task {i+1} after validation - EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}'")
             logger.warning("=== END VALIDATION DEBUG ===")
             
@@ -551,8 +585,14 @@ Respond with a JSON array of alternative task objects.
                     return json.dumps(param_example)
             
             # Fallback to hardcoded examples for built-in tools
-            if tool_name == "email_send":
+            if tool_name == "email_smtp:send_email":
                 return '{"to": "recipient@email.com", "subject": "Email subject", "body": "Email content", "content_type": "text", "attachments": ["optional_file_path.json"]}'
+            elif tool_name == "email_imap:get_recent_emails":
+                return '{"folder": "INBOX", "limit": 5, "days": 7, "include_attachments": false}'
+            elif tool_name == "email_imap:get_email":
+                return '{"uid": "email_uid", "folder": "INBOX", "include_attachments": true, "include_headers": false}'
+            elif tool_name == "email_imap:extract_attachments":
+                return '{"json_file": "mail.json", "output_dir": "./attachments"}'
             elif tool_name == "file_read":
                 return '{"file_path": "/path/to/file"}'
             elif tool_name == "file_write":
@@ -882,7 +922,9 @@ Respond with a JSON array of alternative task objects.
                         "shell": TaskType.COMMAND_EXECUTION,
                         "analysis": TaskType.CODE_ANALYSIS,
                         "search": TaskType.SEARCH_QUERY,
-                        "query": TaskType.SEARCH_QUERY
+                        "query": TaskType.SEARCH_QUERY,
+                        "email_send": TaskType.EMAIL_SEND,
+                        "email_check": TaskType.EMAIL_CHECK
                     }
                     task.type = type_mapping.get(task_type_str, TaskType.FILE_OPERATION)
                     logger.warning(f"Task type '{task_type_str}' mapped to '{task.type.value}' for task {i}")
@@ -1021,7 +1063,7 @@ Respond with a JSON array of alternative task objects.
         
         # Find OCR and email tasks
         ocr_tasks = [task for task in tasks if task.tool_name == "universal_ocr"]
-        email_tasks = [task for task in tasks if task.tool_name == "email_send"]
+        email_tasks = [task for task in tasks if task.tool_name == "email_smtp:send_email"]
         
         if not ocr_tasks or not email_tasks:
             return

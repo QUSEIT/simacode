@@ -348,6 +348,19 @@ class MCPClient:
             )
         
         try:
+            # Event loop consistency check
+            current_loop = asyncio.get_running_loop()
+            if hasattr(self, '_creation_loop_id'):
+                if id(current_loop) != self._creation_loop_id:
+                    logger.warning(
+                        f"Event loop changed for MCP client '{self.server_name}': "
+                        f"creation_loop={self._creation_loop_id}, current_loop={id(current_loop)}. "
+                        f"This may cause issues with async operations."
+                    )
+            else:
+                # Store the current loop ID for future checks
+                self._creation_loop_id = id(current_loop)
+            
             # Generate cache key for result caching
             import hashlib
             import json

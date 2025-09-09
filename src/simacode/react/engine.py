@@ -907,7 +907,7 @@ class ReActEngine:
         """Execute a single task with error handling and evaluation."""
         
         # 🔍 DEBUG: 记录任务执行前的状态
-        if task.tool_name == "email_send":
+        if task.tool_name == "email_smtp:send_email":
             import logging
             logger = logging.getLogger(__name__)
             logger.warning(f"=== EXECUTE DEBUG: Before processing task {task.id} ===")
@@ -923,7 +923,7 @@ class ReActEngine:
         processed_task = await self._substitute_task_placeholders_with_wait(session, task)
         
         # 🔍 DEBUG: 记录占位符替换后的状态
-        if processed_task.tool_name == "email_send":
+        if processed_task.tool_name == "email_smtp:send_email":
             logger.warning(f"=== EXECUTE DEBUG: After placeholder substitution ===")
             logger.warning(f"Processed tool_input: {processed_task.tool_input}")
             if 'body' in processed_task.tool_input:

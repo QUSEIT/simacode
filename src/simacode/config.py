@@ -7,12 +7,15 @@ environment variable overrides.
 """
 
 import os
+import logging
 from pathlib import Path
 from typing import Any, Dict, List, Optional, Union
 
 import yaml
 from pydantic import BaseModel, Field, validator
 from pydantic import ValidationError as PydanticValidationError
+
+logger = logging.getLogger(__name__)
 
 
 class LoggingConfig(BaseModel):
@@ -372,6 +375,29 @@ class EmailConfig(BaseModel):
     )
 
 
+class MCPServerConfig(BaseModel):
+    """MCP server configuration model matching .simacode/config.yaml structure."""
+    
+    name: Optional[str] = Field(default=None, description="Server name")
+    enabled: bool = Field(default=True, description="Whether this server is enabled")
+    description: Optional[str] = Field(default=None, description="Server description")
+    timeout: Optional[int] = Field(default=None, description="Server timeout override")
+
+
+class MCPConfig(BaseModel):
+    """MCP (Model Context Protocol) configuration model."""
+    
+    enabled: bool = Field(default=True, description="Whether MCP integration is enabled")
+    default_timeout: int = Field(default=300, description="Default timeout for MCP operations")
+    auto_enable_new_tools: bool = Field(default=True, description="Auto-enable discovered tools")
+    
+    # This will hold merged server configurations
+    servers: Dict[str, MCPServerConfig] = Field(
+        default_factory=dict,
+        description="Server configurations"
+    )
+
+
 class ConversationContextConfig(BaseModel):
     """Conversation context configuration model."""
     
@@ -446,6 +472,10 @@ class Config(BaseModel):
         default_factory=EmailConfig,
         description="Email configuration"
     )
+    mcp: MCPConfig = Field(
+        default_factory=MCPConfig,
+        description="MCP (Model Context Protocol) configuration"
+    )
     
     @classmethod
     def load(
@@ -499,10 +529,116 @@ class Config(BaseModel):
             with open(config_path) as f:
                 config_data.update(yaml.safe_load(f) or {})
         
+        # 5. Merge MCP server configuration
+        config_data = cls._merge_mcp_configuration(config_data, project_root)
+        
         try:
             return cls(**config_data)
         except PydanticValidationError as e:
             raise ValueError(f"Invalid configuration: {e}")
+    
+    @classmethod
+    def _merge_mcp_configuration(cls, config_data: Dict[str, Any], project_root: Path) -> Dict[str, Any]:
+        """
+        Merge MCP configuration from config/mcp_servers.yaml with user configuration.
+        
+        Args:
+            config_data: Current configuration data
+            project_root: Project root directory
+            
+        Returns:
+            Updated configuration data with merged MCP settings
+        """
+        try:
+            # Load MCP servers configuration
+            mcp_servers_file = project_root / "config" / "mcp_servers.yaml"
+            if not mcp_servers_file.exists():
+                logger.debug("No config/mcp_servers.yaml found, skipping MCP server configuration merge")
+                return config_data
+            
+            with open(mcp_servers_file) as f:
+                mcp_servers_data = yaml.safe_load(f) or {}
+            
+            logger.debug(f"Loaded MCP servers configuration from {mcp_servers_file}")
+            
+            # Initialize MCP config structure if not present
+            if "mcp" not in config_data:
+                config_data["mcp"] = {}
+            
+            user_mcp_config = config_data["mcp"]
+            
+            # Merge global MCP settings (from config/mcp_servers.yaml)
+            if "mcp" in mcp_servers_data:
+                server_global_config = mcp_servers_data["mcp"]
+                for key, value in server_global_config.items():
+                    if key not in user_mcp_config:
+                        user_mcp_config[key] = value
+                        logger.debug(f"Added MCP global setting: {key} = {value}")
+            
+            # Initialize servers dict in user MCP config if not present
+            if "servers" not in user_mcp_config:
+                user_mcp_config["servers"] = {}
+            
+            # Process server definitions from config/mcp_servers.yaml
+            if "servers" in mcp_servers_data:
+                servers_from_file = mcp_servers_data["servers"]
+                user_servers = user_mcp_config["servers"]
+                
+                for server_name, server_def in servers_from_file.items():
+                    # Create base server config from mcp_servers.yaml
+                    base_server_config = {
+                        "name": server_def.get("name", server_name),
+                        "enabled": server_def.get("enabled", False),  # Default to disabled
+                        "description": f"{server_def.get('name', server_name)} server",
+                        "timeout": server_def.get("timeout")
+                    }
+                    
+                    # Check if user has specific configuration for this server
+                    if server_name in user_servers:
+                        # Deep merge user config over base config
+                        user_server_config = user_servers[server_name]
+                        merged_config = {**base_server_config}
+                        
+                        # Override with user settings
+                        for key, value in user_server_config.items():
+                            if value is not None:  # Only override non-None values
+                                merged_config[key] = value
+                                logger.debug(f"User override for {server_name}.{key}: {value}")
+                        
+                        user_servers[server_name] = merged_config
+                    else:
+                        # No user config for this server, use base config
+                        user_servers[server_name] = base_server_config
+                        logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
+            
+            # Also handle servers section at root level (legacy support)
+            if "servers" in config_data:
+                root_servers = config_data["servers"]
+                user_mcp_servers = user_mcp_config["servers"]
+                
+                # Merge root-level servers into mcp.servers
+                for server_name, server_config in root_servers.items():
+                    if server_name in user_mcp_servers:
+                        # Deep merge
+                        existing_config = user_mcp_servers[server_name]
+                        for key, value in server_config.items():
+                            if value is not None:
+                                existing_config[key] = value
+                        logger.debug(f"Merged root-level server config for {server_name}")
+                    else:
+                        user_mcp_servers[server_name] = server_config
+                        logger.debug(f"Added root-level server config: {server_name}")
+                
+                # Remove root-level servers section after merging
+                del config_data["servers"]
+            
+            logger.info(f"MCP configuration merged: {len(user_mcp_config['servers'])} servers configured")
+            
+            return config_data
+            
+        except Exception as e:
+            logger.warning(f"Failed to merge MCP configuration: {str(e)}")
+            return config_data
     
     def save_to_file(self, path: Path) -> None:
         """Save configuration to a YAML file."""

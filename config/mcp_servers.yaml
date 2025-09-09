@@ -3,7 +3,7 @@
 
 # Global MCP settings
 mcp:
-  enabled: true
+  enabled: false
   timeout: 60
   max_concurrent: 5
   log_level: INFO
@@ -58,49 +58,6 @@ servers:
       max_execution_time: 120
       network_access: true
 
-  # SQLite Database Server (Example)
-  sqlite:
-    name: sqlite
-    enabled: false  # Disabled by default
-    type: subprocess
-    command: ["python", "-m", "mcp_server_sqlite"]
-    args: ["--db-path", "${DATABASE_PATH:-./data.db}"]
-    environment:
-      DATABASE_PATH: "${DATABASE_PATH:-./data.db}"
-    working_directory: null
-    timeout: 30
-    max_retries: 3
-    retry_delay: 1.0
-    security:
-      allowed_operations:
-        - "query"
-        - "schema"
-      allowed_paths: ["${DATABASE_PATH:-./data.db}"]
-      forbidden_paths: []
-      max_execution_time: 30
-      network_access: false
-
-  # System Monitor MCP Server (Stdio)
-  system_monitor:
-    name: system_monitor
-    enabled: false  # Enable for system monitoring demo
-    type: stdio
-    command: ["python", "tools/mcp_system_monitor_stdio_server.py"]
-    args: []
-    environment: {}
-    working_directory: null
-    timeout: 30
-    max_retries: 3
-    retry_delay: 2.0
-    security:
-      allowed_operations:
-        - "read"
-        - "execute"
-      allowed_paths: ["/", "/tmp", "/var"]
-      forbidden_paths: []
-      max_execution_time: 30
-      network_access: true
-
   # UI-TARS MCP Server (HTTP/WebSocket)
   # Note: Server must be started manually using: python tools/mcp_browser_agent_tars_automation.py
   agent_tars:
@@ -125,27 +82,6 @@ servers:
       allowed_paths: []
       forbidden_paths: []
       max_execution_time: 300
-      network_access: true
-
-  # Example HTTP/WebSocket MCP Server Template
-  web_server:
-    name: web_server
-    enabled: false  # Disabled by default
-    type: websocket
-    url: "${MCP_SERVER_URL:-ws://localhost:8080/mcp}"
-    command: []  # Not used for websocket type
-    args: []
-    environment:
-      MCP_SERVER_URL: "${MCP_SERVER_URL:-ws://localhost:8080/mcp}"
-    working_directory: null
-    timeout: 30
-    max_retries: 3
-    retry_delay: 1.0
-    security:
-      allowed_operations: []
-      allowed_paths: []
-      forbidden_paths: []
-      max_execution_time: 60
       network_access: true
 
   # Browser-use MCP Proxy Server (WebSocket) - AI-driven Browser Automation via Remote REST Service
@@ -231,9 +167,9 @@ servers:
 
   # TICMaker WebSocket MCP Server - HTML页面创建和修改工具
   # Note: Server must be started manually using: python tools/mcp_ticmaker_websocket_server.py
-  ticmaker:
-    name: ticmaker
-    enabled: true  # Enable for TICMaker WebSocket HTML generation features
+  ticmaker_websocket:
+    name: ticmaker_websocket
+    enabled: false  # Enable for TICMaker WebSocket HTML generation features
     type: websocket
     url: "${TICMAKER_WS_URL:-ws://localhost:10002/mcp/ws}"
     headers:
@@ -258,6 +194,33 @@ servers:
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 300  # Extended timeout for WebSocket operations
       network_access: true  # Required for WebSocket connections
+
+  # TICMaker stdio MCP Server - HTML页面创建和修改工具 (推荐)
+  # Configuration is loaded directly from .simacode/config.yaml
+  ticmaker:
+    name: ticmaker
+    enabled: false  # Enable for TICMaker stdio HTML generation features
+    type: stdio
+    command: ["python", "tools/mcp_ticmaker_stdio_server.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment:
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
+    working_directory: null
+    timeout: 120  # Interactive content creation can take some time
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "create"    # Allow HTML page creation
+        - "modify"    # Allow HTML page modification  
+        - "read"      # Allow reading existing files
+        - "write"     # Allow writing HTML files
+        - "execute"   # Allow general execution operations
+      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 120
+      network_access: false  # stdio operations don't need network access
 
 # Configuration Notes:
 #
