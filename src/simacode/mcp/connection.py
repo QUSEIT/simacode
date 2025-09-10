@@ -10,6 +10,7 @@ import logging
 import os
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
+import websockets
 
 from .protocol import MCPTransport
 from .exceptions import MCPConnectionError, MCPTimeoutError
@@ -188,8 +189,6 @@ class WebSocketTransport(MCPTransport):
     async def connect(self) -> bool:
         """Establish WebSocket connection."""
         try:
-            import websockets
-            
             # Start server process if command is provided
             if self.command:
                 await self._start_server_process()
@@ -233,8 +232,6 @@ class WebSocketTransport(MCPTransport):
                     else:
                         raise e
             
-        except ImportError:
-            raise MCPConnectionError("websockets package not installed")
         except Exception as e:
             logger.error(f"WebSocket connection failed: {str(e)}")
             raise MCPConnectionError(f"Failed to connect via WebSocket: {str(e)}")
