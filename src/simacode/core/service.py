@@ -296,7 +296,8 @@ class SimaCodeService:
             # 创建 ReActRequest（与 CLI 中 chat --react 模式完全相同）
             react_request = ReActRequest(
                 task=request.message,
-                session_id=request.session_id
+                session_id=request.session_id,
+                context=request.context
             )
             
             if request.stream:

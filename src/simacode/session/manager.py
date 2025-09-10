@@ -62,18 +62,19 @@ class SessionManager:
             self.config.sessions_directory.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created sessions directory: {self.config.sessions_directory}")
     
-    async def create_session(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> ReActSession:
+    async def create_session(self, user_input: str, context: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None) -> ReActSession:
         """
         Create a new ReAct session.
         
         Args:
             user_input: Initial user input for the session
             context: Additional context information
+            session_id: Optional specific session ID to use
             
         Returns:
             ReActSession: Newly created session
         """
-        session = ReActSession(user_input=user_input)
+        session = session_id and ReActSession(id=session_id, user_input=user_input) or ReActSession(user_input=user_input)
         
         if context:
             session.metadata.update(context)
