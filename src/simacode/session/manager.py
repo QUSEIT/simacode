@@ -149,7 +149,7 @@ class SessionManager:
             # Save session data
             session_data = session.to_dict()
             
-            async with aiofiles.open(session_file, 'w') as f:
+            async with aiofiles.open(session_file, 'w', encoding='utf-8') as f:
                 await f.write(json.dumps(session_data, indent=2, ensure_ascii=False))
             
             session.add_log_entry(f"Session saved to {session_file}")
@@ -176,7 +176,7 @@ class SessionManager:
             if not session_file.exists():
                 return None
             
-            async with aiofiles.open(session_file, 'r') as f:
+            async with aiofiles.open(session_file, 'r', encoding='utf-8') as f:
                 session_data = json.loads(await f.read())
             
             # Reconstruct session from data
@@ -192,7 +192,7 @@ class SessionManager:
             try:
                 backup_file = self.config.sessions_directory / f"{session_id}.backup.json"
                 if backup_file.exists():
-                    async with aiofiles.open(backup_file, 'r') as f:
+                    async with aiofiles.open(backup_file, 'r', encoding='utf-8') as f:
                         session_data = json.loads(await f.read())
                     
                     session = await self._reconstruct_session_from_data(session_data)
@@ -306,7 +306,7 @@ class SessionManager:
             
             for session_file in session_files:
                 try:
-                    async with aiofiles.open(session_file, 'r') as f:
+                    async with aiofiles.open(session_file, 'r', encoding='utf-8') as f:
                         session_data = json.loads(await f.read())
                     
                     sessions.append({
