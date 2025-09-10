@@ -127,12 +127,13 @@ class ContentForwardURL(Tool):
     in the format: FORWARD_URL<base64_encoded_content>
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize Content Forward URL tool."""
         super().__init__(
             name="content_forward_url",
             description="Generate forwarding URLs with base64-encoded content. Converts any content to a URL format for easy sharing and forwarding.",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         self.permission_manager = permission_manager or PermissionManager()
         
@@ -274,12 +275,13 @@ class MCPContentExtraction(Tool):
     content, removing protocol wrappers and returning clean tool data.
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize MCP Content Extraction tool."""
         super().__init__(
             name="mcp_content_extraction",
             description="Intelligent deep content extraction from complex nested data structures. Automatically skips metadata, execution logs, and protocol wrappers to extract core data content. Works with MCP messages, JSON responses, and any multi-layer data format. Returns only the most valuable data payload.",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         self.permission_manager = permission_manager or PermissionManager()
     

@@ -77,12 +77,13 @@ class BashTool(Tool):
     comprehensive permission checking, output streaming, and error handling.
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize Bash tool."""
         super().__init__(
             name="bash",
             description="Execute system commands safely with permission controls",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         self.permission_manager = permission_manager or PermissionManager()
         self.command_validator = CommandValidator()
@@ -129,6 +130,24 @@ class BashTool(Tool):
         """Execute the bash command."""
         execution_id = input_data.execution_id
         command = input_data.command
+        
+        # Access session information if available
+        session = await self.get_session(input_data)
+        if session:
+            # Add session context to command execution log
+            yield ToolResult(
+                type=ToolResultType.INFO,
+                content=f"Executing command in session {session.id} (state: {session.state.value})",
+                execution_id=execution_id,
+                metadata={
+                    "session_id": session.id,
+                    "session_state": session.state.value,
+                    "current_task": session.get_current_task().id if session.get_current_task() else None
+                }
+            )
+            
+            # Log command execution to session
+            session.add_log_entry(f"Executing bash command: {command}")
         
         try:
             # Yield command validation info

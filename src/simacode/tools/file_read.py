@@ -90,12 +90,13 @@ class FileReadTool(Tool):
     permission checking, and various reading modes (full, partial, binary).
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize FileRead tool."""
         super().__init__(
             name="file_read",
             description="Read file contents safely with permission controls and encoding detection",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         self.permission_manager = permission_manager or PermissionManager()
         self.path_validator = PathValidator(self.permission_manager.get_allowed_paths())
@@ -135,6 +136,21 @@ class FileReadTool(Tool):
         """Execute file reading operation."""
         execution_id = input_data.execution_id
         file_path = input_data.file_path
+        
+        # Access session information if available
+        session = await self.get_session(input_data)
+        if session:
+            # Log file read operation to session
+            session.add_log_entry(f"Reading file: {file_path}")
+            yield ToolResult(
+                type=ToolResultType.INFO,
+                content=f"Reading file in session {session.id}",
+                execution_id=execution_id,
+                metadata={
+                    "session_id": session.id,
+                    "file_path": file_path
+                }
+            )
         
         try:
             # Normalize and validate path

@@ -78,6 +78,8 @@ class ToolInput(BaseModel):
     """
     execution_id: str = Field(default_factory=lambda: str(uuid.uuid4()))
     metadata: Dict[str, Any] = Field(default_factory=dict)
+    session_id: Optional[str] = Field(None, description="Associated session ID for context access")
+    session_context: Optional[Dict[str, Any]] = Field(None, description="Session context information")
     
     class Config:
         extra = "allow"  # Allow additional fields for tool-specific inputs
@@ -91,11 +93,20 @@ class Tool(ABC):
     providing a consistent framework for tool development and execution.
     """
     
-    def __init__(self, name: str, description: str, version: str = "1.0.0"):
-        """Initialize the tool with basic metadata."""
+    def __init__(self, name: str, description: str, version: str = "1.0.0", session_manager=None):
+        """
+        Initialize the tool with basic metadata.
+        
+        Args:
+            name: Tool name
+            description: Tool description
+            version: Tool version
+            session_manager: Optional SessionManager instance for session access
+        """
         self.name = name
         self.description = description
         self.version = version
+        self.session_manager = session_manager
         self.created_at = datetime.now()
         self._execution_count = 0
         self._total_execution_time = 0.0
@@ -114,6 +125,24 @@ class Tool(ABC):
                 if self._execution_count > 0 else 0.0
             )
         }
+    
+    async def get_session(self, input_data: ToolInput):
+        """
+        Get session object if session_manager and session_id are available.
+        
+        Args:
+            input_data: Tool input containing session_id
+            
+        Returns:
+            ReActSession or None: Session object if available
+        """
+        if self.session_manager and input_data.session_id:
+            try:
+                return await self.session_manager.get_session(input_data.session_id)
+            except Exception as e:
+                # Log error but don't fail the tool execution
+                logger.warning(f"Failed to get session {input_data.session_id}: {str(e)}")
+        return None
     
     @abstractmethod
     def get_input_schema(self) -> Type[ToolInput]:
@@ -439,7 +468,9 @@ async def discover_tools() -> List[Tool]:
 # Helper function for executing tools by name
 async def execute_tool(
     tool_name: str, 
-    input_data: Dict[str, Any]
+    input_data: Dict[str, Any],
+    session_id: Optional[str] = None,
+    session_context: Optional[Dict[str, Any]] = None
 ) -> AsyncGenerator[ToolResult, None]:
     """
     Execute a tool by name with given input data.
@@ -447,6 +478,8 @@ async def execute_tool(
     Args:
         tool_name: Name of the tool to execute
         input_data: Input data for the tool
+        session_id: Optional session ID for context
+        session_context: Optional session context information
         
     Yields:
         ToolResult: Execution results
@@ -457,6 +490,14 @@ async def execute_tool(
     tool = ToolRegistry.get_tool(tool_name)
     if not tool:
         raise ValueError(f"Tool '{tool_name}' not found in registry")
+    
+    # Add session information to input data if provided
+    if session_id or session_context:
+        input_data = input_data.copy()  # Don't modify original
+        if session_id:
+            input_data['session_id'] = session_id
+        if session_context:
+            input_data['session_context'] = session_context
     
     async for result in tool.run(input_data):
         yield result
