@@ -29,24 +29,34 @@ pydantic = "^2.5.0"
 pyyaml = "^6.0.1"
 rich = "^13.7.0"
 textual = "^0.45.0"
-httpx = ">=0.25.2,<0.30.0"
-mcp = "^1.13.0"
 aiofiles = "^23.2.1"
 python-dotenv = "^1.0.0"
+
+# HTTP and async dependencies - coordinated versions to avoid anyio conflicts
+httpx = "^0.27.0"
 aiohttp = "^3.12.14"
+anyio = "^4.5.0"
 
 # MCP (Model Context Protocol) dependencies
+mcp = "^1.13.0"
 websockets = "^11.0.3"
 cachetools = "^5.3.2"
 psutil = "^5.9.0"
 
-# API service dependencies (optional extras)
-fastapi = {version = "^0.104.1", optional = true}
-uvicorn = {version = "^0.24.0", optional = true}
+# API service dependencies (now required) - versions compatible with anyio>=4.5
+fastapi = "^0.115.0"
+uvicorn = {extras = ["standard"], version = "^0.32.0"}
+jinja2 = "^3.1.2"
+
+# File processing and OCR dependencies
+chardet = "^5.2.0"
+pillow = "^10.1.0"
+
+# AI client dependencies - compatible version
+anthropic = "^0.37.0"
 
 [tool.poetry.extras]
-api = ["fastapi", "uvicorn"]
-all = ["fastapi", "uvicorn"]
+# All core dependencies are now required - no optional extras needed
 
 [tool.poetry.group.dev.dependencies]
 pytest = "^7.4.3"
