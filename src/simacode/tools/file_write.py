@@ -2,13 +2,11 @@
 File writing tool for SimaCode.
 
 This tool provides secure file writing capabilities with comprehensive
-safety checks, backup creation, and permission validation.
+safety checks and permission validation.
 """
 
 import os
-import shutil
 import tempfile
-import time
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional, Type
 
@@ -37,10 +35,6 @@ class FileWriteInput(ToolInput):
         None,
         description="Line number for insert mode (1-based)",
         ge=1
-    )
-    create_backup: bool = Field(
-        True,
-        description="Create backup of existing file before writing"
     )
     create_directories: bool = Field(
         False,
@@ -93,15 +87,15 @@ class FileWriteTool(Tool):
     """
     Tool for writing files safely.
     
-    This tool provides secure file writing with automatic backup creation,
-    permission checking, and various writing modes (overwrite, append, insert).
+    This tool provides secure file writing with permission checking 
+    and various writing modes (overwrite, append, insert).
     """
     
     def __init__(self, permission_manager: Optional[PermissionManager] = None):
         """Initialize FileWrite tool."""
         super().__init__(
             name="file_write",
-            description="Write file contents safely with permission controls and backup creation",
+            description="Write file contents safely with permission controls",
             version="1.0.0"
         )
         self.permission_manager = permission_manager or PermissionManager()
@@ -180,22 +174,11 @@ class FileWriteTool(Tool):
             file_exists = os.path.exists(normalized_path)
             original_size = 0
             original_permissions = None
-            backup_path = None
             
             if file_exists:
                 original_size = os.path.getsize(normalized_path)
                 original_stat = os.stat(normalized_path)
                 original_permissions = original_stat.st_mode
-                
-                # Create backup if requested
-                if input_data.create_backup:
-                    backup_path = await self._create_backup(normalized_path, execution_id)
-                    yield ToolResult(
-                        type=ToolResultType.INFO,
-                        content=f"Backup created: {backup_path}",
-                        execution_id=execution_id,
-                        metadata={"backup_path": backup_path}
-                    )
             
             # Prepare content based on mode
             final_content = await self._prepare_content(
@@ -222,8 +205,7 @@ class FileWriteTool(Tool):
                     "original_size": original_size if file_exists else 0,
                     "new_size": new_size,
                     "size_change": new_size - (original_size if file_exists else 0),
-                    "backup_created": backup_path is not None,
-                    "backup_path": backup_path
+                    "backup_created": False
                 }
             )
             
@@ -249,22 +231,6 @@ class FileWriteTool(Tool):
                 execution_id=execution_id,
                 metadata={"error_type": type(e).__name__}
             )
-    
-    async def _create_backup(self, file_path: str, execution_id: str) -> str:
-        """Create a backup of the existing file."""
-        timestamp = int(time.time())
-        backup_name = f"{os.path.basename(file_path)}.backup.{timestamp}"
-        backup_dir = os.path.join(os.path.dirname(file_path), ".simacode_backups")
-        
-        # Create backup directory if it doesn't exist
-        os.makedirs(backup_dir, exist_ok=True)
-        
-        backup_path = os.path.join(backup_dir, backup_name)
-        
-        # Copy the file
-        shutil.copy2(file_path, backup_path)
-        
-        return backup_path
     
     async def _prepare_content(
         self, 

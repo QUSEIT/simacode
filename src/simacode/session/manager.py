@@ -27,7 +27,6 @@ class SessionConfig(BaseModel):
     auto_save_interval: int = Field(default=30, description="Auto-save interval in seconds")
     max_session_age: int = Field(default=7, description="Maximum session age in days")
     compression_enabled: bool = Field(default=True)
-    backup_enabled: bool = Field(default=True)
     max_sessions_to_keep: int = Field(default=100)
 
 
@@ -63,18 +62,19 @@ class SessionManager:
             self.config.sessions_directory.mkdir(parents=True, exist_ok=True)
             logger.info(f"Created sessions directory: {self.config.sessions_directory}")
     
-    async def create_session(self, user_input: str, context: Optional[Dict[str, Any]] = None) -> ReActSession:
+    async def create_session(self, user_input: str, context: Optional[Dict[str, Any]] = None, session_id: Optional[str] = None) -> ReActSession:
         """
         Create a new ReAct session.
         
         Args:
             user_input: Initial user input for the session
             context: Additional context information
+            session_id: Optional specific session ID to use
             
         Returns:
             ReActSession: Newly created session
         """
-        session = ReActSession(user_input=user_input)
+        session = session_id and ReActSession(id=session_id, user_input=user_input) or ReActSession(user_input=user_input)
         
         if context:
             session.metadata.update(context)
@@ -141,11 +141,6 @@ class SessionManager:
             
             session_file = self.config.sessions_directory / f"{session_id}.json"
             
-            # Create backup if enabled
-            if self.config.backup_enabled and session_file.exists():
-                backup_file = self.config.sessions_directory / f"{session_id}.backup.json"
-                backup_file.write_text(session_file.read_text())
-            
             # Save session data
             session_data = session.to_dict()
             
@@ -187,20 +182,6 @@ class SessionManager:
             
         except Exception as e:
             logger.error(f"Failed to load session {session_id}: {str(e)}")
-            
-            # Try to load from backup
-            try:
-                backup_file = self.config.sessions_directory / f"{session_id}.backup.json"
-                if backup_file.exists():
-                    async with aiofiles.open(backup_file, 'r', encoding='utf-8') as f:
-                        session_data = json.loads(await f.read())
-                    
-                    session = await self._reconstruct_session_from_data(session_data)
-                    logger.info(f"Session loaded from backup: {session_id}")
-                    return session
-            except Exception as backup_error:
-                logger.error(f"Failed to load session from backup {session_id}: {str(backup_error)}")
-            
             return None
     
     async def _reconstruct_session_from_data(self, session_data: Dict[str, Any]) -> ReActSession:
@@ -265,11 +246,6 @@ class SessionManager:
             if session_file.exists():
                 session_file.unlink()
             
-            # Delete backup
-            backup_file = self.config.sessions_directory / f"{session_id}.backup.json"
-            if backup_file.exists():
-                backup_file.unlink()
-            
             logger.debug(f"Session deleted: {session_id}")
             return True
             
@@ -295,8 +271,6 @@ class SessionManager:
         
         try:
             session_files = list(self.config.sessions_directory.glob("*.json"))
-            # Exclude backup files
-            session_files = [f for f in session_files if not f.name.endswith(".backup.json")]
             
             # Sort by modification time (newest first)
             session_files.sort(key=lambda f: f.stat().st_mtime, reverse=True)

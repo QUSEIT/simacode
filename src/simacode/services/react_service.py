@@ -139,18 +139,15 @@ class ReActService:
             await self.start()
         
         try:
+            logger.debug(f"Processing user request: session_id={session_id}, input={user_input[:30]}...")
             # Get or create session
             if session_id:
                 session = await self.session_manager.get_session(session_id)
+                logger.debug(f"Retrieved session: {session_id} -> {session}")
                 if not session:
-                    # Session doesn't exist, create a new one with the specified ID
-                    session = await self.session_manager.create_session(user_input, context)
-                    # Override the generated ID with the requested one
-                    session.id = session_id
-                    # Register the session with the correct ID
-                    self.session_manager.active_sessions[session_id] = session
-                    # Save with the correct ID
-                    await self.session_manager.save_session(session_id)
+                    # Session doesn't exist, create a new one with the specified ID directly
+                    session = await self.session_manager.create_session(user_input, context, session_id)
+                    logger.debug(f"Created new session with specified ID: {session_id}")
                 else:
                     # Update existing session with new input
                     session.user_input = user_input

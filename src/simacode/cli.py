@@ -467,7 +467,7 @@ def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool, 
     console.print(f"[dim]Debug: {debug}[/dim]\n")
     
     try:
-        # Import here to avoid circular imports and optional dependency
+        # Import here to avoid circular imports
         import uvicorn
         from .api.app import create_app
         
@@ -487,10 +487,6 @@ def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool, 
             log_level=uvicorn_log_level
         )
         
-    except ImportError:
-        console.print("[red]FastAPI and uvicorn are required for API mode.[/red]")
-        console.print("[yellow]Install with: pip install 'simacode[api]'[/yellow]")
-        sys.exit(1)
     except Exception as e:
         console.print(f"[red]Failed to start server: {e}[/red]")
         sys.exit(1)

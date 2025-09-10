@@ -11,30 +11,21 @@ import json
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-try:
-    from fastapi import FastAPI, Request, Response
-    from fastapi.middleware.cors import CORSMiddleware
-    from fastapi.responses import JSONResponse
-    from starlette.middleware.base import BaseHTTPMiddleware
-    FASTAPI_AVAILABLE = True
-except ImportError:
-    FASTAPI_AVAILABLE = False
-    FastAPI = None
-    Request = None
-    Response = None
-    BaseHTTPMiddleware = None
+from fastapi import FastAPI, Request, Response
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
+from starlette.middleware.base import BaseHTTPMiddleware
 
 from ..config import Config
 from ..core.service import SimaCodeService
 
 logger = logging.getLogger(__name__)
 
-if FASTAPI_AVAILABLE:
-    from .routes import chat, react, health, sessions
-    from ..universalform import router as universalform_router, UNIVERSALFORM_AVAILABLE
-    from .models import ErrorResponse
+from .routes import chat, react, health, sessions
+from ..universalform import router as universalform_router, UNIVERSALFORM_AVAILABLE
+from .models import ErrorResponse
 
-    class DebugLoggingMiddleware(BaseHTTPMiddleware):
+class DebugLoggingMiddleware(BaseHTTPMiddleware):
         """中间件用于记录HTTP请求和响应的DEBUG信息"""
         
         async def dispatch(self, request: Request, call_next):
@@ -160,15 +151,7 @@ def create_app(config: Config):
         
     Returns:
         Configured FastAPI application
-        
-    Raises:
-        ImportError: If FastAPI is not installed
     """
-    if not FASTAPI_AVAILABLE:
-        raise ImportError(
-            "FastAPI is required for API mode. "
-            "Install with: pip install 'simacode[api]'"
-        )
     
     app = FastAPI(
         title="SimaCode API",

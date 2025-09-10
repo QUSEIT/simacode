@@ -411,7 +411,7 @@ class FileReadTool(Tool):
     async def _detect_encoding(self, file_path: str) -> str:
         """Detect file encoding."""
         try:
-            # Try to import chardet for better detection
+            # Import chardet for better detection
             import chardet
             
             # Read a sample of the file
@@ -421,8 +421,6 @@ class FileReadTool(Tool):
             detection = chardet.detect(raw_data)
             if detection and detection['encoding'] and detection['confidence'] > 0.7:
                 return detection['encoding'].lower()
-        except ImportError:
-            pass
         except Exception:
             pass
         
