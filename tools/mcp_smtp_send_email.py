@@ -99,10 +99,14 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
-# Configure logging
+# Import MCP file logging utility
+from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
+
+# Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
     level=logging.INFO,
-    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s'
+    format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
+    stream=sys.stderr
 )
 logger = logging.getLogger(__name__)
 
@@ -210,6 +214,16 @@ class SMTPEmailClient:
         logger.info(f"[SMTP_CONFIG]   Use SSL: {self.config.use_ssl}")
         logger.info(f"[SMTP_CONFIG]   Use TLS: {self.config.use_tls}")
         logger.info(f"[SMTP_CONFIG]   Timeout: {self.config.timeout}s")
+        
+        # Log SMTP client initialization to file
+        mcp_info("SMTP client initialized", {
+            "server": self.config.server,
+            "port": self.config.port,
+            "username": self.config.username,
+            "use_ssl": self.config.use_ssl,
+            "use_tls": self.config.use_tls,
+            "timeout": self.config.timeout
+        }, tool_name="smtp_email")
     
     def _cleanup_rate_limiting(self):
         """Clean up old rate limiting entries."""
@@ -739,6 +753,15 @@ class EmailSMTPMCPServer:
         }
         
         logger.info(f"Email SMTP MCP Server initialized for stdio")
+        
+        # Log server initialization to file
+        mcp_info("Email SMTP MCP server initialized", {
+            "server_version": self.server_info["version"],
+            "smtp_server": self.smtp_config.server,
+            "smtp_port": self.smtp_config.port,
+            "max_recipients": self.smtp_config.max_recipients,
+            "rate_limits": f"{self.smtp_config.max_emails_per_hour}/hour, {self.smtp_config.max_emails_per_day}/day"
+        }, tool_name="smtp_email")
     
     async def _process_mcp_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Process an MCP message and return response."""
@@ -807,6 +830,12 @@ class EmailSMTPMCPServer:
             logger.info(f"[TOOL_EXEC] Starting tool execution: {tool_name}")
             logger.debug(f"[TOOL_EXEC] Tool arguments: {arguments}")
             
+            # Log tool execution start to file
+            mcp_debug(f"Executing tool: {tool_name}", {
+                "arguments": arguments,
+                "message_id": message.id
+            }, tool_name="smtp_email")
+            
             if tool_name not in self.tools:
                 logger.error(f"[TOOL_EXEC] Tool '{tool_name}' not found")
                 return MCPMessage(
@@ -829,6 +858,14 @@ class EmailSMTPMCPServer:
             total_time = (datetime.now() - tool_start).total_seconds()
             
             logger.info(f"[TOOL_EXEC] Tool '{tool_name}' completed in {total_time:.2f}s")
+            
+            # Log tool execution completion to file
+            mcp_debug(f"Tool execution completed: {tool_name}", {
+                "success": result.success,
+                "execution_time": result.execution_time,
+                "total_time": total_time,
+                "message_id": message.id
+            }, tool_name="smtp_email")
             
             # Create response
             response_content = {
@@ -868,6 +905,14 @@ class EmailSMTPMCPServer:
         except Exception as e:
             total_time = (datetime.now() - tool_start).total_seconds()
             logger.error(f"[TOOL_EXEC] Tool execution error after {total_time:.2f}s: {str(e)}")
+            
+            # Log tool execution error to file
+            mcp_error("Tool execution failed with exception", {
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "execution_time": total_time,
+                "message_id": message.id
+            }, tool_name="smtp_email")
             
             return MCPMessage(
                 id=message.id,
