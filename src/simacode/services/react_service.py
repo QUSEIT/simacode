@@ -143,7 +143,7 @@ class ReActService:
             # Get or create session
             if session_id:
                 session = await self.session_manager.get_session(session_id)
-                logger.debug(f"Retrieved session: {session_id} -> {session}")
+                #logger.debug(f"Retrieved session: {session_id} -> {session}")
                 if not session:
                     # Session doesn't exist, create a new one with the specified ID directly
                     session = await self.session_manager.create_session(user_input, context, session_id)

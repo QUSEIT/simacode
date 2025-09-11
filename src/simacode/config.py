@@ -609,7 +609,7 @@ class Config(BaseModel):
                     else:
                         # No user config for this server, use base config
                         user_servers[server_name] = base_server_config
-                        logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
+                        #logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
             
             # Also handle servers section at root level (legacy support)
             if "servers" in config_data:
