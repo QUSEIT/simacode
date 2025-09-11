@@ -15,7 +15,7 @@ Key Features:
 
 __version__ = "0.1.0"
 __author__ = "SimaCode Team"
-__email__ = "team@simacode.com"
+__email__ = "sima@quseit.com"
 
 import asyncio
 import logging
