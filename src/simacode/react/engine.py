@@ -209,7 +209,7 @@ class ReActEngine:
             session.conversation_history.append(Message(role="user", content=user_input))
         
         if context:
-            session.metadata.update(context)
+            session.metadata.update({"context":context})
         
         try:
             session.add_log_entry(f"Starting ReAct processing for input: {user_input[:100]}...")

@@ -152,7 +152,7 @@ class ReActService:
                     # Update existing session with new input
                     session.user_input = user_input
                     if context:
-                        session.metadata.update(context)
+                        session.metadata.update({"context":context})
             else:
                 session = await self.session_manager.create_session(user_input, context)
             

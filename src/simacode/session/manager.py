@@ -77,7 +77,7 @@ class SessionManager:
         session = session_id and ReActSession(id=session_id, user_input=user_input) or ReActSession(user_input=user_input)
         
         if context:
-            session.metadata.update(context)
+            session.metadata.update({"context":context})
         
         # Add session metadata
         session.metadata.update({
