@@ -34,30 +34,6 @@ servers:
       max_execution_time: 60
       network_access: false
 
-  # GitHub Integration Server
-  github:
-    name: github
-    enabled: false  # Disabled by default - requires GITHUB_TOKEN
-    type: subprocess
-    command: ["npx", "@modelcontextprotocol/server-github"]
-    args: ["--token", "${GITHUB_TOKEN}"]
-    environment:
-      GITHUB_TOKEN: "${GITHUB_TOKEN}"
-    working_directory: null
-    timeout: 120
-    max_retries: 3
-    retry_delay: 2.0
-    security:
-      allowed_operations:
-        - "read_repository"
-        - "list_issues"
-        - "list_pull_requests"
-        - "read_file"
-      allowed_paths: []
-      forbidden_paths: []
-      max_execution_time: 120
-      network_access: true
-
   # UI-TARS MCP Server (HTTP/WebSocket)
   # Note: Server must be started manually using: python tools/mcp_browser_agent_tars_automation.py
   agent_tars:
@@ -129,7 +105,7 @@ servers:
     security:
       allowed_operations:
         - "read"      # Allow reading operations (get_email, get_recent_emails, list_folders)
-        - "execute"   # Allow general execution operations  
+        - "execute"   # Allow general execution operations
         - "access"    # Allow access operations (check_emails)
       allowed_paths: []  # Email operations don't need file system access
       forbidden_paths: []
@@ -186,7 +162,7 @@ servers:
     security:
       allowed_operations:
         - "create"    # Allow HTML page creation
-        - "modify"    # Allow HTML page modification  
+        - "modify"    # Allow HTML page modification
         - "read"      # Allow reading existing files
         - "write"     # Allow writing HTML files
         - "execute"   # Allow general execution operations
@@ -204,8 +180,15 @@ servers:
     command: ["python", "tools/mcp_ticmaker_stdio_server.py"]
     args: ["--config", ".simacode/config.yaml"]
     environment:
-      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
-      TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
+      ticmaker_output_dir: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      ticmaker_template: "${TICMAKER_TEMPLATE:-modern}"
+      # AI客户端配置
+      ticmaker_ai_enabled: "${TICMAKER_AI_ENABLED:-true}"
+      ticmaker_ai_base_url: "${TICMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
+      ticmaker_ai_api_key: "${TICMAKER_AI_API_KEY:-${OPENAI_API_KEY}}"
+      ticmaker_ai_model: "${TICMAKER_AI_MODEL:-gpt-4o-mini}"
+      ticmaker_ai_max_tokens: "${TICMAKER_AI_MAX_TOKENS:-81920}"
+      ticmaker_ai_temperature: "${TICMAKER_AI_TEMPERATURE:-0.7}"
     working_directory: null
     timeout: 120  # Interactive content creation can take some time
     max_retries: 3
@@ -213,38 +196,11 @@ servers:
     security:
       allowed_operations:
         - "create"    # Allow HTML page creation
-        - "modify"    # Allow HTML page modification  
+        - "modify"    # Allow HTML page modification
         - "read"      # Allow reading existing files
         - "write"     # Allow writing HTML files
         - "execute"   # Allow general execution operations
       allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 120
-      network_access: false  # stdio operations don't need network access
-
-# Configuration Notes:
-#
-# 1. Environment Variables:
-#    - Use ${VAR_NAME} syntax for environment variable substitution
-#    - Provide defaults with ${VAR_NAME:-default_value} syntax
-#    - Set environment variables before running SimaCode
-#
-# 2. Security:
-#    - By default, most servers are disabled for security
-#    - Review and configure security settings before enabling
-#    - allowed_paths and forbidden_paths are enforced for file access
-#    - max_execution_time prevents runaway processes
-#
-# 3. Server Types:
-#    - subprocess: Most common, runs MCP server as child process
-#    - websocket: Connects to WebSocket-based MCP server
-#
-# 4. To enable a server:
-#    - Set enabled: true
-#    - Configure required environment variables
-#    - Adjust security settings as needed
-#
-# 5. Example environment setup:
-#    export GITHUB_TOKEN="your_github_token_here"
-#    export WORKSPACE_ROOT="/path/to/your/workspace"
-#    export DATABASE_PATH="/path/to/your/database.db"
+      network_access: true  # 需要网络访问以调用AI API
