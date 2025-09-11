@@ -45,17 +45,7 @@ from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
 # Import MCP file logging utility
-try:
-    from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
-    MCP_LOGGING_AVAILABLE = True
-except ImportError:
-    # Fallback if logging utility is not available
-    MCP_LOGGING_AVAILABLE = False
-    def mcp_file_log(*args, **kwargs): pass
-    def mcp_debug(*args, **kwargs): pass
-    def mcp_info(*args, **kwargs): pass  
-    def mcp_warning(*args, **kwargs): pass
-    def mcp_error(*args, **kwargs): pass
+from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
 
 # Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
@@ -114,7 +104,7 @@ class TICMakerClient:
             "output_dir": str(self.output_dir),
             "default_template": self.config.default_template,
             "ai_enhancement": self.config.ai_enhancement,
-            "logging_available": MCP_LOGGING_AVAILABLE
+            "logging_available": True
         }, tool_name="ticmaker")
     
     async def create_interactive_course(
