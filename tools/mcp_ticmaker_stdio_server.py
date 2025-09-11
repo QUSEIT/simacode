@@ -903,7 +903,7 @@ class TICMakerStdioMCPServer:
                 {
                     "name": tool_name,
                     "description": tool_info["description"],
-                    "inputSchema": tool_info["input_schema"]
+                    "input_schema": tool_info["input_schema"]
                 }
                 for tool_name, tool_info in self.tools.items()
             ]

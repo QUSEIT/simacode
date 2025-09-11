@@ -447,9 +447,20 @@ class MCPToolWrapper(Tool):
         # Optionally include session context for MCP tools that support it
         # This allows MCP tools to access session information if they're designed to use it
         if hasattr(input_data, 'session_context') and input_data.session_context:
-            # Only include if the MCP tool schema suggests it can handle session context
-            if self._mcp_tool_supports_session_context():
+            # Log session context availability for debugging
+            logger.debug(f"Session context available for tool {self.original_name}: {list(input_data.session_context.keys())}")
+            
+            # Check if the MCP tool schema suggests it can handle session context
+            supports_session = self._mcp_tool_supports_session_context()
+            logger.debug(f"Session context support check for {self.original_name}: supports={supports_session}")
+            
+            if supports_session:
                 mcp_args["_session_context"] = input_data.session_context
+                logger.debug(f"Added session context to MCP args for {self.original_name}")
+            else:
+                logger.warning(f"Session context not supported by {self.original_name} (schema check failed)")
+        else:
+            logger.debug(f"No session context available for tool {self.original_name}")
         
         return mcp_args
     
@@ -461,16 +472,33 @@ class MCPToolWrapper(Tool):
             bool: True if the tool appears to support session context
         """
         if not self.mcp_schema:
+            logger.debug(f"No MCP schema available for {self.original_name}")
             return False
         
         # Check if the schema has fields that suggest session context support
         schema_str = str(self.mcp_schema).lower()
         session_keywords = ["session", "context", "_session_context"]
         
+        # Log schema analysis for debugging
+        schema_found = {}
+        for keyword in session_keywords:
+            found = keyword in schema_str
+            schema_found[keyword] = found
+        
+        logger.debug(f"Schema analysis for {self.original_name}: length={len(schema_str)}, keywords={schema_found}")
+        
+        # More specific check for _session_context parameter
+        if "_session_context" in schema_str:
+            logger.debug(f"Found explicit _session_context support in schema for {self.original_name}")
+            return True
+        
+        # Check for any session-related keywords
         for keyword in session_keywords:
             if keyword in schema_str:
+                logger.debug(f"Found session keyword '{keyword}' in schema for {self.original_name}")
                 return True
         
+        logger.debug(f"No session support detected for {self.original_name}")
         return False
     
     async def _convert_mcp_result_to_tool_result(
