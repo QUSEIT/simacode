@@ -82,15 +82,6 @@ except ImportError:
     bleach = None
     HTML_SANITIZER_AVAILABLE = False
 
-# Environment configuration support
-try:
-    from dotenv import load_dotenv
-    DOTENV_AVAILABLE = True
-    print("Info: python-dotenv is available for .env.mcp loading", file=sys.stderr)
-except ImportError:
-    DOTENV_AVAILABLE = False
-    print("Warning: python-dotenv not available. .env.mcp will not be loaded.", file=sys.stderr)
-    print("Install with: pip install python-dotenv", file=sys.stderr)
 
 # Add parent directory to path for MCP imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -1089,11 +1080,6 @@ def load_simacode_config(config_path: Optional[Path] = None) -> Config:
         mcp_warning(f"[CONFIG_LOAD] Failed to load SimaCode config: {e}", tool_name="smtp_email")
         mcp_info("[CONFIG_LOAD] Falling back to environment variables and defaults", tool_name="smtp_email")
         
-        # Load environment from .env.mcp as fallback
-        env_file = Path(__file__).parent.parent / ".env.mcp"
-        if DOTENV_AVAILABLE and env_file.exists():
-            mcp_info(f"[ENV_LOAD] Loading fallback environment from: {env_file}", tool_name="smtp_email")
-            load_dotenv(env_file, override=True)
         
         # Return default config - we'll populate from environment in SMTPConfig.from_simacode_config
         return Config.load()
