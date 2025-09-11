@@ -352,7 +352,8 @@ class MCPHealthMonitor:
         
         # Log health check result
         if success:
-            logger.debug(f"Health check passed for '{server_name}' ({response_time:.3f}s)")
+            pass
+            #logger.debug(f"Health check passed for '{server_name}' ({response_time:.3f}s)")
         else:
             logger.warning(f"Health check failed for '{server_name}': {error_message}")
         

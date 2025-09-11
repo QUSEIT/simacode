@@ -32,10 +32,14 @@ import logging
 import os
 import sys
 import uuid
+import random
 from datetime import datetime
 from pathlib import Path
 from typing import Any, Dict, List, Optional, AsyncGenerator
 from dataclasses import dataclass
+
+# AI client dependencies
+import httpx
 
 # Add parent directory to path for MCP imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -44,8 +48,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
-# Import MCP file logging utility
+# Import utilities
 from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
+from src.simacode.utils.config_loader import load_simacode_config
 
 # Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
@@ -53,7 +58,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stderr
 )
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)  # 已替换为 mcp_logger
 
 
 @dataclass
@@ -64,11 +69,75 @@ class TICMakerConfig:
     ai_enhancement: bool = False
     max_file_size: int = 1024 * 1024 * 10  # 10MB
     allowed_file_extensions: List[str] = None
+    # AI客户端配置
+    ai_enabled: bool = True
+    ai_base_url: str = "https://api.openai.com/v1"
+    ai_api_key: str = ""
+    ai_model: str = "gpt-3.5-turbo"
+    ai_max_tokens: int = 500
+    ai_temperature: float = 0.7
     
     def __post_init__(self):
         """Set default values after initialization."""
         if self.allowed_file_extensions is None:
             self.allowed_file_extensions = [".html", ".htm"]
+    
+    @classmethod
+    def from_simacode_config(cls, config: Config) -> 'TICMakerConfig':
+        """Create TICMakerConfig from SimaCode Config object."""
+        # Try to get ticmaker config section, fallback to empty dict
+        try:
+            ticmaker_config = getattr(config, 'ticmaker', {})
+        except AttributeError:
+            ticmaker_config = {}
+        
+        # Extract basic settings with fallbacks
+        output_dir = ticmaker_config.get('output_dir', "./ticmaker_output")
+        default_template = ticmaker_config.get('default_template', "modern")
+        ai_enhancement = ticmaker_config.get('ai_enhancement', False)
+        
+        # Extract AI settings from ticmaker config with fallbacks
+        ai_config = ticmaker_config.get('ai', {})
+        ai_enabled_default = ai_config.get('enabled', True)
+        ai_base_url_default = ai_config.get('base_url', "https://api.openai.com/v1")
+        ai_api_key_default = ai_config.get('api_key', "")
+        ai_model_default = ai_config.get('model', "gpt-4o-mini")
+        ai_max_tokens_default = ai_config.get('max_tokens', 16384)
+        ai_temperature_default = ai_config.get('temperature', 0.7)
+        
+        # Override with environment variables (priority: env vars > config)
+        output_dir = os.getenv("TICMAKER_OUTPUT_DIR", output_dir)
+        default_template = os.getenv("TICMAKER_TEMPLATE", default_template)
+        
+        # AI configuration with environment override
+        ai_enabled_env = os.getenv("TICMAKER_AI_ENABLED", str(ai_enabled_default))
+        ai_enabled = ai_enabled_env.lower() == "true"
+        
+        ai_base_url = os.getenv("TICMAKER_AI_BASE_URL", ai_base_url_default)
+        ai_api_key = os.getenv("TICMAKER_AI_API_KEY", ai_api_key_default)
+        ai_model = os.getenv("TICMAKER_AI_MODEL", ai_model_default)
+        
+        try:
+            ai_max_tokens = int(os.getenv("TICMAKER_AI_MAX_TOKENS", str(ai_max_tokens_default)))
+        except ValueError:
+            ai_max_tokens = ai_max_tokens_default
+        
+        try:
+            ai_temperature = float(os.getenv("TICMAKER_AI_TEMPERATURE", str(ai_temperature_default)))
+        except ValueError:
+            ai_temperature = ai_temperature_default
+        
+        return cls(
+            output_dir=output_dir,
+            default_template=default_template,
+            ai_enhancement=ai_enhancement,
+            ai_enabled=ai_enabled,
+            ai_base_url=ai_base_url,
+            ai_api_key=ai_api_key,
+            ai_model=ai_model,
+            ai_max_tokens=ai_max_tokens,
+            ai_temperature=ai_temperature
+        )
 
 
 @dataclass
@@ -79,6 +148,221 @@ class TICMakerResult:
     error: Optional[str] = None
     execution_time: float = 0.0
     metadata: Optional[Dict[str, Any]] = None
+
+
+class TICMakerAIClient:
+    """OpenAI兼容的AI客户端用于内容生成."""
+    
+    def __init__(self, config: TICMakerConfig):
+        """初始化AI客户端."""
+        self.config = config
+        self.client = None
+        if config.ai_enabled and config.ai_api_key:
+            self.client = httpx.AsyncClient(
+                base_url=config.ai_base_url,
+                headers={"Authorization": f"Bearer {config.ai_api_key}"},
+                timeout=30.0
+            )
+    
+    async def generate_course_intro(self, course_title: str, user_input: str) -> str:
+        """生成课程介绍文本."""
+        if not self.client:
+            # Debug log: AI client not available
+            mcp_debug(f"AI client not available, using fallback content", {
+                "ai_enabled": self.config.ai_enabled,
+                "api_key_configured": bool(self.config.ai_api_key),
+                "client_initialized": self.client is not None,
+                "course_title": course_title,
+                "fallback_reason": "no_client_instance"
+            }, tool_name="ticmaker")
+            
+            # 如果AI客户端不可用，返回随机生成的内容
+            intros = [
+                f"🎓 欢迎来到「{course_title}」课程！这是一门充满趣味性和互动性的学习体验。",
+                f"📚 「{course_title}」将带你探索知识的奥秘，通过精心设计的互动内容让学习变得轻松愉快。",
+                f"✨ 准备好开始「{course_title}」的学习之旅吧！我们将通过生动有趣的方式来掌握核心概念。",
+                f"🌟 「{course_title}」课程采用创新的教学方法，让复杂的概念变得简单易懂。",
+                f"🎯 在「{course_title}」中，你将通过互动练习和实践活动来深入理解每个知识点。"
+            ]
+            selected_intro = random.choice(intros)
+            
+            # Debug log: Fallback content selected
+            mcp_debug(f"Fallback content selected", {
+                "selected_intro": selected_intro,
+                "available_options": len(intros)
+            }, tool_name="ticmaker")
+            
+            return selected_intro
+        
+        try:
+            # 构建AI提示
+            prompt = f"""请为课程「{course_title}」生成一段简洁而有吸引力的介绍文字。
+
+用户输入: {user_input}
+
+要求:
+- 不超过80字
+- 语言生动有趣
+- 突出课程的互动性和趣味性
+- 使用适当的emoji
+- 直接返回介绍文字，不需要额外说明
+- 避免使用特殊符号、数学公式、反斜杠等字符
+- 使用简单的中文表达
+
+格式示例: 🎓 欢迎来到xxx课程！这里将带你...
+"""
+
+            # Debug log: AI request details
+            request_data = {
+                "model": self.config.ai_model,
+                "messages": [
+                    {"role": "user", "content": prompt}
+                ],
+                "max_tokens": self.config.ai_max_tokens,
+                "temperature": self.config.ai_temperature
+            }
+            
+            mcp_debug(f"Sending AI request for course intro generation", {
+                "model": self.config.ai_model,
+                "max_tokens": self.config.ai_max_tokens,
+                "temperature": self.config.ai_temperature,
+                "prompt_length": len(prompt),
+                "prompt_preview": prompt[:150] + "..." if len(prompt) > 150 else prompt,
+                "course_title": course_title,
+                "user_input_preview": user_input[:100] + "..." if len(user_input) > 100 else user_input,
+                "client_base_url": self.config.ai_base_url,
+                "api_key_configured": bool(self.config.ai_api_key)
+            }, tool_name="ticmaker")
+
+            response = await self.client.post(
+                "/chat/completions",
+                json=request_data
+            )
+            
+            # Debug log: AI client response status
+            mcp_debug(f"AI client HTTP response received", {
+                "status_code": response.status_code,
+                "headers": dict(response.headers),
+                "request_url": str(response.url),
+                "request_method": "POST"
+            }, tool_name="ticmaker")
+            
+            if response.status_code == 200:
+                data = response.json()
+                
+                # Debug log: AI response data structure
+                mcp_debug(f"AI client successful response data", {
+                    "response_keys": list(data.keys()) if isinstance(data, dict) else "not_dict",
+                    "has_choices": "choices" in data if isinstance(data, dict) else False,
+                    "choices_count": len(data.get("choices", [])) if isinstance(data, dict) else 0,
+                    "model_used": data.get("model", "unknown") if isinstance(data, dict) else "unknown",
+                    "usage": data.get("usage", {}) if isinstance(data, dict) else {}
+                }, tool_name="ticmaker")
+                
+                if "choices" in data and len(data["choices"]) > 0:
+                    raw_content = data["choices"][0]["message"]["content"]
+                    content = raw_content.strip()
+                    
+                    # Debug log: AI generated content details
+                    mcp_debug(f"AI content generation successful", {
+                        "raw_content_length": len(raw_content),
+                        "cleaned_content_length": len(content),
+                        "content_preview": content[:100] + "..." if len(content) > 100 else content,
+                        "finish_reason": data["choices"][0].get("finish_reason", "unknown"),
+                        "choice_index": data["choices"][0].get("index", 0)
+                    }, tool_name="ticmaker")
+                    
+                    # 清理可能导致JSON解析问题的字符
+                    content = self._clean_content_for_json(content)
+                    
+                    # Debug log: Final processed content
+                    mcp_debug(f"AI content cleaned and ready", {
+                        "final_content_length": len(content),
+                        "final_content_preview": content[:100] + "..." if len(content) > 100 else content,
+                        "cleaning_applied": raw_content != content
+                    }, tool_name="ticmaker")
+                    
+                    return content
+                else:
+                    # Debug log: Invalid response structure
+                    mcp_debug(f"AI response missing choices or empty choices", {
+                        "has_choices_key": "choices" in data if isinstance(data, dict) else False,
+                        "choices_data": data.get("choices", []) if isinstance(data, dict) else [],
+                        "full_response": data if isinstance(data, dict) else str(data)
+                    }, tool_name="ticmaker")
+            else:
+                # Debug log: Non-200 status code
+                try:
+                    error_data = response.json() if response.content else {}
+                except:
+                    error_data = {"raw_content": response.text[:200] if response.text else "empty"}
+                
+                mcp_debug(f"AI client HTTP error response", {
+                    "status_code": response.status_code,
+                    "error_data": error_data,
+                    "response_text_preview": response.text[:200] if hasattr(response, 'text') else "no_text"
+                }, tool_name="ticmaker")
+                    
+        except Exception as e:
+            # Debug log: Exception details
+            mcp_debug(f"AI client exception occurred", {
+                "exception_type": type(e).__name__,
+                "exception_message": str(e),
+                "exception_args": str(e.args) if hasattr(e, 'args') else "no_args",
+                "ai_client_available": self.client is not None,
+                "config_ai_enabled": self.config.ai_enabled,
+                "config_api_key_set": bool(self.config.ai_api_key)
+            }, tool_name="ticmaker")
+            
+            mcp_warning(f"AI client error: {e}", tool_name="ticmaker")
+        
+        # 如果AI调用失败，返回fallback内容
+        fallback_intros = [
+            f"🎓 欢迎学习「{course_title}」！这是一门精心设计的互动式课程。",
+            f"📚 「{course_title}」将通过丰富的互动内容带你掌握核心知识。",
+            f"✨ 开始「{course_title}」的精彩学习之旅吧！"
+        ]
+        selected_fallback = random.choice(fallback_intros)
+        
+        # Debug log: Using fallback content after AI failure
+        mcp_debug(f"AI call failed, using fallback content", {
+            "fallback_content": selected_fallback,
+            "fallback_options_count": len(fallback_intros),
+            "course_title": course_title,
+            "fallback_reason": "ai_call_failed_or_invalid_response"
+        }, tool_name="ticmaker")
+        
+        return selected_fallback
+    
+    def _clean_content_for_json(self, content: str) -> str:
+        """清理内容中可能导致JSON解析问题的字符."""
+        import re
+        
+        # 移除或替换LaTeX数学公式中的反斜杠
+        content = re.sub(r'\\[()]', lambda m: m.group(0)[1:], content)  # \( -> (, \) -> )
+        content = re.sub(r'\\[a-zA-Z]+', '', content)  # 移除LaTeX命令如 \alpha, \beta
+        
+        # 移除其他可能的转义字符
+        content = content.replace('\\n', ' ')
+        content = content.replace('\\t', ' ')
+        content = content.replace('\\r', ' ')
+        content = content.replace('\\"', '"')
+        content = content.replace("\\'", "'")
+        
+        # 清理多余的空格
+        content = re.sub(r'\s+', ' ', content)
+        content = content.strip()
+        
+        # 如果内容过长，截断到合理长度
+        if len(content) > 200:
+            content = content[:197] + "..."
+            
+        return content
+    
+    async def close(self):
+        """关闭AI客户端."""
+        if self.client:
+            await self.client.aclose()
 
 
 class TICMakerClient:
@@ -95,15 +379,23 @@ class TICMakerClient:
         self.output_dir = Path(config.output_dir)
         self.output_dir.mkdir(exist_ok=True)
         
-        logger.info(f"[TICMAKER_CONFIG] Output directory: {self.output_dir}")
-        logger.info(f"[TICMAKER_CONFIG] Default template: {self.config.default_template}")
-        logger.info(f"[TICMAKER_CONFIG] AI enhancement: {self.config.ai_enhancement}")
+        # 初始化AI客户端
+        self.ai_client = TICMakerAIClient(config)
+        
+        mcp_info(f"[TICMAKER_CONFIG] Output directory: {self.output_dir}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] Default template: {self.config.default_template}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] AI enhancement: {self.config.ai_enhancement}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] AI client enabled: {self.config.ai_enabled}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] AI model: {self.config.ai_model}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] AI ai_api_key: {self.config.ai_api_key}", tool_name="ticmaker")
         
         # Log initialization to file
         mcp_info("TICMaker client initialized", {
             "output_dir": str(self.output_dir),
             "default_template": self.config.default_template,
             "ai_enhancement": self.config.ai_enhancement,
+            "ai_enabled": self.config.ai_enabled,
+            "ai_model": self.config.ai_model,
             "logging_available": True
         }, tool_name="ticmaker")
     
@@ -119,14 +411,14 @@ class TICMakerClient:
         start_time = datetime.now()
         
         try:
-            logger.info("🎯 ===== TICMaker Course Creation Started =====")
-            logger.info(f"   💬 User Requirements: {user_input}")
-            logger.info(f"   📄 Course Title: {course_title or 'Not specified'}")
-            logger.info(f"   📁 File Path: {file_path or 'Auto-generate'}")
+            mcp_info("🎯 ===== TICMaker Course Creation Started =====", tool_name="ticmaker")
+            mcp_info(f"   💬 User Requirements: {user_input}", tool_name="ticmaker")
+            mcp_info(f"   📄 Course Title: {course_title or 'Not specified'}", tool_name="ticmaker")
+            mcp_info(f"   📁 File Path: {file_path or 'Auto-generate'}", tool_name="ticmaker")
             if session_context:
-                logger.info(f"   🔄 Session State: {session_context.get('session_state', 'Unknown')}")
-                logger.info(f"   📋 Current Task: {session_context.get('current_task', 'Unknown')}")
-                logger.info(f"   👤 Session User Input: {session_context.get('user_input', 'Unknown')[:50]}...")
+                mcp_info(f"   🔄 Session State: {session_context.get('session_state', 'Unknown')}", tool_name="ticmaker")
+                mcp_info(f"   📋 Current Task: {session_context.get('current_task', 'Unknown')}", tool_name="ticmaker")
+                mcp_info(f"   👤 Session User Input: {session_context.get('user_input', 'Unknown')[:50]}...", tool_name="ticmaker")
             
             # Log course creation start to file
             mcp_info("Course creation started", {
@@ -152,31 +444,31 @@ class TICMakerClient:
                 random_id = str(uuid.uuid4())[:8]
                 filename = f"ticmaker_page_{timestamp}_{random_id}.html"
                 file_path = self.output_dir / filename
-                logger.info(f"📁 Generated filename: {filename}")
+                mcp_info(f"📁 Generated filename: {filename}", tool_name="ticmaker")
             else:
                 original_path = file_path
                 file_path = Path(file_path)
                 # Ensure file is in safe directory
                 if not str(file_path.resolve()).startswith(str(self.output_dir.resolve())):
                     file_path = self.output_dir / Path(file_path).name
-                    logger.warning(f"⚠️ File path adjusted for security: {original_path} → {file_path}")
+                    mcp_warning(f"⚠️ File path adjusted for security: {original_path} → {file_path}", tool_name="ticmaker")
             
-            logger.info(f"📄 Final file path: {file_path}")
+            mcp_info(f"📄 Final file path: {file_path}", tool_name="ticmaker")
             
             # Check if modifying existing file
             file_exists = file_path.exists()
-            logger.info(f"📋 File exists: {file_exists}")
+            mcp_info(f"📋 File exists: {file_exists}", tool_name="ticmaker")
             
             if file_exists:
-                logger.info("📖 Reading existing file content...")
+                mcp_info("📖 Reading existing file content...", tool_name="ticmaker")
                 # Read existing content and modify
                 existing_content = file_path.read_text(encoding='utf-8')
-                logger.info(f"📏 Existing content length: {len(existing_content)} characters")
+                mcp_info(f"📏 Existing content length: {len(existing_content)} characters", tool_name="ticmaker")
                 
-                logger.info("🔧 Modifying existing HTML content...")
+                mcp_info("🔧 Modifying existing HTML content...", tool_name="ticmaker")
                 html_content = await self._modify_html_content(existing_content, user_input)
             else:
-                logger.info("🆕 Creating new HTML content...")
+                mcp_info("🆕 Creating new HTML content...", tool_name="ticmaker")
                 # Create new page
                 html_content = await self._generate_html_content(
                     user_input, 
@@ -193,7 +485,7 @@ class TICMakerClient:
                 )
             
             # Write file
-            logger.info("💾 Writing HTML content to file...")
+            mcp_info("💾 Writing HTML content to file...", tool_name="ticmaker")
             file_path.write_text(html_content, encoding='utf-8')
             
             # Get file info
@@ -202,11 +494,11 @@ class TICMakerClient:
             
             execution_time = (datetime.now() - start_time).total_seconds()
             
-            logger.info(f"🎉 Interactive course {action.lower()} successfully")
-            logger.info(f"📁 File path: {file_path}")
-            logger.info(f"📏 File size: {file_size} bytes")
-            logger.info(f"⏱️ Execution time: {execution_time:.2f}s")
-            logger.info("🎯 ===== TICMaker Course Creation Completed =====")
+            mcp_info(f"🎉 Interactive course {action.lower()} successfully", tool_name="ticmaker")
+            mcp_info(f"📁 File path: {file_path}", tool_name="ticmaker")
+            mcp_info(f"📏 File size: {file_size} bytes", tool_name="ticmaker")
+            mcp_info(f"⏱️ Execution time: {execution_time:.2f}s", tool_name="ticmaker")
+            mcp_info("🎯 ===== TICMaker Course Creation Completed =====", tool_name="ticmaker")
             
             # Log successful completion to file
             mcp_info(f"Course creation completed successfully", {
@@ -236,9 +528,9 @@ class TICMakerClient:
         except Exception as e:
             execution_time = (datetime.now() - start_time).total_seconds()
             error_msg = f"Interactive course creation failed: {str(e)}"
-            logger.error(f"💥 {error_msg}")
-            logger.error(f"⏱️ Execution time before error: {execution_time:.2f}s")
-            logger.error("🎯 ===== TICMaker Course Creation Failed =====")
+            mcp_error(f"💥 {error_msg}", tool_name="ticmaker")
+            mcp_error(f"⏱️ Execution time before error: {execution_time:.2f}s", tool_name="ticmaker")
+            mcp_error("🎯 ===== TICMaker Course Creation Failed =====", tool_name="ticmaker")
             
             # Log error to file with detailed context
             mcp_error("Course creation failed with exception", {
@@ -257,6 +549,15 @@ class TICMakerClient:
                 execution_time=execution_time
             )
     
+    async def generate_ai_course_intro(self, course_title: str, user_input: str) -> str:
+        """Generate AI-powered course introduction text."""
+        try:
+            return await self.ai_client.generate_course_intro(course_title, user_input)
+        except Exception as e:
+            mcp_error(f"Error generating AI course intro: {str(e)}", tool_name="ticmaker")
+            # Fallback to default message
+            return f"🎯 欢迎学习{course_title}！这是一个基于您的需求定制的互动课程。"
+    
     async def _generate_html_content(
         self, 
         user_input: str, 
@@ -268,8 +569,11 @@ class TICMakerClient:
         # Extract title from user input if not provided
         title = course_title if course_title else self._extract_title_from_user_input(user_input)
         
-        # Generate interactive template
-        html_content = self._generate_interactive_template(title, user_input, template_style, course_title, session_context)
+        # Generate AI-powered course introduction
+        ai_generated_intro = await self.generate_ai_course_intro(title, user_input)
+        
+        # Generate interactive template with AI content
+        html_content = await self._generate_interactive_template(title, user_input, template_style, course_title, session_context, ai_generated_intro)
         
         return html_content
     
@@ -310,15 +614,20 @@ class TICMakerClient:
         else:
             return "Interactive Teaching Content"
     
-    def _generate_interactive_template(
+    async def _generate_interactive_template(
         self, 
         title: str, 
         user_input: str, 
         template_style: str = "modern",
         course_title: Optional[str] = None,
-        session_context: Optional[Dict[str, Any]] = None
+        session_context: Optional[Dict[str, Any]] = None,
+        ai_generated_intro: Optional[str] = None
     ) -> str:
         """Generate interactive HTML template."""
+        
+        # Ensure ai_generated_intro has a fallback value
+        if ai_generated_intro is None:
+            ai_generated_intro = "🎓 欢迎来到这个精心设计的互动课程！"
         
         # Modern template with comprehensive interactive features
         html_content = f"""<!DOCTYPE html>
@@ -487,6 +796,11 @@ class TICMakerClient:
             to {{ opacity: 1; transform: translateY(0); }}
         }}
         
+        @keyframes spin {{
+            from {{ transform: rotate(0deg); }}
+            to {{ transform: rotate(360deg); }}
+        }}
+        
         .fade-in {{
             animation: fadeIn 0.6s ease-out;
         }}
@@ -514,7 +828,7 @@ class TICMakerClient:
             </div>
             
             <div class="interaction-area">
-                <button class="interactive-button" onclick="showMessage('🎉 太棒了！您正在体验由TICMaker创建的交互式内容！')">点击交互</button>
+                <button class="interactive-button" onclick="showAICourseIntro()">点击交互</button>
                 <button class="interactive-button" onclick="showQuiz()">开始小测验</button>
                 <button class="interactive-button" onclick="showInfo()">课程信息</button>
                 <button class="interactive-button" onclick="showActivity()">互动活动</button>
@@ -706,6 +1020,65 @@ class TICMakerClient:
             contentArea.className = 'content-area fade-in';
         }}
         
+        // AI-powered course introduction function
+        async function showAICourseIntro() {{
+            const contentArea = document.getElementById('dynamic-content');
+            
+            // Show loading message
+            contentArea.innerHTML = `
+                <div class="fade-in">
+                    <h3>🤖 AI正在生成课程介绍...</h3>
+                    <p style="font-size: 1.1em; margin: 20px 0; color: #6c757d;">请稍候，AI正在为您量身定制课程介绍内容...</p>
+                    <div style="text-align: center; margin: 20px 0;">
+                        <div style="display: inline-block; width: 20px; height: 20px; border: 2px solid #667eea; border-radius: 50%; border-top-color: transparent; animation: spin 1s linear infinite;"></div>
+                    </div>
+                </div>
+            `;
+            contentArea.className = 'content-area fade-in';
+            
+            try {{
+                // Get course title and user input from the page
+                const titleElement = document.querySelector('h1');
+                const courseTitle = titleElement ? titleElement.textContent.trim() : '课程';
+                const userInput = '{user_input}';
+                
+                // Use real AI-generated course introduction
+                await new Promise(resolve => setTimeout(resolve, 1500)); // Simulate processing time for UX
+                
+                // AI-generated course introduction from backend
+                const aiGeneratedIntro = `{ai_generated_intro}`;
+                
+                const randomIntro = aiGeneratedIntro;
+                
+                // Display the AI-generated introduction
+                contentArea.innerHTML = `
+                    <div class="fade-in">
+                        <h3>🤖 AI生成的课程介绍</h3>
+                        <div style="background: linear-gradient(135deg, #f8f9ff 0%, #e8f4ff 100%); padding: 25px; border-radius: 15px; margin: 20px 0; border: 1px solid #e3f2fd;">
+                            <p style="font-size: 1.2em; line-height: 1.8; color: #2c3e50; margin: 0;">${{randomIntro}}</p>
+                        </div>
+                        <div style="text-align: center; margin: 20px 0;">
+                            <small style="color: #6c757d; font-style: italic;">💡 此内容由AI根据您的需求智能生成</small>
+                        </div>
+                        <button class="interactive-button" onclick="resetContent()" style="margin-top: 15px;">返回</button>
+                    </div>
+                `;
+            }} catch (error) {{
+                // Error handling - show fallback content
+                contentArea.innerHTML = `
+                    <div class="fade-in">
+                        <h3>🎯 课程介绍</h3>
+                        <div style="background: #fff3cd; padding: 20px; border-radius: 10px; margin: 20px 0; border: 1px solid #ffeaa7;">
+                            <p style="font-size: 1.2em; margin: 0;">🎉 欢迎学习${{courseTitle || '本课程'}}！这是一个基于您的需求定制的互动课程，让我们开始这段精彩的学习之旅吧！</p>
+                        </div>
+                        <button class="interactive-button" onclick="resetContent()" style="margin-top: 15px;">返回</button>
+                    </div>
+                `;
+            }}
+            
+            contentArea.className = 'content-area fade-in';
+        }}
+        
         // Add some entrance animations
         window.addEventListener('load', function() {{
             document.querySelector('.container').classList.add('fade-in');
@@ -838,10 +1211,10 @@ class TICMakerStdioMCPServer:
     
     async def run(self):
         """Run the stdio MCP server."""
-        logger.info("🚀 Starting TICMaker stdio MCP server...")
-        logger.info(f"📂 Output directory: {self.ticmaker_config.output_dir}")
-        logger.info(f"🎨 Default template: {self.ticmaker_config.default_template}")
-        logger.info("📡 Ready to receive MCP messages via stdio")
+        mcp_info("🚀 Starting TICMaker stdio MCP server...", tool_name="ticmaker")
+        mcp_info(f"📂 Output directory: {self.ticmaker_config.output_dir}", tool_name="ticmaker")
+        mcp_info(f"🎨 Default template: {self.ticmaker_config.default_template}", tool_name="ticmaker")
+        mcp_info("📡 Ready to receive MCP messages via stdio", tool_name="ticmaker")
         
         # Log server startup to file
         mcp_info("TICMaker MCP server started", {
@@ -863,14 +1236,14 @@ class TICMakerStdioMCPServer:
                     if not line:
                         continue
                     
-                    logger.debug(f"📥 Received: {line}")
+                    mcp_debug(f"📥 Received: {line}", tool_name="ticmaker")
                     
                     # Parse MCP message
                     try:
                         message_data = json.loads(line)
                         message = MCPMessage(**message_data)
                     except (json.JSONDecodeError, TypeError, ValueError) as e:
-                        logger.error(f"❌ Invalid JSON message: {str(e)}")
+                        mcp_error(f"❌ Invalid JSON message: {str(e)}", tool_name="ticmaker")
                         continue
                     
                     # Process message
@@ -881,26 +1254,30 @@ class TICMakerStdioMCPServer:
                         response_json = response.to_dict()
                         response_line = json.dumps(response_json, ensure_ascii=False)
                         print(response_line, flush=True)
-                        logger.debug(f"📤 Sent: {response_line}")
+                        mcp_debug(f"📤 Sent: {response_line}", tool_name="ticmaker")
                     
                 except Exception as e:
-                    logger.error(f"💥 Error processing message: {str(e)}")
+                    mcp_error(f"💥 Error processing message: {str(e)}", tool_name="ticmaker")
                     continue
                     
         except KeyboardInterrupt:
-            logger.info("🛑 Server stopped by user")
+            mcp_info("🛑 Server stopped by user", tool_name="ticmaker")
         except Exception as e:
-            logger.error(f"💥 Server error: {str(e)}")
+            mcp_error(f"💥 Server error: {str(e)}")
         finally:
-            logger.info("👋 TICMaker stdio MCP server shutting down")
+            mcp_info("👋 TICMaker stdio MCP server shutting down", tool_name="ticmaker")
     
     async def handle_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Handle incoming MCP message."""
-        logger.debug(f"🔄 Processing {message.method} message with id: {message.id}")
+        mcp_debug(f"🔄 Processing {message.method} message with id: {message.id}", tool_name="ticmaker")
+        
+        if message.method == "notifications/initialized":
+            mcp_info("Received initialized notification", tool_name="ticmaker")
+            return None
         
         if message.method == MCPMethods.INITIALIZE:
             # Initialization request
-            logger.info("🔧 Processing INITIALIZE request")
+            mcp_info("🔧 Processing INITIALIZE request", tool_name="ticmaker")
             capabilities = {
                 "tools": {
                     tool_name: tool_info["description"] 
@@ -915,12 +1292,12 @@ class TICMakerStdioMCPServer:
                     "serverInfo": self.server_info
                 }
             )
-            logger.info("✅ Server initialized successfully")
+            mcp_info("✅ Server initialized successfully", tool_name="ticmaker")
             return response
             
         elif message.method == MCPMethods.TOOLS_LIST:
             # List available tools
-            logger.info("🛠️ Processing TOOLS_LIST request")
+            mcp_info("🛠️ Processing TOOLS_LIST request", tool_name="ticmaker")
             tools_list = [
                 {
                     "name": tool_name,
@@ -933,22 +1310,22 @@ class TICMakerStdioMCPServer:
                 id=message.id,
                 result={"tools": tools_list}
             )
-            logger.debug(f"✅ TOOLS_LIST response: {len(tools_list)} tools")
+            mcp_debug(f"✅ TOOLS_LIST response: {len(tools_list)} tools")
             return response
             
         elif message.method == MCPMethods.TOOLS_CALL:
             # Execute tool
-            logger.info("⚡ Processing TOOLS_CALL request")
+            mcp_info("⚡ Processing TOOLS_CALL request", tool_name="ticmaker")
             try:
                 params = message.params or {}
                 tool_name = params.get("name")
                 arguments = params.get("arguments", {})
                 
-                logger.info(f"🔧 Executing tool: {tool_name}")
-                logger.debug(f"📝 Tool arguments: {arguments}")
+                mcp_info(f"🔧 Executing tool: {tool_name}", tool_name="ticmaker")
+                mcp_debug(f"📝 Tool arguments: {arguments}", tool_name="ticmaker")
                 
                 if tool_name not in self.tools:
-                    logger.error(f"❌ Tool '{tool_name}' not found")
+                    mcp_error(f"❌ Tool '{tool_name}' not found", tool_name="ticmaker")
                     return MCPMessage(
                         id=message.id,
                         error={
@@ -969,7 +1346,7 @@ class TICMakerStdioMCPServer:
                     mcp_error(f"Unknown tool requested: {tool_name}", tool_name="ticmaker")
                     raise ValueError(f"Unknown tool: {tool_name}")
                 
-                logger.info(f"✅ Tool '{tool_name}' completed successfully")
+                mcp_info(f"✅ Tool '{tool_name}' completed successfully", tool_name="ticmaker")
                 
                 # Log tool execution completion to file
                 mcp_debug(f"Tool execution completed: {tool_name}", {
@@ -1014,7 +1391,7 @@ class TICMakerStdioMCPServer:
                 )
                 
             except Exception as e:
-                logger.error(f"💥 Tool execution error: {str(e)}")
+                mcp_error(f"💥 Tool execution error: {str(e)}")
                 
                 return MCPMessage(
                     id=message.id,
@@ -1026,37 +1403,37 @@ class TICMakerStdioMCPServer:
         
         elif message.method == MCPMethods.PING:
             # Ping response
-            logger.info("🏓 Processing PING request")
+            mcp_info("🏓 Processing PING request", tool_name="ticmaker")
             response = MCPMessage(
                 id=message.id,
                 result={"pong": True}
             )
-            logger.debug("✅ PING response: pong")
+            mcp_debug("✅ PING response: pong", tool_name="ticmaker")
             return response
             
         elif message.method == MCPMethods.RESOURCES_LIST:
             # List available resources (none for TICMaker)
-            logger.info("📚 Processing RESOURCES_LIST request")
+            mcp_info("📚 Processing RESOURCES_LIST request", tool_name="ticmaker")
             response = MCPMessage(
                 id=message.id,
                 result={"resources": []}
             )
-            logger.debug("✅ RESOURCES_LIST response: empty list")
+            mcp_debug("✅ RESOURCES_LIST response: empty list", tool_name="ticmaker")
             return response
             
         elif message.method == MCPMethods.PROMPTS_LIST:
             # List available prompts (none for TICMaker)
-            logger.info("💬 Processing PROMPTS_LIST request")
+            mcp_info("💬 Processing PROMPTS_LIST request", tool_name="ticmaker")
             response = MCPMessage(
                 id=message.id,
                 result={"prompts": []}
             )
-            logger.debug("✅ PROMPTS_LIST response: empty list")
+            mcp_debug("✅ PROMPTS_LIST response: empty list", tool_name="ticmaker")
             return response
             
         else:
             # Unknown method
-            logger.error(f"❌ Unknown method requested: {message.method}")
+            mcp_error(f"❌ Unknown method requested: {message.method}", tool_name="ticmaker")
             return MCPMessage(
                 id=message.id,
                 error={
@@ -1092,44 +1469,42 @@ class TICMakerStdioMCPServer:
             )
             
         except Exception as e:
-            logger.error(f"💥 _create_interactive_course error: {str(e)}")
+            mcp_error(f"💥 _create_interactive_course error: {str(e)}")
             return TICMakerResult(
                 success=False,
                 error=f"Course creation failed: {str(e)}"
             )
 
 
-def load_config() -> TICMakerConfig:
+def load_config(config_path: Optional[Path] = None) -> TICMakerConfig:
     """Load TICMaker configuration from SimaCode config system."""
     try:
-        # Load config from SimaCode
-        config = Config.load()
+        # Load SimaCode configuration
+        config = load_simacode_config(config_path=config_path, tool_name="ticmaker")
+        mcp_info("[CONFIG_LOAD] Successfully loaded SimaCode configuration", tool_name="ticmaker")
         
-        # Extract TICMaker settings
-        output_dir = getattr(config, 'ticmaker', {}).get('output_dir', "./ticmaker_output")
-        default_template = getattr(config, 'ticmaker', {}).get('default_template', "modern")
-        ai_enhancement = getattr(config, 'ticmaker', {}).get('ai_enhancement', False)
+        # Create TICMaker configuration from SimaCode config
+        ticmaker_config = TICMakerConfig.from_simacode_config(config)
         
-        # Override with environment variables if present
-        output_dir = os.getenv("TICMAKER_OUTPUT_DIR", output_dir)
-        default_template = os.getenv("TICMAKER_TEMPLATE", default_template)
+        # Log configuration details
+        mcp_info("TICMaker config loaded from SimaCode", {
+            "config_source": "simacode_config",
+            "output_dir": ticmaker_config.output_dir,
+            "default_template": ticmaker_config.default_template,
+            "ai_enabled": ticmaker_config.ai_enabled,
+            "ai_model": ticmaker_config.ai_model,
+            "ai_base_url": ticmaker_config.ai_base_url,
+            "ai_api_key_configured": bool(ticmaker_config.ai_api_key)
+        }, tool_name="ticmaker")
         
-        return TICMakerConfig(
-            output_dir=output_dir,
-            default_template=default_template,
-            ai_enhancement=ai_enhancement
-        )
+        return ticmaker_config
         
     except Exception as e:
-        logger.warning(f"⚠️ Failed to load config from SimaCode: {str(e)}")
-        logger.info("📋 Using default configuration")
+        mcp_warning(f"⚠️ Failed to load config from SimaCode: {str(e)}", tool_name="ticmaker")
+        mcp_info("📋 Using default configuration", tool_name="ticmaker")
         
-        # Fallback to environment variables and defaults
-        return TICMakerConfig(
-            output_dir=os.getenv("TICMAKER_OUTPUT_DIR", "./ticmaker_output"),
-            default_template=os.getenv("TICMAKER_TEMPLATE", "modern"),
-            ai_enhancement=False
-        )
+        # Return default config - environment variables will be handled in from_simacode_config
+        return TICMakerConfig()
 
 
 async def main():
@@ -1146,10 +1521,11 @@ async def main():
     
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.debug("🐛 Debug logging enabled")
+        mcp_debug("🐛 Debug logging enabled", tool_name="ticmaker")
     
     # Load configuration
-    ticmaker_config = load_config()
+    config_path = Path(args.config) if args.config else None
+    ticmaker_config = load_config(config_path=config_path)
     
     # Override with command line arguments if provided
     if args.output_dir:
@@ -1157,10 +1533,10 @@ async def main():
     if args.template:
         ticmaker_config.default_template = args.template
     
-    logger.info(f"📋 Configuration loaded:")
-    logger.info(f"   📂 Output directory: {ticmaker_config.output_dir}")
-    logger.info(f"   🎨 Default template: {ticmaker_config.default_template}")
-    logger.info(f"   🤖 AI enhancement: {ticmaker_config.ai_enhancement}")
+    mcp_info(f"📋 Configuration loaded:", tool_name="ticmaker")
+    mcp_info(f"   📂 Output directory: {ticmaker_config.output_dir}", tool_name="ticmaker")
+    mcp_info(f"   🎨 Default template: {ticmaker_config.default_template}", tool_name="ticmaker")
+    mcp_info(f"   🤖 AI enhancement: {ticmaker_config.ai_enhancement}", tool_name="ticmaker")
     
     # Create and run server
     server = TICMakerStdioMCPServer(ticmaker_config)

@@ -573,7 +573,7 @@ class Config(BaseModel):
                 for key, value in server_global_config.items():
                     if key not in user_mcp_config:
                         user_mcp_config[key] = value
-                        logger.debug(f"Added MCP global setting: {key} = {value}")
+                        #logger.debug(f"Added MCP global setting: {key} = {value}")
             
             # Initialize servers dict in user MCP config if not present
             if "servers" not in user_mcp_config:
@@ -609,7 +609,7 @@ class Config(BaseModel):
                     else:
                         # No user config for this server, use base config
                         user_servers[server_name] = base_server_config
-                        logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
+                        #logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
             
             # Also handle servers section at root level (legacy support)
             if "servers" in config_data:

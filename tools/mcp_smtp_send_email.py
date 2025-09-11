@@ -63,34 +63,13 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, AsyncGenerator
 from dataclasses import dataclass
 
-# Email libraries with fallbacks
-try:
-    import aiosmtplib
-    from email_validator import validate_email, EmailNotValidError
-    SMTP_AVAILABLE = True
-except ImportError:
-    aiosmtplib = None
-    validate_email = None
-    EmailNotValidError = None
-    SMTP_AVAILABLE = False
+# Email libraries
+import aiosmtplib
+from email_validator import validate_email, EmailNotValidError
 
-# HTML sanitizer with fallback
-try:
-    import bleach
-    HTML_SANITIZER_AVAILABLE = True
-except ImportError:
-    bleach = None
-    HTML_SANITIZER_AVAILABLE = False
+# HTML sanitizer
+import bleach
 
-# Environment configuration support
-try:
-    from dotenv import load_dotenv
-    DOTENV_AVAILABLE = True
-    print("Info: python-dotenv is available for .env.mcp loading", file=sys.stderr)
-except ImportError:
-    DOTENV_AVAILABLE = False
-    print("Warning: python-dotenv not available. .env.mcp will not be loaded.", file=sys.stderr)
-    print("Install with: pip install python-dotenv", file=sys.stderr)
 
 # Add parent directory to path for MCP imports
 sys.path.insert(0, str(Path(__file__).parent.parent))
@@ -99,8 +78,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
-# Import MCP file logging utility
+# Import utilities
 from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
+from src.simacode.utils.config_loader import load_simacode_config
 
 # Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
@@ -108,7 +88,7 @@ logging.basicConfig(
     format='%(asctime)s - %(name)s - %(levelname)s - %(message)s',
     stream=sys.stderr
 )
-logger = logging.getLogger(__name__)
+# logger = logging.getLogger(__name__)  # 已替换为 mcp_logger
 
 
 @dataclass
@@ -206,14 +186,14 @@ class SMTPEmailClient:
         self._email_count_daily = {}
         self._last_cleanup = datetime.now()
         
-        logger.info(f"[SMTP_CONFIG] SMTP Client initialized with:")
-        logger.info(f"[SMTP_CONFIG]   Server: {self.config.server}")
-        logger.info(f"[SMTP_CONFIG]   Port: {self.config.port}")
-        logger.info(f"[SMTP_CONFIG]   Username: {self.config.username}")
-        logger.info(f"[SMTP_CONFIG]   Password: {'*' * len(self.config.password) if self.config.password else 'NOT SET'}")
-        logger.info(f"[SMTP_CONFIG]   Use SSL: {self.config.use_ssl}")
-        logger.info(f"[SMTP_CONFIG]   Use TLS: {self.config.use_tls}")
-        logger.info(f"[SMTP_CONFIG]   Timeout: {self.config.timeout}s")
+        mcp_info(f"[SMTP_CONFIG] SMTP Client initialized with:", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Server: {self.config.server}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Port: {self.config.port}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Username: {self.config.username}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Password: {'*' * len(self.config.password) if self.config.password else 'NOT SET'}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Use SSL: {self.config.use_ssl}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Use TLS: {self.config.use_tls}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Timeout: {self.config.timeout}s", tool_name="smtp_email")
         
         # Log SMTP client initialization to file
         mcp_info("SMTP client initialized", {
@@ -285,13 +265,12 @@ class SMTPEmailClient:
         if not self.email_regex.match(email_addr):
             return False, f"Invalid email format: {email_addr}"
         
-        # Use email_validator if available for more thorough validation
-        if validate_email:
-            try:
-                valid = validate_email(email_addr)
-                email_addr = valid.email
-            except EmailNotValidError as e:
-                return False, f"Invalid email: {str(e)}"
+        # Use email_validator for more thorough validation
+        try:
+            valid = validate_email(email_addr)
+            email_addr = valid.email
+        except EmailNotValidError as e:
+            return False, f"Invalid email: {str(e)}"
         
         return True, email_addr
     
@@ -309,10 +288,6 @@ class SMTPEmailClient:
     
     def _sanitize_html_content(self, html_content: str) -> str:
         """Sanitize HTML content to prevent XSS attacks."""
-        if not HTML_SANITIZER_AVAILABLE:
-            # If bleach is not available, strip all HTML tags
-            return re.sub(r'<[^>]+>', '', html_content)
-        
         # Allow safe HTML tags
         allowed_tags = [
             'p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li',
@@ -515,13 +490,6 @@ class SMTPEmailClient:
         start_time = datetime.now()
         
         try:
-            # Check if SMTP libraries are available
-            if not SMTP_AVAILABLE:
-                return EmailSendResult(
-                    success=False,
-                    error="Email sending not available. Please install required packages: pip install aiosmtplib email-validator"
-                )
-            
             # Check rate limits
             rate_ok, rate_msg = self._check_rate_limits()
             if not rate_ok:
@@ -752,7 +720,7 @@ class EmailSMTPMCPServer:
             }
         }
         
-        logger.info(f"Email SMTP MCP Server initialized for stdio")
+        mcp_info(f"Email SMTP MCP Server initialized for stdio", tool_name="smtp_email")
         
         # Log server initialization to file
         mcp_info("Email SMTP MCP server initialized", {
@@ -767,7 +735,7 @@ class EmailSMTPMCPServer:
         """Process an MCP message and return response."""
         
         if message.method == "notifications/initialized":
-            logger.info("Received initialized notification")
+            mcp_info("Received initialized notification", tool_name="smtp_email")
             return None
         
         if message.method == MCPMethods.INITIALIZE:
@@ -827,8 +795,8 @@ class EmailSMTPMCPServer:
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
             
-            logger.info(f"[TOOL_EXEC] Starting tool execution: {tool_name}")
-            logger.debug(f"[TOOL_EXEC] Tool arguments: {arguments}")
+            mcp_info(f"[TOOL_EXEC] Starting tool execution: {tool_name}", tool_name="smtp_email")
+            mcp_debug(f"[TOOL_EXEC] Tool arguments: {arguments}", tool_name="smtp_email")
             
             # Log tool execution start to file
             mcp_debug(f"Executing tool: {tool_name}", {
@@ -837,7 +805,7 @@ class EmailSMTPMCPServer:
             }, tool_name="smtp_email")
             
             if tool_name not in self.tools:
-                logger.error(f"[TOOL_EXEC] Tool '{tool_name}' not found")
+                mcp_error(f"[TOOL_EXEC] Tool '{tool_name}' not found", tool_name="smtp_email")
                 return MCPMessage(
                     id=message.id,
                     error={
@@ -847,7 +815,7 @@ class EmailSMTPMCPServer:
                 )
             
             start_time = asyncio.get_event_loop().time()
-            logger.debug(f"[TOOL_EXEC] Dispatching to tool handler: {tool_name}")
+            mcp_debug(f"[TOOL_EXEC] Dispatching to tool handler: {tool_name}", tool_name="smtp_email")
             
             if tool_name == "send_email":
                 result = await self._send_email(arguments)
@@ -857,7 +825,7 @@ class EmailSMTPMCPServer:
             execution_time = asyncio.get_event_loop().time() - start_time
             total_time = (datetime.now() - tool_start).total_seconds()
             
-            logger.info(f"[TOOL_EXEC] Tool '{tool_name}' completed in {total_time:.2f}s")
+            mcp_info(f"[TOOL_EXEC] Tool '{tool_name}' completed in {total_time:.2f}s", tool_name="smtp_email")
             
             # Log tool execution completion to file
             mcp_debug(f"Tool execution completed: {tool_name}", {
@@ -904,7 +872,7 @@ class EmailSMTPMCPServer:
             
         except Exception as e:
             total_time = (datetime.now() - tool_start).total_seconds()
-            logger.error(f"[TOOL_EXEC] Tool execution error after {total_time:.2f}s: {str(e)}")
+            mcp_error(f"[TOOL_EXEC] Tool execution error after {total_time:.2f}s: {str(e)}", tool_name="smtp_email")
             
             # Log tool execution error to file
             mcp_error("Tool execution failed with exception", {
@@ -998,22 +966,22 @@ class EmailSMTPMCPServer:
     
     async def run_stdio(self):
         """Run the MCP server using stdio."""
-        logger.info("Starting Email SMTP MCP Server with stdio")
+        mcp_info("Starting Email SMTP MCP Server with stdio", tool_name="smtp_email")
         
         # Log detailed SMTP configuration status
-        logger.info("[SERVER_CONFIG] Email SMTP MCP Server configuration:")
-        logger.info(f"[SERVER_CONFIG]   Server: {self.smtp_config.server}")
-        logger.info(f"[SERVER_CONFIG]   Port: {self.smtp_config.port}")
-        logger.info(f"[SERVER_CONFIG]   Username: {self.smtp_config.username}")
-        logger.info(f"[SERVER_CONFIG]   Password: {'SET' if self.smtp_config.password else 'NOT SET'}")
-        logger.info(f"[SERVER_CONFIG]   Use SSL: {self.smtp_config.use_ssl}")
-        logger.info(f"[SERVER_CONFIG]   Use TLS: {self.smtp_config.use_tls}")
-        logger.info(f"[SERVER_CONFIG]   Timeout: {self.smtp_config.timeout}s")
+        mcp_info("[SERVER_CONFIG] Email SMTP MCP Server configuration:", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Server: {self.smtp_config.server}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Port: {self.smtp_config.port}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Username: {self.smtp_config.username}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Password: {'SET' if self.smtp_config.password else 'NOT SET'}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Use SSL: {self.smtp_config.use_ssl}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Use TLS: {self.smtp_config.use_tls}", tool_name="smtp_email")
+        mcp_info(f"[SERVER_CONFIG]   Timeout: {self.smtp_config.timeout}s", tool_name="smtp_email")
         
         if self.smtp_config.server and self.smtp_config.username:
-            logger.info(f"[SERVER_CONFIG] SMTP fully configured: {self.smtp_config.server}:{self.smtp_config.port} ({self.smtp_config.username})")
+            mcp_info(f"[SERVER_CONFIG] SMTP fully configured: {self.smtp_config.server}:{self.smtp_config.port} ({self.smtp_config.username})", tool_name="smtp_email")
         else:
-            logger.warning("[SERVER_CONFIG] SMTP configuration incomplete - functionality will be limited")
+            mcp_warning("[SERVER_CONFIG] SMTP configuration incomplete - functionality will be limited", tool_name="smtp_email")
         
         try:
             while True:
@@ -1051,10 +1019,10 @@ class EmailSMTPMCPServer:
                             print(error_response.to_json(), flush=True)
                     
                 except json.JSONDecodeError as e:
-                    logger.error(f"Invalid JSON received: {e}")
+                    mcp_error(f"Invalid JSON received: {e}", tool_name="smtp_email")
                     continue
                 except Exception as e:
-                    logger.error(f"Error processing message: {e}")
+                    mcp_error(f"Error processing message: {e}", tool_name="smtp_email")
                     # Try to send error response if we have a request ID
                     try:
                         if 'request_data' in locals() and 'id' in request_data:
@@ -1071,32 +1039,13 @@ class EmailSMTPMCPServer:
                     continue
         
         except KeyboardInterrupt:
-            logger.info("Received interrupt signal")
+            mcp_info("Received interrupt signal", tool_name="smtp_email")
         except Exception as e:
-            logger.error(f"Stdio server error: {e}")
+            mcp_error(f"Stdio server error: {e}", tool_name="smtp_email")
         finally:
-            logger.info("Email SMTP MCP Server stopped")
+            mcp_info("Email SMTP MCP Server stopped", tool_name="smtp_email")
 
 
-def load_simacode_config(config_path: Optional[Path] = None) -> Config:
-    """Load SimaCode configuration with fallback to environment variables."""
-    try:
-        # Try to load SimaCode configuration
-        config = Config.load(config_path=config_path)
-        logger.info("[CONFIG_LOAD] Successfully loaded SimaCode configuration")
-        return config
-    except Exception as e:
-        logger.warning(f"[CONFIG_LOAD] Failed to load SimaCode config: {e}")
-        logger.info("[CONFIG_LOAD] Falling back to environment variables and defaults")
-        
-        # Load environment from .env.mcp as fallback
-        env_file = Path(__file__).parent.parent / ".env.mcp"
-        if DOTENV_AVAILABLE and env_file.exists():
-            logger.info(f"[ENV_LOAD] Loading fallback environment from: {env_file}")
-            load_dotenv(env_file, override=True)
-        
-        # Return default config - we'll populate from environment in SMTPConfig.from_simacode_config
-        return Config.load()
 
 
 async def main():
@@ -1112,29 +1061,29 @@ async def main():
     # Set log level
     if args.debug:
         logging.getLogger().setLevel(logging.DEBUG)
-        logger.debug("Debug logging enabled")
+        mcp_debug("Debug logging enabled", tool_name="smtp_email")
     
     # Load SimaCode configuration
-    logger.info("[CONFIG] Loading SimaCode configuration...")
+    mcp_info("[CONFIG] Loading SimaCode configuration...", tool_name="smtp_email")
     try:
-        simacode_config = load_simacode_config(config_path=args.config)
-        logger.info("[CONFIG] SimaCode configuration loaded successfully")
+        simacode_config = load_simacode_config(config_path=args.config, tool_name="smtp_email")
+        mcp_info("[CONFIG] SimaCode configuration loaded successfully", tool_name="smtp_email")
         
         # Create SMTP configuration from SimaCode config
         smtp_config = SMTPConfig.from_simacode_config(simacode_config)
         
         # Log configuration status
-        logger.info("[SMTP_CONFIG] SMTP Configuration loaded from SimaCode:")
-        logger.info(f"[SMTP_CONFIG]   Server: {smtp_config.server}")
-        logger.info(f"[SMTP_CONFIG]   Port: {smtp_config.port}")
-        logger.info(f"[SMTP_CONFIG]   Username: {smtp_config.username}")
-        logger.info(f"[SMTP_CONFIG]   Password: {'SET' if smtp_config.password else 'NOT SET'}")
-        logger.info(f"[SMTP_CONFIG]   Use SSL: {smtp_config.use_ssl}")
-        logger.info(f"[SMTP_CONFIG]   Use TLS: {smtp_config.use_tls}")
-        logger.info(f"[SMTP_CONFIG]   From Name: {smtp_config.from_name}")
-        logger.info(f"[SMTP_CONFIG]   From Email: {smtp_config.from_email}")
-        logger.info(f"[SMTP_CONFIG]   Max Recipients: {smtp_config.max_recipients}")
-        logger.info(f"[SMTP_CONFIG]   Rate Limits: {smtp_config.max_emails_per_hour}/hour, {smtp_config.max_emails_per_day}/day")
+        mcp_info("[SMTP_CONFIG] SMTP Configuration loaded from SimaCode:", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Server: {smtp_config.server}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Port: {smtp_config.port}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Username: {smtp_config.username}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Password: {'SET' if smtp_config.password else 'NOT SET'}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Use SSL: {smtp_config.use_ssl}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Use TLS: {smtp_config.use_tls}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   From Name: {smtp_config.from_name}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   From Email: {smtp_config.from_email}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Max Recipients: {smtp_config.max_recipients}", tool_name="smtp_email")
+        mcp_info(f"[SMTP_CONFIG]   Rate Limits: {smtp_config.max_emails_per_hour}/hour, {smtp_config.max_emails_per_day}/day", tool_name="smtp_email")
         
         # Validate critical SMTP configuration
         missing_config = []
@@ -1146,22 +1095,22 @@ async def main():
             missing_config.append('SMTP password')
         
         if missing_config:
-            logger.error(f"[CONFIG] Missing critical SMTP configuration: {', '.join(missing_config)}")
-            logger.error(f"[CONFIG] Please check your .simacode/config.yaml file or set environment variables:")
-            logger.error(f"[CONFIG]   EMAIL_SMTP_SERVER, EMAIL_USERNAME, EMAIL_PASSWORD")
-            logger.info(f"[CONFIG] Example config.yaml entry:")
-            logger.info(f"[CONFIG]   email:")
-            logger.info(f"[CONFIG]     smtp:")
-            logger.info(f"[CONFIG]       server: smtp.gmail.com")
-            logger.info(f"[CONFIG]       port: 587")
-            logger.info(f"[CONFIG]       username: your-email@gmail.com")
-            logger.info(f"[CONFIG]       password: your-app-password")
+            mcp_error(f"[CONFIG] Missing critical SMTP configuration: {', '.join(missing_config)}", tool_name="smtp_email")
+            mcp_error(f"[CONFIG] Please check your .simacode/config.yaml file or set environment variables:", tool_name="smtp_email")
+            mcp_error(f"[CONFIG]   EMAIL_SMTP_SERVER, EMAIL_USERNAME, EMAIL_PASSWORD", tool_name="smtp_email")
+            mcp_info(f"[CONFIG] Example config.yaml entry:", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]   email:", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]     smtp:", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]       server: smtp.gmail.com", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]       port: 587", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]       username: your-email@gmail.com", tool_name="smtp_email")
+            mcp_info(f"[CONFIG]       password: your-app-password", tool_name="smtp_email")
         else:
-            logger.info(f"[CONFIG] All critical SMTP configuration is set")
+            mcp_info(f"[CONFIG] All critical SMTP configuration is set", tool_name="smtp_email")
         
     except Exception as e:
-        logger.error(f"[CONFIG] Failed to load configuration: {e}")
-        logger.info("[CONFIG] Using minimal fallback configuration")
+        mcp_error(f"[CONFIG] Failed to load configuration: {e}", tool_name="smtp_email")
+        mcp_info("[CONFIG] Using minimal fallback configuration", tool_name="smtp_email")
         smtp_config = SMTPConfig()
     
     # Create and start server
