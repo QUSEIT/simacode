@@ -2,7 +2,7 @@
 name = "simacode"
 version = "0.1.0"
 description = "A modern AI programming assistant built on Python with intelligent ReAct mechanisms"
-authors = ["SimaCode Team <team@simacode.com>"]
+authors = ["SimaCode Team <sima@quseit.com>"]
 readme = "README.md"
 packages = [{include = "simacode", from = "src"}]
 homepage = "https://github.com/simacode/simacode"

@@ -460,8 +460,8 @@ Always classify the input type first, then respond appropriately.
                 logger.warning(f"  Tool: {task.tool_name}")
                 logger.warning(f"  Input: {task.tool_input}")
                 logger.warning(f"  Dependencies: {task.dependencies}")
-                if task.tool_name == "email_smtp:send_email":
-                    logger.warning(f"  *** EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}' ***")
+                #if task.tool_name == "email_smtp:send_email":
+                #    logger.warning(f"  *** EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}' ***")
             logger.warning("=== END PLANNER DEBUG ===")
             
             # Critical validation for OCR+Email scenarios
@@ -470,11 +470,11 @@ Always classify the input type first, then respond appropriately.
             validated_tasks = await self._validate_and_enhance_tasks(tasks, context)
             
             # 🔍 DEBUG: 记录验证后的任务
-            logger.warning(f"=== PLANNER DEBUG: After validation ===")
-            for i, task in enumerate(validated_tasks):
-                if task.tool_name == "email_smtp:send_email":
-                    logger.warning(f"Task {i+1} after validation - EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}'")
-            logger.warning("=== END VALIDATION DEBUG ===")
+            #logger.warning(f"=== PLANNER DEBUG: After validation ===")
+            #for i, task in enumerate(validated_tasks):
+            #    if task.tool_name == "email_smtp:send_email":
+            #        logger.warning(f"Task {i+1} after validation - EMAIL BODY: '{task.tool_input.get('body', 'NOT SET')}'")
+            #logger.warning("=== END VALIDATION DEBUG ===")
             
             return validated_tasks
             
