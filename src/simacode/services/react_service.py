@@ -172,18 +172,25 @@ class ReActService:
                 session.metadata["skip_confirmation"] = True
             
             # Process through ReAct engine with existing session
+            session_id = session.id
+            auto_save_types = {"task_plan", "sub_task_result", "final_result"}
+            needs_final_save = True
+            
             async for update in self.react_engine.process_user_input(user_input, service_context, session):
                 # Add session information to updates
-                update["session_id"] = session.id
+                update["session_id"] = session_id
                 
                 # Auto-save session on significant updates
-                if update.get("type") in ["task_plan", "sub_task_result", "final_result"]:
-                    await self.session_manager.save_session(session.id)
+                update_type = update.get("type")
+                if update_type in auto_save_types:
+                    await self.session_manager.save_session(session_id)
+                    needs_final_save = False
                 
                 yield update
             
-            # Final save
-            await self.session_manager.save_session(session.id)
+            # Final save only if no auto-save occurred
+            if needs_final_save:
+                await self.session_manager.save_session(session_id)
             
         except Exception as e:
             logger.error(f"Error processing user request: {str(e)}")
