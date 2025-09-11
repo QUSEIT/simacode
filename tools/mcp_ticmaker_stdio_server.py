@@ -734,6 +734,37 @@ class TICMakerClient:
         session_state = session_context.get("session_state", "Unknown")
         current_task = session_context.get("current_task", "Unknown")
         session_user_input = session_context.get("user_input", "Unknown")
+        metadata_context = session_context.get("metadata_context", {})
+        
+        # Build metadata context display
+        metadata_html = ""
+        if metadata_context:
+            metadata_html = f"""
+                    <hr style="margin: 15px 0; border: none; border-top: 1px dashed #ccc;">
+                    <h5>📊 Metadata Context</h5>
+                    <div style="background: #f8f9fa; padding: 12px; border-radius: 6px; margin: 8px 0;">"""
+            
+            if "service_version" in metadata_context:
+                metadata_html += f"""
+                        <p><strong>🔧 Service Version:</strong> <span style="color: #6c757d;">{metadata_context['service_version']}</span></p>"""
+            
+            if "config" in metadata_context:
+                config = metadata_context["config"]
+                if "ai_provider" in config:
+                    metadata_html += f"""
+                        <p><strong>🤖 AI Provider:</strong> <span style="color: #007bff;">{config['ai_provider']}</span></p>"""
+                if "ai_model" in config:
+                    metadata_html += f"""
+                        <p><strong>🧠 AI Model:</strong> <span style="color: #6f42c1;">{config['ai_model']}</span></p>"""
+            
+            # Show any additional context data
+            for key, value in metadata_context.items():
+                if key not in ["service_version", "config"]:
+                    metadata_html += f"""
+                        <p><strong>📝 {key.replace('_', ' ').title()}:</strong> <span style="color: #495057;">{str(value)[:80]}{'...' if len(str(value)) > 80 else ''}</span></p>"""
+            
+            metadata_html += """
+                    </div>"""
         
         return f"""
                 <hr style="margin: 20px 0; border: none; border-top: 1px solid #ddd;">
@@ -742,6 +773,7 @@ class TICMakerClient:
                     <p><strong>🔍 Session State:</strong> <span style="color: #667eea; font-weight: 600;">{session_state}</span></p>
                     <p><strong>📋 Current Task:</strong> <span style="color: #764ba2; font-weight: 600;">{current_task}</span></p>
                     <p><strong>👤 Session User Input:</strong> <span style="color: #f5576c; font-style: italic;">{session_user_input[:100]}{'...' if len(session_user_input) > 100 else ''}</span></p>
+                    {metadata_html}
                 </div>
                 <div class="badge" style="background: #28a745;">Session-Aware</div>
                 <div class="badge" style="background: #17a2b8;">Context-Enabled</div>"""
