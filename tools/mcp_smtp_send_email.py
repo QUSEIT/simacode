@@ -63,24 +63,12 @@ from pathlib import Path
 from typing import Any, Dict, List, Optional, AsyncGenerator
 from dataclasses import dataclass
 
-# Email libraries with fallbacks
-try:
-    import aiosmtplib
-    from email_validator import validate_email, EmailNotValidError
-    SMTP_AVAILABLE = True
-except ImportError:
-    aiosmtplib = None
-    validate_email = None
-    EmailNotValidError = None
-    SMTP_AVAILABLE = False
+# Email libraries
+import aiosmtplib
+from email_validator import validate_email, EmailNotValidError
 
-# HTML sanitizer with fallback
-try:
-    import bleach
-    HTML_SANITIZER_AVAILABLE = True
-except ImportError:
-    bleach = None
-    HTML_SANITIZER_AVAILABLE = False
+# HTML sanitizer
+import bleach
 
 
 # Add parent directory to path for MCP imports
@@ -90,8 +78,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
-# Import MCP file logging utility
+# Import utilities
 from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
+from src.simacode.utils.config_loader import load_simacode_config
 
 # Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
@@ -276,13 +265,12 @@ class SMTPEmailClient:
         if not self.email_regex.match(email_addr):
             return False, f"Invalid email format: {email_addr}"
         
-        # Use email_validator if available for more thorough validation
-        if validate_email:
-            try:
-                valid = validate_email(email_addr)
-                email_addr = valid.email
-            except EmailNotValidError as e:
-                return False, f"Invalid email: {str(e)}"
+        # Use email_validator for more thorough validation
+        try:
+            valid = validate_email(email_addr)
+            email_addr = valid.email
+        except EmailNotValidError as e:
+            return False, f"Invalid email: {str(e)}"
         
         return True, email_addr
     
@@ -300,10 +288,6 @@ class SMTPEmailClient:
     
     def _sanitize_html_content(self, html_content: str) -> str:
         """Sanitize HTML content to prevent XSS attacks."""
-        if not HTML_SANITIZER_AVAILABLE:
-            # If bleach is not available, strip all HTML tags
-            return re.sub(r'<[^>]+>', '', html_content)
-        
         # Allow safe HTML tags
         allowed_tags = [
             'p', 'br', 'strong', 'b', 'em', 'i', 'u', 'ul', 'ol', 'li',
@@ -506,13 +490,6 @@ class SMTPEmailClient:
         start_time = datetime.now()
         
         try:
-            # Check if SMTP libraries are available
-            if not SMTP_AVAILABLE:
-                return EmailSendResult(
-                    success=False,
-                    error="Email sending not available. Please install required packages: pip install aiosmtplib email-validator"
-                )
-            
             # Check rate limits
             rate_ok, rate_msg = self._check_rate_limits()
             if not rate_ok:
@@ -1069,20 +1046,6 @@ class EmailSMTPMCPServer:
             mcp_info("Email SMTP MCP Server stopped", tool_name="smtp_email")
 
 
-def load_simacode_config(config_path: Optional[Path] = None) -> Config:
-    """Load SimaCode configuration with fallback to environment variables."""
-    try:
-        # Try to load SimaCode configuration
-        config = Config.load(config_path=config_path)
-        mcp_info("[CONFIG_LOAD] Successfully loaded SimaCode configuration", tool_name="smtp_email")
-        return config
-    except Exception as e:
-        mcp_warning(f"[CONFIG_LOAD] Failed to load SimaCode config: {e}", tool_name="smtp_email")
-        mcp_info("[CONFIG_LOAD] Falling back to environment variables and defaults", tool_name="smtp_email")
-        
-        
-        # Return default config - we'll populate from environment in SMTPConfig.from_simacode_config
-        return Config.load()
 
 
 async def main():
@@ -1103,7 +1066,7 @@ async def main():
     # Load SimaCode configuration
     mcp_info("[CONFIG] Loading SimaCode configuration...", tool_name="smtp_email")
     try:
-        simacode_config = load_simacode_config(config_path=args.config)
+        simacode_config = load_simacode_config(config_path=args.config, tool_name="smtp_email")
         mcp_info("[CONFIG] SimaCode configuration loaded successfully", tool_name="smtp_email")
         
         # Create SMTP configuration from SimaCode config
