@@ -48,8 +48,9 @@ sys.path.insert(0, str(Path(__file__).parent.parent))
 from src.simacode.mcp.protocol import MCPMessage, MCPMethods, MCPErrorCodes
 from src.simacode.config import Config
 
-# Import MCP file logging utility
+# Import utilities
 from src.simacode.utils.mcp_logger import mcp_file_log, mcp_debug, mcp_info, mcp_warning, mcp_error
+from src.simacode.utils.config_loader import load_simacode_config
 
 # Configure logging to stderr to avoid interfering with stdio protocol
 logging.basicConfig(
@@ -80,6 +81,63 @@ class TICMakerConfig:
         """Set default values after initialization."""
         if self.allowed_file_extensions is None:
             self.allowed_file_extensions = [".html", ".htm"]
+    
+    @classmethod
+    def from_simacode_config(cls, config: Config) -> 'TICMakerConfig':
+        """Create TICMakerConfig from SimaCode Config object."""
+        # Try to get ticmaker config section, fallback to empty dict
+        try:
+            ticmaker_config = getattr(config, 'ticmaker', {})
+        except AttributeError:
+            ticmaker_config = {}
+        
+        # Extract basic settings with fallbacks
+        output_dir = ticmaker_config.get('output_dir', "./ticmaker_output")
+        default_template = ticmaker_config.get('default_template', "modern")
+        ai_enhancement = ticmaker_config.get('ai_enhancement', False)
+        
+        # Extract AI settings from ticmaker config with fallbacks
+        ai_config = ticmaker_config.get('ai', {})
+        ai_enabled_default = ai_config.get('enabled', True)
+        ai_base_url_default = ai_config.get('base_url', "https://api.openai.com/v1")
+        ai_api_key_default = ai_config.get('api_key', "")
+        ai_model_default = ai_config.get('model', "gpt-4o-mini")
+        ai_max_tokens_default = ai_config.get('max_tokens', 16384)
+        ai_temperature_default = ai_config.get('temperature', 0.7)
+        
+        # Override with environment variables (priority: env vars > config)
+        output_dir = os.getenv("TICMAKER_OUTPUT_DIR", output_dir)
+        default_template = os.getenv("TICMAKER_TEMPLATE", default_template)
+        
+        # AI configuration with environment override
+        ai_enabled_env = os.getenv("TICMAKER_AI_ENABLED", str(ai_enabled_default))
+        ai_enabled = ai_enabled_env.lower() == "true"
+        
+        ai_base_url = os.getenv("TICMAKER_AI_BASE_URL", ai_base_url_default)
+        ai_api_key = os.getenv("TICMAKER_AI_API_KEY", ai_api_key_default)
+        ai_model = os.getenv("TICMAKER_AI_MODEL", ai_model_default)
+        
+        try:
+            ai_max_tokens = int(os.getenv("TICMAKER_AI_MAX_TOKENS", str(ai_max_tokens_default)))
+        except ValueError:
+            ai_max_tokens = ai_max_tokens_default
+        
+        try:
+            ai_temperature = float(os.getenv("TICMAKER_AI_TEMPERATURE", str(ai_temperature_default)))
+        except ValueError:
+            ai_temperature = ai_temperature_default
+        
+        return cls(
+            output_dir=output_dir,
+            default_template=default_template,
+            ai_enhancement=ai_enhancement,
+            ai_enabled=ai_enabled,
+            ai_base_url=ai_base_url,
+            ai_api_key=ai_api_key,
+            ai_model=ai_model,
+            ai_max_tokens=ai_max_tokens,
+            ai_temperature=ai_temperature
+        )
 
 
 @dataclass
@@ -329,6 +387,7 @@ class TICMakerClient:
         mcp_info(f"[TICMAKER_CONFIG] AI enhancement: {self.config.ai_enhancement}", tool_name="ticmaker")
         mcp_info(f"[TICMAKER_CONFIG] AI client enabled: {self.config.ai_enabled}", tool_name="ticmaker")
         mcp_info(f"[TICMAKER_CONFIG] AI model: {self.config.ai_model}", tool_name="ticmaker")
+        mcp_info(f"[TICMAKER_CONFIG] AI ai_api_key: {self.config.ai_api_key}", tool_name="ticmaker")
         
         # Log initialization to file
         mcp_info("TICMaker client initialized", {
@@ -1212,6 +1271,10 @@ class TICMakerStdioMCPServer:
         """Handle incoming MCP message."""
         mcp_debug(f"🔄 Processing {message.method} message with id: {message.id}", tool_name="ticmaker")
         
+        if message.method == "notifications/initialized":
+            mcp_info("Received initialized notification", tool_name="ticmaker")
+            return None
+        
         if message.method == MCPMethods.INITIALIZE:
             # Initialization request
             mcp_info("🔧 Processing INITIALIZE request", tool_name="ticmaker")
@@ -1413,103 +1476,35 @@ class TICMakerStdioMCPServer:
             )
 
 
-def load_config() -> TICMakerConfig:
+def load_config(config_path: Optional[Path] = None) -> TICMakerConfig:
     """Load TICMaker configuration from SimaCode config system."""
     try:
-        # Load config from SimaCode
-        config = Config.load()
+        # Load SimaCode configuration
+        config = load_simacode_config(config_path=config_path, tool_name="ticmaker")
+        mcp_info("[CONFIG_LOAD] Successfully loaded SimaCode configuration", tool_name="ticmaker")
         
-        # Extract TICMaker settings from config
-        ticmaker_config = getattr(config, 'ticmaker', {})
+        # Create TICMaker configuration from SimaCode config
+        ticmaker_config = TICMakerConfig.from_simacode_config(config)
         
-        # Extract basic settings with fallbacks
-        output_dir = ticmaker_config.get('output_dir', "./ticmaker_output")
-        default_template = ticmaker_config.get('default_template', "modern")
-        ai_enhancement = ticmaker_config.get('ai_enhancement', False)
-        
-        # Extract AI settings from ticmaker config with fallbacks
-        ai_config = ticmaker_config.get('ai', {})
-        ai_enabled_default = ai_config.get('enabled', True)
-        ai_base_url_default = ai_config.get('base_url', "https://api.pgpt.cloud/v1")
-        ai_api_key_default = ai_config.get('api_key', "")
-        ai_model_default = ai_config.get('model', "gpt-4o-mini")
-        ai_max_tokens_default = ai_config.get('max_tokens', 81920)
-        ai_temperature_default = ai_config.get('temperature', 0.7)
-        
-        # Extract environment settings from ticmaker config
-        environment_config = ticmaker_config.get('environment', {})
-        
-        # Override with environment variables (priority: OS env vars > config environment > config defaults)
-        output_dir = os.getenv("ticmaker_output_dir", 
-                              environment_config.get('ticmaker_output_dir', output_dir))
-        
-        default_template = os.getenv("ticmaker_template", 
-                                   environment_config.get('ticmaker_template', default_template))
-        
-        # AI configuration with environment override
-        ai_enabled = os.getenv("ticmaker_ai_enabled", 
-                              environment_config.get('ticmaker_ai_enabled', str(ai_enabled_default))).lower() == "true"
-        
-        ai_base_url = os.getenv("ticmaker_ai_base_url", 
-                               environment_config.get('ticmaker_ai_base_url', ai_base_url_default))
-        
-        ai_api_key = os.getenv("ticmaker_ai_api_key", 
-                              environment_config.get('ticmaker_ai_api_key', ai_api_key_default))
-        
-        ai_model = os.getenv("ticmaker_ai_model", 
-                            environment_config.get('ticmaker_ai_model', ai_model_default))
-        
-        ai_max_tokens = int(os.getenv("ticmaker_ai_max_tokens", 
-                                     environment_config.get('ticmaker_ai_max_tokens', str(ai_max_tokens_default))))
-        
-        ai_temperature = float(os.getenv("ticmaker_ai_temperature", 
-                                        environment_config.get('ticmaker_ai_temperature', str(ai_temperature_default))))
-        
-        # Log configuration loading details
-        mcp_info(f"Loaded TICMaker config from SimaCode with environment support", {
+        # Log configuration details
+        mcp_info("TICMaker config loaded from SimaCode", {
             "config_source": "simacode_config",
-            "has_environment_config": bool(environment_config),
-            "environment_keys": list(environment_config.keys()) if environment_config else [],
-            "ai_enabled": ai_enabled,
-            "ai_model": ai_model,
-            "output_dir": output_dir
+            "output_dir": ticmaker_config.output_dir,
+            "default_template": ticmaker_config.default_template,
+            "ai_enabled": ticmaker_config.ai_enabled,
+            "ai_model": ticmaker_config.ai_model,
+            "ai_base_url": ticmaker_config.ai_base_url,
+            "ai_api_key_configured": bool(ticmaker_config.ai_api_key)
         }, tool_name="ticmaker")
         
-        return TICMakerConfig(
-            output_dir=output_dir,
-            default_template=default_template,
-            ai_enhancement=ai_enhancement,
-            ai_enabled=ai_enabled,
-            ai_base_url=ai_base_url,
-            ai_api_key=ai_api_key,
-            ai_model=ai_model,
-            ai_max_tokens=ai_max_tokens,
-            ai_temperature=ai_temperature
-        )
+        return ticmaker_config
         
     except Exception as e:
-        mcp_warning(f"⚠️ Failed to load config from SimaCode: {str(e)}")
+        mcp_warning(f"⚠️ Failed to load config from SimaCode: {str(e)}", tool_name="ticmaker")
         mcp_info("📋 Using default configuration", tool_name="ticmaker")
         
-        # Fallback to environment variables and defaults
-        ai_enabled = os.getenv("ticmaker_ai_enabled", "true").lower() == "true"
-        ai_base_url = os.getenv("ticmaker_ai_base_url", "https://api.openai.com/v1")
-        ai_api_key = os.getenv("ticmaker_ai_api_key", "")
-        ai_model = os.getenv("ticmaker_ai_model", "gpt-3.5-turbo")
-        ai_max_tokens = int(os.getenv("ticmaker_ai_max_tokens", "500"))
-        ai_temperature = float(os.getenv("ticmaker_ai_temperature", "0.7"))
-        
-        return TICMakerConfig(
-            output_dir=os.getenv("ticmaker_output_dir", os.getenv("TICMAKER_OUTPUT_DIR", "./ticmaker_output")),
-            default_template=os.getenv("ticmaker_template", os.getenv("TICMAKER_TEMPLATE", "modern")),
-            ai_enhancement=False,
-            ai_enabled=ai_enabled,
-            ai_base_url=ai_base_url,
-            ai_api_key=ai_api_key,
-            ai_model=ai_model,
-            ai_max_tokens=ai_max_tokens,
-            ai_temperature=ai_temperature
-        )
+        # Return default config - environment variables will be handled in from_simacode_config
+        return TICMakerConfig()
 
 
 async def main():
@@ -1529,7 +1524,8 @@ async def main():
         mcp_debug("🐛 Debug logging enabled", tool_name="ticmaker")
     
     # Load configuration
-    ticmaker_config = load_config()
+    config_path = Path(args.config) if args.config else None
+    ticmaker_config = load_config(config_path=config_path)
     
     # Override with command line arguments if provided
     if args.output_dir:

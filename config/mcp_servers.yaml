@@ -180,15 +180,15 @@ servers:
     command: ["python", "tools/mcp_ticmaker_stdio_server.py"]
     args: ["--config", ".simacode/config.yaml"]
     environment:
-      ticmaker_output_dir: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
-      ticmaker_template: "${TICMAKER_TEMPLATE:-modern}"
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
       # AI客户端配置
-      ticmaker_ai_enabled: "${TICMAKER_AI_ENABLED:-true}"
-      ticmaker_ai_base_url: "${TICMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
-      ticmaker_ai_api_key: "${TICMAKER_AI_API_KEY:-${OPENAI_API_KEY}}"
-      ticmaker_ai_model: "${TICMAKER_AI_MODEL:-gpt-4o-mini}"
-      ticmaker_ai_max_tokens: "${TICMAKER_AI_MAX_TOKENS:-81920}"
-      ticmaker_ai_temperature: "${TICMAKER_AI_TEMPERATURE:-0.7}"
+      TICMAKER_AI_ENABLED: "${TICMAKER_AI_ENABLED:-true}"
+      TICMAKER_AI_BASE_URL: "${TICMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
+      TICMAKER_AI_API_KEY: "${TICMAKER_AI_API_KEY:-${OPENAI_API_KEY}}"
+      TICMAKER_AI_MODEL: "${TICMAKER_AI_MODEL:-gpt-4o-mini}"
+      TICMAKER_AI_MAX_TOKENS: "${TICMAKER_AI_MAX_TOKENS:-16384}"
+      TICMAKER_AI_TEMPERATURE: "${TICMAKER_AI_TEMPERATURE:-0.7}"
     working_directory: null
     timeout: 120  # Interactive content creation can take some time
     max_retries: 3
