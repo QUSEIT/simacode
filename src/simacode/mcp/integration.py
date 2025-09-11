@@ -101,9 +101,10 @@ class SimaCodeToolRegistry:
     regardless of whether they are built-in or come from MCP servers.
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize the unified tool registry."""
         self.permission_manager = permission_manager or PermissionManager()
+        self.session_manager = session_manager
         
         # Built-in tools registry
         self.builtin_tools: Dict[str, Tool] = {}
@@ -178,7 +179,8 @@ class SimaCodeToolRegistry:
             self.mcp_tool_registry = MCPToolRegistry(
                 self.mcp_server_manager,
                 self.permission_manager,
-                auto_register=True
+                auto_register=True,
+                session_manager=self.session_manager
             )
             
             # Set up callbacks for cache management

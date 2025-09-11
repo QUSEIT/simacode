@@ -47,12 +47,7 @@ class ReActService:
         # Initialize AI client
         self.ai_client = AIClientFactory.create_client(config.ai.model_dump())
         
-        # Initialize ReAct engine
-        execution_mode = ExecutionMode.ADAPTIVE  # Default to adaptive mode
-        logger.info(f"Initializing ReAct engine with api_mode={self.api_mode}")
-        self.react_engine = ReActEngine(self.ai_client, execution_mode, config, self.api_mode)
-        
-        # Initialize session manager
+        # Initialize session manager first
         sessions_dir = Path.cwd() / ".simacode" / "sessions"
         max_sessions = config.session.max_sessions
         session_config = SessionConfig(
@@ -63,6 +58,11 @@ class ReActService:
         )
         self.session_manager = SessionManager(session_config)
         logger.info(f"Session manager configured with max_sessions: {max_sessions}")
+        
+        # Initialize ReAct engine with session manager
+        execution_mode = ExecutionMode.ADAPTIVE  # Default to adaptive mode
+        logger.info(f"Initializing ReAct engine with api_mode={self.api_mode}")
+        self.react_engine = ReActEngine(self.ai_client, execution_mode, config, self.api_mode, self.session_manager)
         
         # Service state
         self.is_running = False

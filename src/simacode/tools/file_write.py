@@ -91,12 +91,13 @@ class FileWriteTool(Tool):
     and various writing modes (overwrite, append, insert).
     """
     
-    def __init__(self, permission_manager: Optional[PermissionManager] = None):
+    def __init__(self, permission_manager: Optional[PermissionManager] = None, session_manager=None):
         """Initialize FileWrite tool."""
         super().__init__(
             name="file_write",
             description="Write file contents safely with permission controls",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         self.permission_manager = permission_manager or PermissionManager()
         # Initialize PathValidator with the allowed paths from permission manager

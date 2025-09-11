@@ -36,7 +36,9 @@ class MCPReActIntegration:
         """
         self.react_engine = react_engine
         self.mcp_config_path = mcp_config_path
-        self.tool_registry = SimaCodeToolRegistry()
+        # Pass session_manager from react_engine to MCP tool registry
+        session_manager = getattr(react_engine, 'session_manager', None)
+        self.tool_registry = SimaCodeToolRegistry(session_manager=session_manager)
         self.is_initialized = False
         
         logger.info("MCP-ReAct integration initialized")

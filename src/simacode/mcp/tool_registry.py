@@ -175,7 +175,8 @@ class MCPToolRegistry:
         self,
         server_manager: MCPServerManager,
         permission_manager: Optional[PermissionManager] = None,
-        auto_register: bool = True
+        auto_register: bool = True,
+        session_manager=None
     ):
         """
         Initialize MCP tool registry.
@@ -184,10 +185,12 @@ class MCPToolRegistry:
             server_manager: MCP server manager instance
             permission_manager: Optional permission manager
             auto_register: Whether to automatically register discovered tools
+            session_manager: Optional session manager for tool session access
         """
         self.server_manager = server_manager
         self.permission_manager = permission_manager or PermissionManager()
         self.auto_register = auto_register
+        self.session_manager = session_manager
         
         # Tool management
         self.registered_tools: Dict[str, MCPToolWrapper] = {}
@@ -307,7 +310,8 @@ class MCPToolRegistry:
                     mcp_tool=tool,
                     server_manager=self.server_manager,
                     permission_manager=self.permission_manager,
-                    namespace=namespace
+                    namespace=namespace,
+                    session_manager=self.session_manager
                 )
                 
                 # Register the wrapper

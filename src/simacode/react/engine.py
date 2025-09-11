@@ -132,7 +132,7 @@ class ReActEngine:
     5. Replanning: Adjusting plans based on results
     """
     
-    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None, api_mode: bool = False):
+    def __init__(self, ai_client: AIClient, execution_mode: ExecutionMode = ExecutionMode.ADAPTIVE, config: Optional[Any] = None, api_mode: bool = False, session_manager=None):
         """
         Initialize the ReAct engine.
         
@@ -141,6 +141,7 @@ class ReActEngine:
             execution_mode: How to execute tasks (sequential, parallel, adaptive)
             config: Configuration object with ReAct settings
             api_mode: Whether running in API mode (uses chat stream confirmation)
+            session_manager: Optional SessionManager for tool session access
         """
         self.ai_client = ai_client
         self.execution_mode = execution_mode
@@ -149,6 +150,12 @@ class ReActEngine:
         self.tool_registry = ToolRegistry()
         self.config = config
         self.api_mode = api_mode  # 🆕 明确的模式标识
+        self.session_manager = session_manager
+        
+        # Initialize tools with session manager if provided
+        if session_manager:
+            from ..tools import initialize_tools_with_session_manager
+            initialize_tools_with_session_manager(session_manager)
         
         # Engine configuration
         self.max_planning_retries = 3
@@ -938,7 +945,16 @@ class ReActEngine:
             try:
                 # Execute tool
                 tool_results = []
-                async for result in execute_tool(processed_task.tool_name, processed_task.tool_input):
+                async for result in execute_tool(
+                    processed_task.tool_name, 
+                    processed_task.tool_input,
+                    session_id=session.id,
+                    session_context={
+                        "session_state": session.state.value,
+                        "current_task": processed_task.id,
+                        "user_input": session.user_input
+                    }
+                ):
                     tool_results.append(result)
                     
                     # Yield progress updates

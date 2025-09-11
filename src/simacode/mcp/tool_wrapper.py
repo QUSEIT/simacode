@@ -52,7 +52,8 @@ class MCPToolWrapper(Tool):
         mcp_tool: MCPTool,
         server_manager: MCPServerManager,
         permission_manager: Optional[PermissionManager] = None,
-        namespace: Optional[str] = None
+        namespace: Optional[str] = None,
+        session_manager=None
     ):
         """
         Initialize MCP tool wrapper.
@@ -69,7 +70,8 @@ class MCPToolWrapper(Tool):
         super().__init__(
             name=tool_name,
             description=f"[MCP:{mcp_tool.server_name}] {mcp_tool.description}",
-            version="1.0.0"
+            version="1.0.0",
+            session_manager=session_manager
         )
         
         self.mcp_tool = mcp_tool
@@ -348,6 +350,26 @@ class MCPToolWrapper(Tool):
         """
         execution_start = time.time()
         
+        # Access session information if available
+        session = await self.get_session(input_data)
+        if session:
+            # Log MCP tool execution to session
+            session.add_log_entry(f"Executing MCP tool '{self.original_name}' on server '{self.server_name}'")
+            
+            # Yield session-aware progress indicator
+            yield ToolResult(
+                type=ToolResultType.INFO,
+                content=f"Executing MCP tool in session {session.id} (state: {session.state.value})",
+                tool_name=self.name,
+                execution_id=input_data.execution_id,
+                metadata={
+                    "session_id": session.id,
+                    "session_state": session.state.value,
+                    "mcp_server": self.server_name,
+                    "mcp_tool": self.original_name
+                }
+            )
+        
         try:
             # Progress indicator
             yield ToolResult(
@@ -419,10 +441,37 @@ class MCPToolWrapper(Tool):
         mcp_args = {
             key: value
             for key, value in input_dict.items()
-            if key not in {"execution_id", "metadata"}
+            if key not in {"execution_id", "metadata", "session_id", "session_context"}
         }
         
+        # Optionally include session context for MCP tools that support it
+        # This allows MCP tools to access session information if they're designed to use it
+        if hasattr(input_data, 'session_context') and input_data.session_context:
+            # Only include if the MCP tool schema suggests it can handle session context
+            if self._mcp_tool_supports_session_context():
+                mcp_args["_session_context"] = input_data.session_context
+        
         return mcp_args
+    
+    def _mcp_tool_supports_session_context(self) -> bool:
+        """
+        Check if the MCP tool supports session context based on its schema.
+        
+        Returns:
+            bool: True if the tool appears to support session context
+        """
+        if not self.mcp_schema:
+            return False
+        
+        # Check if the schema has fields that suggest session context support
+        schema_str = str(self.mcp_schema).lower()
+        session_keywords = ["session", "context", "_session_context"]
+        
+        for keyword in session_keywords:
+            if keyword in schema_str:
+                return True
+        
+        return False
     
     async def _convert_mcp_result_to_tool_result(
         self,
