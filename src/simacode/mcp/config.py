@@ -166,34 +166,28 @@ class MCPConfigManager:
         self._template_engine = EnvironmentTemplateEngine()
     
     def _resolve_config_path(self, config_path: Optional[Union[str, Path]]) -> Path:
-        """Resolve configuration file path."""
+        """
+        Resolve MCP configuration file path.
+        
+        Args:
+            config_path: Optional explicit path to config file
+            
+        Returns:
+            Path: Resolved path to mcp_servers.yaml
+        """
+        # Use explicit path if provided
         if config_path:
             return Path(config_path).resolve()
         
-        # Try multiple locations
-        possible_paths = [
-            Path.cwd() / "config" / "mcp_servers.yaml",
-            Path.cwd() / "mcp_servers.yaml",
-            Path.home() / ".simacode" / "mcp_servers.yaml",
-            Path(__file__).parent.parent.parent.parent / "config" / "mcp_servers.yaml"
-        ]
-        
-        for path in possible_paths:
-            if path.exists():
-                return path
-        
-        # Return default path for creation
-        return Path.cwd() / "config" / "mcp_servers.yaml"
+        # Use default built-in configuration
+        default_config_path = Path(__file__).parent.parent / "default_config" / "mcp_servers.yaml"
+        return default_config_path
     
     def _resolve_user_config_path(self) -> Path:
-        """Resolve user configuration file path (.simacode/config.yaml)."""
-        # Try project-level config first, then user-level config
+        """Resolve project configuration file path (.simacode/config.yaml)."""
+        # Only use project-level config
         project_config = Path.cwd() / ".simacode" / "config.yaml"
-        if project_config.exists():
-            return project_config
-        
-        user_config = Path.home() / ".simacode" / "config.yaml"
-        return user_config
+        return project_config
     
     def _merge_config_data(self, default_data: Dict[str, Any], user_data: Dict[str, Any]) -> Dict[str, Any]:
         """Merge user configuration data with default data."""

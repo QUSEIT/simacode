@@ -35,7 +35,7 @@ class TestCLIAIIntegration:
         result = self.runner.invoke(main, [
             "config"
         ])
-        # Should use config/config.yaml by default
+        # Should use src/simacode/default_config/default.yaml by default
         assert result.exit_code == 0
         assert "Current Configuration" in result.output
     

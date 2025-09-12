@@ -487,8 +487,7 @@ class Config(BaseModel):
         Load configuration from multiple sources in order of precedence:
         1. Provided config_path
         2. Project config file (.simacode/config.yaml)
-        3. User config file (~/.simacode/config.yaml)
-        4. Default configuration
+        3. Default configuration
         
         Args:
             config_path: Optional explicit path to config file
@@ -504,27 +503,20 @@ class Config(BaseModel):
         config_data = {}
         
         # 1. First load default config as base
-        default_config = Path(__file__).parent.parent.parent / "config" / "default.yaml"
+        default_config = Path(__file__).parent / "default_config" / "default.yaml"
         if default_config.exists():
             with open(default_config) as f:
                 default_data = yaml.safe_load(f) or {}
                 config_data.update(default_data)
         
-        # 2. Load from user config (overrides default)
-        user_config = Path.home() / ".simacode" / "config.yaml"
-        if user_config.exists():
-            with open(user_config) as f:
-                user_data = yaml.safe_load(f) or {}
-                config_data.update(user_data)
-        
-        # 3. Load from project config (overrides user)
+        # 2. Load from project config (overrides default)
         project_config = project_root / ".simacode" / "config.yaml"
         if project_config.exists():
             with open(project_config) as f:
                 project_data = yaml.safe_load(f) or {}
                 config_data.update(project_data)
         
-        # 4. Load from provided path (highest precedence)
+        # 3. Load from provided path (highest precedence)
         if config_path and config_path.exists():
             with open(config_path) as f:
                 config_data.update(yaml.safe_load(f) or {})
@@ -540,7 +532,7 @@ class Config(BaseModel):
     @classmethod
     def _merge_mcp_configuration(cls, config_data: Dict[str, Any], project_root: Path) -> Dict[str, Any]:
         """
-        Merge MCP configuration from config/mcp_servers.yaml with user configuration.
+        Merge MCP configuration from default_config/mcp_servers.yaml with user configuration.
         
         Args:
             config_data: Current configuration data
@@ -551,15 +543,15 @@ class Config(BaseModel):
         """
         try:
             # Load MCP servers configuration
-            mcp_servers_file = project_root / "config" / "mcp_servers.yaml"
+            mcp_servers_file = Path(__file__).parent / "default_config" / "mcp_servers.yaml"
             if not mcp_servers_file.exists():
-                logger.debug("No config/mcp_servers.yaml found, skipping MCP server configuration merge")
+                logger.debug("No default_config/mcp_servers.yaml found, skipping MCP server configuration merge")
                 return config_data
             
             with open(mcp_servers_file) as f:
                 mcp_servers_data = yaml.safe_load(f) or {}
             
-            logger.debug(f"Loaded MCP servers configuration from {mcp_servers_file}")
+            #logger.debug(f"Loaded MCP servers configuration from {mcp_servers_file}")
             
             # Initialize MCP config structure if not present
             if "mcp" not in config_data:
@@ -567,7 +559,7 @@ class Config(BaseModel):
             
             user_mcp_config = config_data["mcp"]
             
-            # Merge global MCP settings (from config/mcp_servers.yaml)
+            # Merge global MCP settings (from default_config/mcp_servers.yaml)
             if "mcp" in mcp_servers_data:
                 server_global_config = mcp_servers_data["mcp"]
                 for key, value in server_global_config.items():
@@ -579,7 +571,7 @@ class Config(BaseModel):
             if "servers" not in user_mcp_config:
                 user_mcp_config["servers"] = {}
             
-            # Process server definitions from config/mcp_servers.yaml
+            # Process server definitions from default_config/mcp_servers.yaml
             if "servers" in mcp_servers_data:
                 servers_from_file = mcp_servers_data["servers"]
                 user_servers = user_mcp_config["servers"]
@@ -609,7 +601,7 @@ class Config(BaseModel):
                     else:
                         # No user config for this server, use base config
                         user_servers[server_name] = base_server_config
-                        #logger.debug(f"Added server from config/mcp_servers.yaml: {server_name}")
+                        #logger.debug(f"Added server from default_config/mcp_servers.yaml: {server_name}")
             
             # Also handle servers section at root level (legacy support)
             if "servers" in config_data:
@@ -624,7 +616,7 @@ class Config(BaseModel):
                         for key, value in server_config.items():
                             if value is not None:
                                 existing_config[key] = value
-                        logger.debug(f"Merged root-level server config for {server_name}")
+                        #logger.debug(f"Merged root-level server config for {server_name}")
                     else:
                         user_mcp_servers[server_name] = server_config
                         logger.debug(f"Added root-level server config: {server_name}")

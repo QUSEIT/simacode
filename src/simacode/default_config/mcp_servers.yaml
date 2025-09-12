@@ -154,7 +154,7 @@ servers:
     args: []
     environment:
       TICMAKER_WS_URL: "${TICMAKER_WS_URL:-ws://localhost:10002/mcp/ws}"
-      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-.simacode/mcp/ticmaker_output}"
     working_directory: null
     timeout: 300  # Longer timeout for complex content generation
     max_retries: 3
@@ -166,7 +166,7 @@ servers:
         - "read"      # Allow reading existing files
         - "write"     # Allow writing HTML files
         - "execute"   # Allow general execution operations
-      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      allowed_paths: [".simacode/mcp/ticmaker_output", "./", "/tmp"]  # Allow access to output directory
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 300  # Extended timeout for WebSocket operations
       network_access: true  # Required for WebSocket connections
@@ -180,7 +180,7 @@ servers:
     command: ["python", "tools/mcp_ticmaker_stdio_server.py"]
     args: ["--config", ".simacode/config.yaml"]
     environment:
-      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-./ticmaker_output}"
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-.simacode/mcp/ticmaker_output}"
       TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
       # AI客户端配置
       TICMAKER_AI_ENABLED: "${TICMAKER_AI_ENABLED:-true}"
@@ -200,7 +200,7 @@ servers:
         - "read"      # Allow reading existing files
         - "write"     # Allow writing HTML files
         - "execute"   # Allow general execution operations
-      allowed_paths: ["./ticmaker_output", "./", "/tmp"]  # Allow access to output directory
+      allowed_paths: [".simacode/mcp/ticmaker_output", "./", "/tmp"]  # Allow access to output directory
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 120
       network_access: true  # 需要网络访问以调用AI API
