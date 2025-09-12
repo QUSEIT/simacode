@@ -1,0 +1,2 @@
+# 修改课程的功能
+在 tools/mcp_ticmaker_stdio_server.py 中将修改课程的功能从 create_interactive_course tool中剥离为一个独立的tool，命名为 modify_interactive_course，目前的功能就是先返回其工具名称即可（未来会增加新功能）

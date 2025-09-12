@@ -404,6 +404,7 @@ class TICMakerClient:
         user_input: str,
         course_title: Optional[str] = None,
         file_path: Optional[str] = None,
+        content_type: Optional[str] = None,
         template_style: Optional[str] = None,
         session_context: Optional[Dict[str, Any]] = None
     ) -> TICMakerResult:
@@ -411,9 +412,10 @@ class TICMakerClient:
         start_time = datetime.now()
         
         try:
-            mcp_info("🎯 ===== TICMaker Course Creation Started =====", tool_name="ticmaker")
+            mcp_info("🎯 ===== TICMaker Content Creation Started =====", tool_name="ticmaker")
             mcp_info(f"   💬 User Requirements: {user_input}", tool_name="ticmaker")
-            mcp_info(f"   📄 Course Title: {course_title or 'Not specified'}", tool_name="ticmaker")
+            mcp_info(f"   📄 Content Title: {course_title or 'Not specified'}", tool_name="ticmaker")
+            mcp_info(f"   🎨 Content Type: {content_type or 'course'}", tool_name="ticmaker")
             mcp_info(f"   📁 File Path: {file_path or 'Auto-generate'}", tool_name="ticmaker")
             if session_context:
                 mcp_info(f"   🔄 Session State: {session_context.get('session_state', 'Unknown')}", tool_name="ticmaker")
@@ -474,6 +476,7 @@ class TICMakerClient:
                     user_input, 
                     course_title,
                     template_style or self.config.default_template,
+                    content_type or "course",
                     session_context
                 )
             
@@ -549,6 +552,134 @@ class TICMakerClient:
                 execution_time=execution_time
             )
     
+    async def modify_interactive_course(
+        self,
+        user_input: str,
+        file_path: str,
+        session_context: Optional[Dict[str, Any]] = None
+    ) -> TICMakerResult:
+        """Modify existing interactive teaching content."""
+        start_time = datetime.now()
+        
+        try:
+            mcp_info("🔧 ===== TICMaker Course Modification Started =====", tool_name="ticmaker")
+            mcp_info(f"   💬 Modification Requirements: {user_input}", tool_name="ticmaker")
+            mcp_info(f"   📁 Target File: {file_path}", tool_name="ticmaker")
+            if session_context:
+                mcp_info(f"   🔄 Session State: {session_context.get('session_state', 'Unknown')}", tool_name="ticmaker")
+            
+            # Log modification start to file
+            mcp_info("Course modification started", {
+                "user_input": user_input,
+                "file_path": file_path,
+                "session_context": session_context
+            }, tool_name="ticmaker", session_id=session_context.get('session_id') if session_context else None)
+            
+            # Validate input
+            if not user_input or not user_input.strip():
+                mcp_error("Course modification failed - empty user input", tool_name="ticmaker")
+                return TICMakerResult(
+                    success=False,
+                    error="User input is required for modification"
+                )
+            
+            if not file_path:
+                mcp_error("Course modification failed - no file path specified", tool_name="ticmaker")
+                return TICMakerResult(
+                    success=False,
+                    error="File path is required for modification"
+                )
+            
+            # Resolve and validate file path
+            target_file = Path(file_path)
+            if not str(target_file.resolve()).startswith(str(self.output_dir.resolve())):
+                target_file = self.output_dir / Path(file_path).name
+                mcp_warning(f"⚠️ File path adjusted for security: {file_path} → {target_file}", tool_name="ticmaker")
+            
+            # Check if file exists
+            if not target_file.exists():
+                mcp_error(f"Target file does not exist: {target_file}", tool_name="ticmaker")
+                return TICMakerResult(
+                    success=False,
+                    error=f"File not found: {target_file}"
+                )
+            
+            mcp_info("📖 Reading existing file content...", tool_name="ticmaker")
+            # Read existing content
+            existing_content = target_file.read_text(encoding='utf-8')
+            mcp_info(f"📏 Existing content length: {len(existing_content)} characters", tool_name="ticmaker")
+            
+            mcp_info("🔧 Modifying existing HTML content...", tool_name="ticmaker")
+            # Modify content
+            modified_content = await self._modify_html_content(existing_content, user_input)
+            
+            # Check content size
+            if len(modified_content.encode('utf-8')) > self.config.max_file_size:
+                return TICMakerResult(
+                    success=False,
+                    error=f"Modified content too large ({len(modified_content)} characters > {self.config.max_file_size} bytes)"
+                )
+            
+            # Write modified file
+            mcp_info("💾 Writing modified content to file...", tool_name="ticmaker")
+            target_file.write_text(modified_content, encoding='utf-8')
+            
+            # Get file info
+            file_size = target_file.stat().st_size
+            execution_time = (datetime.now() - start_time).total_seconds()
+            
+            mcp_info(f"🎉 Interactive course modified successfully", tool_name="ticmaker")
+            mcp_info(f"📁 File path: {target_file}", tool_name="ticmaker")
+            mcp_info(f"📏 File size: {file_size} bytes", tool_name="ticmaker")
+            mcp_info(f"⏱️ Execution time: {execution_time:.2f}s", tool_name="ticmaker")
+            mcp_info("🔧 ===== TICMaker Course Modification Completed =====", tool_name="ticmaker")
+            
+            # Log successful modification to file
+            mcp_info("Course modification completed successfully", {
+                "file_path": str(target_file),
+                "file_size": file_size,
+                "execution_time": execution_time,
+                "content_length": len(modified_content),
+                "session_context_included": session_context is not None
+            }, tool_name="ticmaker", session_id=session_context.get('session_id') if session_context else None)
+            
+            return TICMakerResult(
+                success=True,
+                message="Interactive course modified successfully",
+                execution_time=execution_time,
+                metadata={
+                    "file_path": str(target_file),
+                    "file_size": file_size,
+                    "action": "modified",
+                    "user_input": user_input,
+                    "tool_name": "modify_interactive_course",
+                    "session_context": session_context
+                }
+            )
+            
+        except Exception as e:
+            execution_time = (datetime.now() - start_time).total_seconds()
+            error_msg = f"Interactive course modification failed: {str(e)}"
+            mcp_error(f"💥 {error_msg}", tool_name="ticmaker")
+            mcp_error(f"⏱️ Execution time before error: {execution_time:.2f}s", tool_name="ticmaker")
+            mcp_error("🔧 ===== TICMaker Course Modification Failed =====", tool_name="ticmaker")
+            
+            # Log error to file with detailed context
+            mcp_error("Course modification failed with exception", {
+                "error_message": str(e),
+                "error_type": type(e).__name__,
+                "execution_time": execution_time,
+                "user_input": user_input,
+                "file_path": file_path,
+                "session_context": session_context
+            }, tool_name="ticmaker", session_id=session_context.get('session_id') if session_context else None)
+            
+            return TICMakerResult(
+                success=False,
+                error=error_msg,
+                execution_time=execution_time
+            )
+    
     async def generate_ai_course_intro(self, course_title: str, user_input: str) -> str:
         """Generate AI-powered course introduction text."""
         try:
@@ -563,6 +694,7 @@ class TICMakerClient:
         user_input: str, 
         course_title: Optional[str] = None,
         template_style: str = "modern",
+        content_type: str = "course",
         session_context: Optional[Dict[str, Any]] = None
     ) -> str:
         """Generate HTML content for interactive course."""
@@ -573,7 +705,7 @@ class TICMakerClient:
         ai_generated_intro = await self.generate_ai_course_intro(title, user_input)
         
         # Generate interactive template with AI content
-        html_content = await self._generate_interactive_template(title, user_input, template_style, course_title, session_context, ai_generated_intro)
+        html_content = await self._generate_interactive_template(title, user_input, template_style, content_type, course_title, session_context, ai_generated_intro)
         
         return html_content
     
@@ -619,6 +751,7 @@ class TICMakerClient:
         title: str, 
         user_input: str, 
         template_style: str = "modern",
+        content_type: str = "course",
         course_title: Optional[str] = None,
         session_context: Optional[Dict[str, Any]] = None,
         ai_generated_intro: Optional[str] = None
@@ -627,7 +760,29 @@ class TICMakerClient:
         
         # Ensure ai_generated_intro has a fallback value
         if ai_generated_intro is None:
-            ai_generated_intro = "🎓 欢迎来到这个精心设计的互动课程！"
+            ai_generated_intro = "🎓 欢迎来到这个精心设计的互动内容！"
+        
+        # Set content-specific emoji and subtitle based on content_type
+        content_emoji_map = {
+            "course": "🎓",
+            "slides": "📊", 
+            "presentation": "🎬",
+            "tutorial": "📚",
+            "lesson": "📖",
+            "workshop": "🔧"
+        }
+        
+        content_subtitle_map = {
+            "course": "互动课程",
+            "slides": "演示文稿",
+            "presentation": "展示内容", 
+            "tutorial": "教程指南",
+            "lesson": "学习课时",
+            "workshop": "实践工坊"
+        }
+        
+        content_emoji = content_emoji_map.get(content_type, "🎓")
+        content_subtitle = content_subtitle_map.get(content_type, "互动内容")
         
         # Modern template with comprehensive interactive features
         html_content = f"""<!DOCTYPE html>
@@ -672,6 +827,12 @@ class TICMakerClient:
             font-size: 2.5em;
             margin-bottom: 10px;
             text-shadow: 2px 2px 4px rgba(0,0,0,0.3);
+        }}
+        
+        .header .content-type {{
+            font-size: 1.1em;
+            opacity: 0.9;
+            font-weight: normal;
         }}
         
         .header h2 {{
@@ -818,8 +979,9 @@ class TICMakerClient:
 <body>
     <div class="container">
         <div class="header">
-            <h1>{title}</h1>
-            {f'<h2>📚 Course: {course_title}</h2>' if course_title else ''}
+            <h1>{content_emoji} {title}</h1>
+            <div class="content-type">{content_subtitle}</div>
+            {f'<h2>📚 {course_title}</h2>' if course_title else ''}
         </div>
         
         <div class="content">
@@ -1172,7 +1334,7 @@ class TICMakerStdioMCPServer:
         self.tools = {
             "create_interactive_course": {
                 "name": "create_interactive_course",
-                "description": "Create or modify interactive teaching content and HTML pages",
+                "description": "Create interactive teaching content, including HTML pages, slides, PPT, courses, etc., and publish them in HTML format",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -1187,6 +1349,12 @@ class TICMakerStdioMCPServer:
                         "file_path": {
                             "type": "string", 
                             "description": "Optional file path for the HTML output - will be auto-generated if not provided"
+                        },
+                        "content_type": {
+                            "type": "string",
+                            "enum": ["course", "slides", "presentation", "tutorial", "lesson", "workshop"],
+                            "description": "Type of interactive teaching content to create",
+                            "default": "course"
                         },
                         "template_style": {
                             "type": "string",
@@ -1205,6 +1373,33 @@ class TICMakerStdioMCPServer:
                         }
                     },
                     "required": ["user_input"]
+                }
+            },
+            "modify_interactive_course": {
+                "name": "modify_interactive_course",
+                "description": "Modify interactive teaching content published in HTML format, including HTML pages, slides, PPT, courses, etc.",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "user_input": {
+                            "type": "string",
+                            "description": "User's requirements for modifying the existing interactive teaching content"
+                        },
+                        "file_path": {
+                            "type": "string",
+                            "description": "Path to the existing HTML file to be modified"
+                        },
+                        "_session_context": {
+                            "type": "object",
+                            "description": "Session context information from SimaCode ReAct engine",
+                            "properties": {
+                                "session_state": {"type": "string"},
+                                "current_task": {"type": "string"},
+                                "user_input": {"type": "string"}
+                            }
+                        }
+                    },
+                    "required": ["user_input", "file_path"]
                 }
             }
         }
@@ -1342,6 +1537,14 @@ class TICMakerStdioMCPServer:
                     }, tool_name="ticmaker")
                     
                     result = await self._create_interactive_course(arguments)
+                elif tool_name == "modify_interactive_course":
+                    # Log tool execution start to file
+                    mcp_debug(f"Executing tool: {tool_name}", {
+                        "arguments": arguments,
+                        "message_id": message.id
+                    }, tool_name="ticmaker")
+                    
+                    result = await self._modify_interactive_course(arguments)
                 else:
                     mcp_error(f"Unknown tool requested: {tool_name}", tool_name="ticmaker")
                     raise ValueError(f"Unknown tool: {tool_name}")
@@ -1449,6 +1652,7 @@ class TICMakerStdioMCPServer:
             user_input = arguments.get("user_input")
             course_title = arguments.get("course_title")
             file_path = arguments.get("file_path")
+            content_type = arguments.get("content_type")
             template_style = arguments.get("template_style")
             session_context = arguments.get("_session_context")
             
@@ -1464,6 +1668,7 @@ class TICMakerStdioMCPServer:
                 user_input=user_input,
                 course_title=course_title,
                 file_path=file_path,
+                content_type=content_type,
                 template_style=template_style,
                 session_context=session_context
             )
@@ -1473,6 +1678,41 @@ class TICMakerStdioMCPServer:
             return TICMakerResult(
                 success=False,
                 error=f"Course creation failed: {str(e)}"
+            )
+    
+    async def _modify_interactive_course(self, arguments: Dict[str, Any]) -> TICMakerResult:
+        """Modify interactive course with given arguments."""
+        try:
+            # Extract arguments with defaults
+            user_input = arguments.get("user_input")
+            file_path = arguments.get("file_path")
+            session_context = arguments.get("_session_context")
+            
+            # Validate required fields
+            if not user_input:
+                return TICMakerResult(
+                    success=False,
+                    error="'user_input' field is required"
+                )
+            
+            if not file_path:
+                return TICMakerResult(
+                    success=False,
+                    error="'file_path' field is required"
+                )
+            
+            # Modify interactive course
+            return await self.ticmaker_client.modify_interactive_course(
+                user_input=user_input,
+                file_path=file_path,
+                session_context=session_context
+            )
+            
+        except Exception as e:
+            mcp_error(f"💥 _modify_interactive_course error: {str(e)}")
+            return TICMakerResult(
+                success=False,
+                error=f"Course modification failed: {str(e)}"
             )
 
 
