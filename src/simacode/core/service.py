@@ -142,7 +142,7 @@ class SimaCodeService:
         self.ai_client = AIClientFactory.create_client(config.ai.model_dump())
         
         # Initialize conversation manager for chat operations
-        sessions_dir = Path.home() / ".simacode" / "sessions"
+        sessions_dir = Path.cwd() / ".simacode" / "sessions"
         sessions_dir.mkdir(parents=True, exist_ok=True)
         self.conversation_manager = ConversationManager(sessions_dir)
         
