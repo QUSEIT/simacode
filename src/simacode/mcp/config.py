@@ -5,6 +5,7 @@ This module handles loading, validating, and managing MCP server configurations
 from YAML files and environment variables.
 """
 
+import logging
 import os
 import string
 from pathlib import Path
@@ -14,6 +15,8 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from .exceptions import MCPConfigurationError
+
+logger = logging.getLogger(__name__)
 
 
 class MCPSecurityConfig(BaseModel):
@@ -258,6 +261,7 @@ class MCPConfigManager:
             
             # Load user configuration for overrides
             user_config_path = self._resolve_user_config_path()
+            logger.info(f"User config path: {user_config_path}")
             user_config_data = {}
             
             if user_config_path.exists():
@@ -287,8 +291,6 @@ class MCPConfigManager:
                             
                 except Exception as e:
                     # Log warning but don't fail - continue with default config only
-                    import logging
-                    logger = logging.getLogger(__name__)
                     logger.warning(f"Failed to load user config from {user_config_path}: {str(e)}")
             
             # Merge configurations
