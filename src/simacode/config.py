@@ -505,20 +505,20 @@ class Config(BaseModel):
         # 1. First load default config as base
         default_config = Path(__file__).parent / "default_config" / "default.yaml"
         if default_config.exists():
-            with open(default_config) as f:
+            with open(default_config, encoding='utf-8') as f:
                 default_data = yaml.safe_load(f) or {}
                 config_data.update(default_data)
         
         # 2. Load from project config (overrides default)
         project_config = project_root / ".simacode" / "config.yaml"
         if project_config.exists():
-            with open(project_config) as f:
+            with open(project_config, encoding='utf-8') as f:
                 project_data = yaml.safe_load(f) or {}
                 config_data.update(project_data)
         
         # 3. Load from provided path (highest precedence)
         if config_path and config_path.exists():
-            with open(config_path) as f:
+            with open(config_path, encoding='utf-8') as f:
                 config_data.update(yaml.safe_load(f) or {})
         
         # 5. Merge MCP server configuration
@@ -548,7 +548,7 @@ class Config(BaseModel):
                 logger.debug("No default_config/mcp_servers.yaml found, skipping MCP server configuration merge")
                 return config_data
             
-            with open(mcp_servers_file) as f:
+            with open(mcp_servers_file, encoding='utf-8') as f:
                 mcp_servers_data = yaml.safe_load(f) or {}
             
             #logger.debug(f"Loaded MCP servers configuration from {mcp_servers_file}")
