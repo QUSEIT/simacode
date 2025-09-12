@@ -61,7 +61,7 @@ logger = logging.getLogger(__name__)
 class TICMakerWebSocketServer:
     """WebSocket-based TICMaker MCP Server for interactive teaching content creation."""
     
-    def __init__(self, host: str = "localhost", port: int = 10002, output_dir: str = "./ticmaker_output"):
+    def __init__(self, host: str = "localhost", port: int = 10002, output_dir: str = ".simacode/mcp/ticmaker_output"):
         """
         Initialize TICMaker WebSocket MCP server.
         
@@ -708,7 +708,7 @@ async def main():
     parser = argparse.ArgumentParser(description="TICMaker WebSocket MCP Server")
     parser.add_argument("--host", default="localhost", help="Server host (default: localhost)")
     parser.add_argument("--port", type=int, default=10002, help="Server port (default: 10002)")
-    parser.add_argument("--output-dir", default="./ticmaker_output", help="Output directory for generated files")
+    parser.add_argument("--output-dir", default=".simacode/mcp/ticmaker_output", help="Output directory for generated files")
     
     args = parser.parse_args()
     

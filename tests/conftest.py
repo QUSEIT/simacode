@@ -19,7 +19,7 @@ from simacode.config import Config
 @pytest.fixture(scope="session")
 def test_config_file():
     """Get the test configuration file path from environment or use default."""
-    config_file = os.environ.get('SIMACODE_TEST_CONFIG', 'config/config.yaml')
+    config_file = os.environ.get('SIMACODE_TEST_CONFIG', 'src/simacode/default_config/default.yaml')
     config_path = Path(config_file)
     
     if not config_path.exists():

@@ -98,8 +98,8 @@ class ConfigManager:
     def __init__(self):
         self.config: Optional[OCRConfig] = None
         self._config_paths = [
-            Path.cwd() / ".simacode" / "config.yaml",  # Project config
-            Path.home() / ".simacode" / "config.yaml"  # User config
+            Path(__file__).parent.parent.parent / "default_config" / "default.yaml",  # Default config
+            Path.cwd() / ".simacode" / "config.yaml"  # Project config (overrides default)
         ]
     
     def load_config(self) -> OCRConfig:
@@ -110,14 +110,13 @@ class ConfigManager:
         # Start with defaults
         config_data = {}
         
-        # Load from config files (in order of priority)
+        # Load from config files (default first, then project overrides)
         for config_path in self._config_paths:
             if config_path.exists():
                 try:
                     with open(config_path, 'r', encoding='utf-8') as f:
                         file_config = yaml.safe_load(f) or {}
                         config_data.update(file_config)
-                        break  # Use first found config file
                 except Exception as e:
                     print(f"Warning: Failed to load config from {config_path}: {e}")
         

@@ -17,7 +17,7 @@ Configuration:
 This tool reads configuration from SimaCode's config system. Example config.yaml:
 
 ticmaker:
-  output_dir: "./ticmaker_output"
+  output_dir: ".simacode/mcp/ticmaker_output"
   default_template: "modern"
   ai_enhancement: false
 
@@ -64,7 +64,7 @@ logging.basicConfig(
 @dataclass
 class TICMakerConfig:
     """Configuration for TICMaker content creation."""
-    output_dir: str = "./ticmaker_output"
+    output_dir: str = ".simacode/mcp/ticmaker_output"
     default_template: str = "modern"
     ai_enhancement: bool = False
     max_file_size: int = 1024 * 1024 * 10  # 10MB
@@ -92,14 +92,14 @@ class TICMakerConfig:
             ticmaker_config = {}
         
         # Extract basic settings with fallbacks
-        output_dir = ticmaker_config.get('output_dir', "./ticmaker_output")
+        output_dir = ticmaker_config.get('output_dir', ".simacode/mcp/ticmaker_output")
         default_template = ticmaker_config.get('default_template', "modern")
         ai_enhancement = ticmaker_config.get('ai_enhancement', False)
         
         # Extract AI settings from ticmaker config with fallbacks
         ai_config = ticmaker_config.get('ai', {})
         ai_enabled_default = ai_config.get('enabled', True)
-        ai_base_url_default = ai_config.get('base_url', "https://api.openai.com/v1")
+        ai_base_url_default = ai_config.get('base_url', "https://openai.pgpt.cloud/v1")
         ai_api_key_default = ai_config.get('api_key', "")
         ai_model_default = ai_config.get('model', "gpt-4o-mini")
         ai_max_tokens_default = ai_config.get('max_tokens', 16384)
