@@ -128,9 +128,17 @@ class TaskConfirmationResponse(BaseModel):
 
 class ConfirmationStatus(BaseModel):
     """确认状态模型"""
-    
+
     session_id: str
     status: str  # "pending", "confirmed", "modified", "cancelled", "timeout"
     created_at: datetime
     expires_at: datetime
     user_response: Optional[TaskConfirmationResponse] = None
+
+
+class ConfigResponse(BaseModel):
+    """Configuration information response model."""
+    config_file_path: Optional[str] = Field(None, description="Path to the loaded .simacode/config.yaml file")
+    config_exists: bool = Field(..., description="Whether the config file exists")
+    project_root: str = Field(..., description="Project root directory")
+    config_data: Dict[str, Any] = Field(default_factory=dict, description="Current configuration settings")
