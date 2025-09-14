@@ -22,6 +22,7 @@ from ..core.service import SimaCodeService
 logger = logging.getLogger(__name__)
 
 from .routes import chat, react, health, sessions
+from .routes import config as config_routes
 from ..universalform import router as universalform_router, UNIVERSALFORM_AVAILABLE
 from .models import ErrorResponse
 
@@ -120,25 +121,29 @@ class DebugLoggingMiddleware(BaseHTTPMiddleware):
 async def lifespan(app: FastAPI):
     """Application lifespan manager."""
     logger.info("Starting SimaCode API server...")
-    
-    # Start the SimaCode service in the current event loop
-    simacode_service = app.state.simacode_service
+
+    # Get the SimaCode service from app state (set during app creation)
+    simacode_service = getattr(app.state, 'simacode_service', None)
+    if simacode_service is None:
+        logger.error("SimaCode service not found in app state")
+        raise RuntimeError("SimaCode service not properly initialized")
+
     try:
         await simacode_service.start_async()
         logger.info("SimaCode service started in application lifespan")
     except Exception as e:
         logger.error(f"Failed to start SimaCode service: {e}")
         raise
-    
+
     yield
-    
+
     # Stop the service when shutting down
     try:
         await simacode_service.stop_async()
         logger.info("SimaCode service stopped")
     except Exception as e:
         logger.error(f"Error stopping SimaCode service: {e}")
-    
+
     logger.info("Shutting down SimaCode API server...")
 
 
@@ -195,6 +200,7 @@ def create_app(config: Config):
     app.include_router(chat.router, prefix="/api/v1/chat", tags=["chat"])
     app.include_router(react.router, prefix="/api/v1/react", tags=["react"])
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
+    app.include_router(config_routes.router, prefix="/api/v1/config", tags=["config"])
     
     # Include universal form router if available
     if UNIVERSALFORM_AVAILABLE and universalform_router:
