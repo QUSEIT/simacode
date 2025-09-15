@@ -71,7 +71,7 @@ class SecurityConfig(BaseModel):
         description="Require explicit permission for file write operations"
     )
     max_command_execution_time: int = Field(
-        default=30,
+        default=300,
         description="Maximum time in seconds for command execution"
     )
     

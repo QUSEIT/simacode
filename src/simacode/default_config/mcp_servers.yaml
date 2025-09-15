@@ -4,7 +4,7 @@
 # Global MCP settings
 mcp:
   enabled: false
-  timeout: 60
+  timeout: 300
   max_concurrent: 5
   log_level: INFO
   cache_ttl: 300
@@ -204,3 +204,67 @@ servers:
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 120
       network_access: true  # 需要网络访问以调用AI API
+
+  # Project Analyzer MCP Proxy Server (WebSocket) - Frontend Project Analysis via Remote REST Service
+  # Note: Server must be started manually using: python tools/mcp_project_analyzer_proxy_server.py
+  project_analyzer_proxy:
+    name: project_analyzer_proxy
+    enabled: false  # Enable for remote project analyzer integration
+    type: websocket
+    url: "${PROJECT_ANALYZER_PROXY_URL:-ws://localhost:8083/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
+    args: []
+    environment:
+      PROJECT_ANALYZER_PROXY_URL: "${PROJECT_ANALYZER_PROXY_URL:-ws://localhost:8083/mcp/ws}"
+      PROJECT_ANALYZER_REST_URL: "${PROJECT_ANALYZER_REST_URL:-http://localhost:8002}"
+      PROJECT_ANALYZER_TIMEOUT: "${PROJECT_ANALYZER_TIMEOUT:-300}"
+      PROJECT_ANALYZER_MAX_RETRIES: "${PROJECT_ANALYZER_MAX_RETRIES:-3}"
+      PROJECT_ANALYZER_RETRY_DELAY: "${PROJECT_ANALYZER_RETRY_DELAY:-2.0}"
+    working_directory: null
+    timeout: 300  # Longer timeout for project analysis operations
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "project_analyze_from_zip"
+        - "analyze"
+      allowed_paths: []  # Project analysis doesn't need direct file system access
+      forbidden_paths: []
+      max_execution_time: 300
+      network_access: true  # Required for project analysis and HTTP proxy
+
+  # MMmaker stdio MCP Server - 语音生成工具 (Text-to-Speech)
+  # Configuration is loaded directly from .simacode/config.yaml
+  mmmaker:
+    name: mmmaker
+    enabled: false  # Enable for voice generation features
+    type: stdio
+    command: ["python", "tools/mcp_mmmaker_stdio_server.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment:
+      MMMAKER_OUTPUT_DIR: "${MMMAKER_OUTPUT_DIR:-.simacode/mcp/mmmaker_output}"
+      MMMAKER_VOICE: "${MMMAKER_VOICE:-alloy}"
+      # AI客户端配置
+      MMMAKER_AI_ENABLED: "${MMMAKER_AI_ENABLED:-true}"
+      MMMAKER_AI_BASE_URL: "${MMMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
+      MMMAKER_AI_API_KEY: "${MMMAKER_AI_API_KEY:-${OPENAI_API_KEY}}"
+      MMMAKER_AI_MODEL: "${MMMAKER_AI_MODEL:-tts-1}"
+      MMMAKER_AI_VOICE: "${MMMAKER_AI_VOICE:-alloy}"
+      MMMAKER_AI_SPEED: "${MMMAKER_AI_SPEED:-1.0}"
+      MMMAKER_AI_RESPONSE_FORMAT: "${MMMAKER_AI_RESPONSE_FORMAT:-mp3}"
+    working_directory: null
+    timeout: 180  # Voice generation can take some time, especially for longer texts
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "generate"  # Allow voice generation operations
+        - "create"    # Allow audio file creation
+        - "write"     # Allow writing audio files
+        - "execute"   # Allow general execution operations
+      allowed_paths: [".simacode/mcp/mmmaker_output", "./", "/tmp"]  # Allow access to output directory
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 180  # Extended timeout for voice generation
+      network_access: true  # 需要网络访问以调用语音生成API

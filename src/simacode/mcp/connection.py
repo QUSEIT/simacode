@@ -357,7 +357,7 @@ class MCPConnection:
     health monitoring, and error recovery.
     """
     
-    def __init__(self, transport: MCPTransport, timeout: float = 30.0):
+    def __init__(self, transport: MCPTransport, timeout: float = 300.0):
         self.transport = transport
         self.timeout = timeout
         self._health_check_task: Optional[asyncio.Task] = None
