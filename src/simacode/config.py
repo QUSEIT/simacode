@@ -506,8 +506,8 @@ class Config(BaseModel):
         default_config = Path(__file__).parent / "default_config" / "default.yaml"
         if not default_config.exists():
             logger.debug(f"No {default_config} found, skipping default configuration found")
-        else:    
-            with open(default_config) as f:
+        else:
+            with open(default_config, encoding='utf-8') as f:
                 default_data = yaml.safe_load(f) or {}
                 config_data.update(default_data)
         
@@ -523,8 +523,7 @@ class Config(BaseModel):
         # 3. Load from provided path (highest precedence)
         if config_path and config_path.exists():
             logger.debug(f"{config_path} found, load configuration")
-
-            with open(config_path) as f:
+            with open(config_path, encoding='utf-8') as f:
                 config_data.update(yaml.safe_load(f) or {})
         
         # 5. Merge MCP server configuration
@@ -554,7 +553,7 @@ class Config(BaseModel):
                 logger.debug(f"No {mcp_servers_file} found, skipping MCP server configuration merge")
                 return config_data
             
-            with open(mcp_servers_file) as f:
+            with open(mcp_servers_file, encoding='utf-8') as f:
                 mcp_servers_data = yaml.safe_load(f) or {}
             
             #logger.debug(f"Loaded MCP servers configuration from {mcp_servers_file}")
