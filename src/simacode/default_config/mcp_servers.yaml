@@ -204,3 +204,33 @@ servers:
       forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
       max_execution_time: 120
       network_access: true  # 需要网络访问以调用AI API
+
+  # Project Analyzer MCP Proxy Server (WebSocket) - Frontend Project Analysis via Remote REST Service
+  # Note: Server must be started manually using: python tools/mcp_project_analyzer_proxy_server.py
+  project_analyzer_proxy:
+    name: project_analyzer_proxy
+    enabled: false  # Enable for remote project analyzer integration
+    type: websocket
+    url: "${PROJECT_ANALYZER_PROXY_URL:-ws://localhost:8083/mcp/ws}"
+    headers:
+      User-Agent: "SimaCode-MCP-Client/1.0"
+    command: []  # No auto-start - server must be started manually
+    args: []
+    environment:
+      PROJECT_ANALYZER_PROXY_URL: "${PROJECT_ANALYZER_PROXY_URL:-ws://localhost:8083/mcp/ws}"
+      PROJECT_ANALYZER_REST_URL: "${PROJECT_ANALYZER_REST_URL:-http://localhost:8002}"
+      PROJECT_ANALYZER_TIMEOUT: "${PROJECT_ANALYZER_TIMEOUT:-300}"
+      PROJECT_ANALYZER_MAX_RETRIES: "${PROJECT_ANALYZER_MAX_RETRIES:-3}"
+      PROJECT_ANALYZER_RETRY_DELAY: "${PROJECT_ANALYZER_RETRY_DELAY:-2.0}"
+    working_directory: null
+    timeout: 300  # Longer timeout for project analysis operations
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "project_analyze_from_zip"
+        - "analyze"
+      allowed_paths: []  # Project analysis doesn't need direct file system access
+      forbidden_paths: []
+      max_execution_time: 300
+      network_access: true  # Required for project analysis and HTTP proxy
