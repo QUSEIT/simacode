@@ -522,6 +522,8 @@ class Config(BaseModel):
         
         # 3. Load from provided path (highest precedence)
         if config_path and config_path.exists():
+            logger.debug(f"{config_path} found, load configuration")
+
             with open(config_path) as f:
                 config_data.update(yaml.safe_load(f) or {})
         
