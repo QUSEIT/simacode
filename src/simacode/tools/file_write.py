@@ -7,6 +7,7 @@ safety checks and permission validation.
 
 import os
 import tempfile
+import shutil
 from pathlib import Path
 from typing import Any, AsyncGenerator, Dict, Optional, Type
 
