@@ -20,6 +20,7 @@ import sys
 import os
 import aiohttp
 import base64
+import uuid
 from pathlib import Path
 from typing import Any, Dict, List, Optional
 from dataclasses import dataclass
@@ -75,18 +76,21 @@ class ProjectAnalyzeConfig:
 
 
 class ProjectAnalyzeExecutor:
-    """HTTP client for remote project analyzer REST service."""
-    
+    """HTTP client for remote project analyzer REST service with async job support."""
+
     def __init__(self, config: ProjectAnalyzeConfig):
         """
         Initialize project analyzer executor.
-        
+
         Args:
             config: project analyzer configuration containing base URL, timeout, etc.
         """
         self.config = config
         self.base_url = config.base_url.rstrip('/')
         self.session = None
+        # Job tracking
+        self.jobs: Dict[str, Dict[str, Any]] = {}
+        self._job_tasks: Dict[str, asyncio.Task] = {}
         
     async def _get_session(self) -> aiohttp.ClientSession:
         """Get or create HTTP session."""
@@ -129,70 +133,43 @@ class ProjectAnalyzeExecutor:
             logger.error(f"Unexpected error: {str(e)}")
             return {"success": False, "error": f"Unexpected error: {str(e)}"}
     
-    async def analyze_project_from_zip(self, user_id: str, zip_content: str, project_name: Optional[str] = None, description: Optional[str] = None) -> ProjectAnalyzeResult:
+    async def analyze_project_from_zip(self, user_id: str, zip_content: str, project_name: Optional[str] = None, description: Optional[str] = None) -> str:
         """
-        Analyze project from ZIP file via HTTP.
-        
+        Submit project analysis job and return job ID immediately.
+
         Args:
             user_id: User identifier
             zip_content: Base64 encoded ZIP file content
             project_name: Optional project name
             description: Optional project description
-            
+
         Returns:
-            ProjectAnalyzeResult: Execution result
+            str: Job ID for tracking the analysis
         """
-        start_time = asyncio.get_event_loop().time()
-        endpoint = "api/project-analyze/analyze-project"
-        
-        logger.info(f"Analyzing project for user {user_id}, project: {project_name or 'unnamed'}")
-        
-        # Decode base64 content to bytes
-        try:
-            zip_bytes = base64.b64decode(zip_content)
-        except Exception as e:
-            execution_time = asyncio.get_event_loop().time() - start_time
-            return ProjectAnalyzeResult(
-                success=False,
-                error=f"Invalid base64 ZIP content: {str(e)}",
-                execution_time=execution_time,
-                operation="analyze_project_from_zip"
-            )
-        
-        for attempt in range(self.config.max_retries):
-            try:
-                # Create form data
-                form_data = aiohttp.FormData()
-                form_data.add_field('file', zip_bytes, filename=f'{project_name or "project"}.zip', content_type='application/zip')
-                form_data.add_field('user_id', user_id)
-                if project_name:
-                    form_data.add_field('project_name', project_name)
-                if description:
-                    form_data.add_field('description', description)
-                
-                result = await self._make_request(endpoint, method="POST", form_data=form_data)
-                execution_time = asyncio.get_event_loop().time() - start_time
-                
-                return ProjectAnalyzeResult(
-                    success=result.get("success", False),
-                    data=result,
-                    error=result.get("error"),
-                    execution_time=execution_time,
-                    operation="analyze_project_from_zip"
-                )
-                
-            except Exception as e:
-                logger.error(f"Attempt {attempt + 1} failed: {str(e)}")
-                if attempt < self.config.max_retries - 1:
-                    await asyncio.sleep(self.config.retry_delay)
-                else:
-                    execution_time = asyncio.get_event_loop().time() - start_time
-                    return ProjectAnalyzeResult(
-                        success=False,
-                        error=f"All {self.config.max_retries} attempts failed. Last error: {str(e)}",
-                        execution_time=execution_time,
-                        operation="analyze_project_from_zip"
-                    )
+        job_id = str(uuid.uuid4())
+
+        # Initialize job status
+        self.jobs[job_id] = {
+            "job_id": job_id,
+            "status": "submitted",
+            "user_id": user_id,
+            "project_name": project_name,
+            "description": description,
+            "submit_time": datetime.now().isoformat(),
+            "start_time": None,
+            "complete_time": None,
+            "progress": 0,
+            "result": None,
+            "error": None
+        }
+
+        logger.info(f"Submitted project analysis job {job_id} for user {user_id}, project: {project_name or 'unnamed'}")
+
+        # Start background task
+        task = asyncio.create_task(self._execute_analysis_job(job_id, user_id, zip_content, project_name, description))
+        self._job_tasks[job_id] = task
+
+        return job_id
     
     async def health_check(self) -> Dict[str, Any]:
         """Check health of remote project analyzer service."""
@@ -202,8 +179,137 @@ class ProjectAnalyzeExecutor:
         except Exception as e:
             return {"status": "unhealthy", "error": str(e)}
     
+    async def _execute_analysis_job(self, job_id: str, user_id: str, zip_content: str, project_name: Optional[str], description: Optional[str]) -> None:
+        """Execute the actual project analysis in the background."""
+        start_time = asyncio.get_event_loop().time()
+        endpoint = "api/project-analyze/analyze-project"
+
+        try:
+            # Update job status
+            self.jobs[job_id].update({
+                "status": "running",
+                "start_time": datetime.now().isoformat(),
+                "progress": 10
+            })
+
+            logger.info(f"Starting analysis job {job_id}")
+
+            # Decode base64 content to bytes
+            try:
+                zip_bytes = base64.b64decode(zip_content)
+                self.jobs[job_id]["progress"] = 20
+            except Exception as e:
+                raise Exception(f"Invalid base64 ZIP content: {str(e)}")
+
+            # Attempt analysis with retries
+            for attempt in range(self.config.max_retries):
+                try:
+                    self.jobs[job_id]["progress"] = 30 + (attempt * 20)
+
+                    # Create form data
+                    form_data = aiohttp.FormData()
+                    form_data.add_field('file', zip_bytes, filename=f'{project_name or "project"}.zip', content_type='application/zip')
+                    form_data.add_field('user_id', user_id)
+                    if project_name:
+                        form_data.add_field('project_name', project_name)
+                    if description:
+                        form_data.add_field('description', description)
+
+                    result = await self._make_request(endpoint, method="POST", form_data=form_data)
+                    execution_time = asyncio.get_event_loop().time() - start_time
+
+                    # Update job completion
+                    self.jobs[job_id].update({
+                        "status": "completed" if result.get("success", False) else "failed",
+                        "complete_time": datetime.now().isoformat(),
+                        "progress": 100,
+                        "result": {
+                            "success": result.get("success", False),
+                            "data": result,
+                            "error": result.get("error"),
+                            "execution_time": execution_time,
+                            "operation": "analyze_project_from_zip"
+                        }
+                    })
+
+                    logger.info(f"Job {job_id} completed successfully in {execution_time:.2f}s")
+                    return
+
+                except Exception as e:
+                    logger.error(f"Job {job_id} attempt {attempt + 1} failed: {str(e)}")
+                    if attempt < self.config.max_retries - 1:
+                        await asyncio.sleep(self.config.retry_delay)
+                    else:
+                        raise e
+
+        except Exception as e:
+            execution_time = asyncio.get_event_loop().time() - start_time
+            error_msg = f"Job {job_id} failed after all retries: {str(e)}"
+            logger.error(error_msg)
+
+            # Update job failure
+            self.jobs[job_id].update({
+                "status": "failed",
+                "complete_time": datetime.now().isoformat(),
+                "progress": 0,
+                "error": error_msg,
+                "result": {
+                    "success": False,
+                    "error": error_msg,
+                    "execution_time": execution_time,
+                    "operation": "analyze_project_from_zip"
+                }
+            })
+        finally:
+            # Cleanup task reference
+            if job_id in self._job_tasks:
+                del self._job_tasks[job_id]
+
+    async def get_job_status(self, job_id: str) -> Optional[Dict[str, Any]]:
+        """Get job status by ID."""
+        return self.jobs.get(job_id)
+
+    async def list_jobs(self, user_id: Optional[str] = None) -> List[Dict[str, Any]]:
+        """List all jobs, optionally filtered by user."""
+        jobs = list(self.jobs.values())
+        if user_id:
+            jobs = [job for job in jobs if job.get("user_id") == user_id]
+        return jobs
+
+    async def cleanup_completed_jobs(self, max_age_hours: int = 24) -> int:
+        """Clean up completed jobs older than max_age_hours."""
+        cutoff_time = datetime.now().timestamp() - (max_age_hours * 3600)
+        removed_count = 0
+
+        job_ids_to_remove = []
+        for job_id, job_info in self.jobs.items():
+            if job_info["status"] in ["completed", "failed"]:
+                if job_info.get("complete_time"):
+                    complete_time = datetime.fromisoformat(job_info["complete_time"]).timestamp()
+                    if complete_time < cutoff_time:
+                        job_ids_to_remove.append(job_id)
+
+        for job_id in job_ids_to_remove:
+            del self.jobs[job_id]
+            # Cancel task if still running
+            if job_id in self._job_tasks:
+                self._job_tasks[job_id].cancel()
+                del self._job_tasks[job_id]
+            removed_count += 1
+
+        logger.info(f"Cleaned up {removed_count} old jobs")
+        return removed_count
+
     async def close(self):
-        """Close HTTP session."""
+        """Close HTTP session and cancel all running jobs."""
+        # Cancel all running tasks
+        for task in self._job_tasks.values():
+            task.cancel()
+
+        # Wait for tasks to complete
+        if self._job_tasks:
+            await asyncio.gather(*self._job_tasks.values(), return_exceptions=True)
+
         if self.session and not self.session.closed:
             await self.session.close()
 
@@ -247,7 +353,7 @@ class ProjectAnalyzeMCPServer:
         self.tools = {
             "project_analyze_from_zip": {
                 "name": "project_analyze_from_zip",
-                "description": "Analyze frontend project structure and routes from ZIP file upload",
+                "description": "Submit frontend project analysis job from ZIP file upload (returns job ID immediately)",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -256,9 +362,9 @@ class ProjectAnalyzeMCPServer:
                             "description": "User identifier for the analysis",
                             "default": "default_user"
                         },
-                        "zip_content": {
+                        "zip_file_path": {
                             "type": "string",
-                            "description": "Base64 encoded ZIP file content of the frontend project"
+                            "description": "Path to the ZIP file containing the frontend project"
                         },
                         "project_name": {
                             "type": "string",
@@ -269,7 +375,35 @@ class ProjectAnalyzeMCPServer:
                             "description": "Optional description of the project"
                         }
                     },
-                    "required": ["zip_content"]
+                    "required": ["zip_file_path"]
+                }
+            },
+            "get_job_status": {
+                "name": "get_job_status",
+                "description": "Get the status and result of a project analysis job",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "job_id": {
+                            "type": "string",
+                            "description": "Job ID returned from project_analyze_from_zip"
+                        }
+                    },
+                    "required": ["job_id"]
+                }
+            },
+            "list_jobs": {
+                "name": "list_jobs",
+                "description": "List all project analysis jobs, optionally filtered by user",
+                "input_schema": {
+                    "type": "object",
+                    "properties": {
+                        "user_id": {
+                            "type": "string",
+                            "description": "Optional user ID to filter jobs"
+                        }
+                    },
+                    "required": []
                 }
             }
         }
@@ -470,32 +604,69 @@ class ProjectAnalyzeMCPServer:
             if tool_name == "project_analyze_from_zip":
                 # Execute project analysis from ZIP
                 user_id = arguments.get("user_id", "default_user")
-                zip_content = arguments.get("zip_content", "")
+                zip_file_path = arguments.get("zip_file_path", "")
                 project_name = arguments.get("project_name")
                 description = arguments.get("description")
-                
-                if not zip_content:
+
+                if not zip_file_path:
                     return MCPMessage(
                         id=message.id,
                         error={
                             "code": MCPErrorCodes.INVALID_PARAMS,
-                            "message": "ZIP content is required"
+                            "message": "ZIP file path is required"
                         }
                     )
-                
-                result = await self.project_analyzer.analyze_project_from_zip(
+
+                # Read ZIP file and encode to base64
+                try:
+                    zip_path = Path(zip_file_path)
+                    if not zip_path.exists():
+                        return MCPMessage(
+                            id=message.id,
+                            error={
+                                "code": MCPErrorCodes.INVALID_PARAMS,
+                                "message": f"ZIP file not found: {zip_file_path}"
+                            }
+                        )
+
+                    if not zip_path.is_file():
+                        return MCPMessage(
+                            id=message.id,
+                            error={
+                                "code": MCPErrorCodes.INVALID_PARAMS,
+                                "message": f"Path is not a file: {zip_file_path}"
+                            }
+                        )
+
+                    # Read file and encode to base64
+                    with open(zip_path, 'rb') as f:
+                        zip_bytes = f.read()
+                    zip_content = base64.b64encode(zip_bytes).decode('utf-8')
+
+                    logger.info(f"Successfully read ZIP file: {zip_file_path} ({len(zip_bytes)} bytes)")
+
+                except Exception as e:
+                    return MCPMessage(
+                        id=message.id,
+                        error={
+                            "code": MCPErrorCodes.INTERNAL_ERROR,
+                            "message": f"Failed to read ZIP file: {str(e)}"
+                        }
+                    )
+
+                job_id = await self.project_analyzer.analyze_project_from_zip(
                     user_id, zip_content, project_name, description
                 )
-                
-                # Format response
+
+                # Format response with job ID
                 response_data = {
-                    "success": result.success,
-                    "operation": result.operation,
-                    "data": result.data,
-                    "error": result.error,
-                    "execution_time": result.execution_time,
+                    "success": True,
+                    "job_id": job_id,
+                    "status": "submitted",
+                    "message": f"Project analysis job {job_id} submitted successfully",
                     "user_id": user_id,
                     "project_name": project_name,
+                    "zip_file_path": zip_file_path,
                     "timestamp": datetime.now().isoformat()
                 }
                 
@@ -508,7 +679,77 @@ class ProjectAnalyzeMCPServer:
                                 "text": json.dumps(response_data, indent=2, ensure_ascii=False)
                             }
                         ],
-                        "isError": not result.success
+                        "isError": False
+                    }
+                )
+
+            elif tool_name == "get_job_status":
+                # Get job status
+                job_id = arguments.get("job_id", "")
+
+                if not job_id:
+                    return MCPMessage(
+                        id=message.id,
+                        error={
+                            "code": MCPErrorCodes.INVALID_PARAMS,
+                            "message": "Job ID is required"
+                        }
+                    )
+
+                job_status = await self.project_analyzer.get_job_status(job_id)
+
+                if job_status is None:
+                    return MCPMessage(
+                        id=message.id,
+                        error={
+                            "code": MCPErrorCodes.INVALID_PARAMS,
+                            "message": f"Job {job_id} not found"
+                        }
+                    )
+
+                response_data = {
+                    "success": True,
+                    "job_status": job_status,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                return MCPMessage(
+                    id=message.id,
+                    result={
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(response_data, indent=2, ensure_ascii=False)
+                            }
+                        ],
+                        "isError": False
+                    }
+                )
+
+            elif tool_name == "list_jobs":
+                # List jobs
+                user_id = arguments.get("user_id")
+
+                jobs = await self.project_analyzer.list_jobs(user_id)
+
+                response_data = {
+                    "success": True,
+                    "jobs": jobs,
+                    "count": len(jobs),
+                    "filter_user_id": user_id,
+                    "timestamp": datetime.now().isoformat()
+                }
+
+                return MCPMessage(
+                    id=message.id,
+                    result={
+                        "content": [
+                            {
+                                "type": "text",
+                                "text": json.dumps(response_data, indent=2, ensure_ascii=False)
+                            }
+                        ],
+                        "isError": False
                     }
                 )
             else:
@@ -563,10 +804,13 @@ class ProjectAnalyzeMCPServer:
     async def stop_server(self, runner):
         """Stop the HTTP server."""
         logger.info("Shutting down Project Analyzer MCP Proxy Server...")
-        
+
+        # Clean up old jobs before shutdown
+        await self.project_analyzer.cleanup_completed_jobs(max_age_hours=1)
+
         # Close project analyzer executor
         await self.project_analyzer.close()
-        
+
         # Stop HTTP server
         await runner.cleanup()
         logger.info("Project Analyzer MCP Proxy Server stopped")
