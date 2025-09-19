@@ -17,6 +17,7 @@ from ..session.manager import SessionManager
 from ..ai.conversation import ConversationManager
 from ..ai.factory import AIClientFactory
 from ..tools.base import execute_tool
+from ..mcp.async_integration import get_global_task_manager, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -148,7 +149,10 @@ class SimaCodeService:
         
         # Don't start ReAct service in __init__ - will be started in async context
         self._react_service_started = False
-        
+
+        # 异步任务管理
+        self.task_manager = get_global_task_manager()
+
         logger.info("SimaCodeService initialized successfully (async startup pending)")
     
     async def start_async(self):
@@ -466,19 +470,19 @@ class SimaCodeService:
             }
     
     async def process_react(
-        self, 
-        request: Union[ReActRequest, str], 
+        self,
+        request: Union[ReActRequest, str],
         session_id: Optional[str] = None,
         stream: bool = False
     ) -> Union[ReActResponse, AsyncGenerator[Dict[str, Any], None]]:
         """
-        Process ReAct task execution.
-        
+        增强的 ReAct 任务处理，支持异步任务检测和处理。
+
         Args:
             request: ReAct request or task string
             session_id: Optional session ID for CLI compatibility
             stream: If True, return AsyncGenerator for real-time updates
-            
+
         Returns:
             ReActResponse with execution results, or AsyncGenerator for streaming
         """
@@ -488,53 +492,24 @@ class SimaCodeService:
                 task=request,
                 session_id=session_id
             )
-        
+
         try:
             logger.info(f"Processing ReAct task for session: {request.session_id}")
-            
+
             # Ensure ReAct service is started
             await self._ensure_react_service_started()
-            
+
             # Use session_id or generate new one
             if not request.session_id:
                 import uuid
                 request.session_id = str(uuid.uuid4())
-            
-            if stream:
-                # Return streaming generator directly
-                return self._stream_react_response(request)
+
+            # 检测是否为长时间运行任务
+            if await self._requires_async_execution(request):
+                return await self._process_react_async(request, stream)
             else:
-                # Execute ReAct task and collect results
-                execution_results = []
-                async for result in self.react_service.process_user_request(
-                    request.task,
-                    session_id=request.session_id,  # Pass through session_id for continuity
-                    context=request.context,
-                    skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
-                ):
-                    # Handle different result formats from ReActService
-                    if isinstance(result, dict):
-                        execution_results.append(result)
-                    else:
-                        execution_results.append({
-                            "type": result.type.value if hasattr(result, 'type') else "result",
-                            "content": str(result),
-                            "timestamp": result.timestamp if hasattr(result, 'timestamp') else None
-                        })
-                
-                # Format final result
-                if execution_results:
-                    final_result = execution_results[-1].get("content", "Task completed")
-                else:
-                    final_result = "Task completed"
-            
-            return ReActResponse(
-                result=final_result,
-                session_id=request.session_id,
-                steps=execution_results,
-                metadata={"mode": "react", "execution_mode": request.execution_mode}
-            )
-            
+                return await self._process_react_sync(request, stream)
+
         except Exception as e:
             logger.error(f"Error processing ReAct task: {str(e)}")
             return ReActResponse(
@@ -542,6 +517,262 @@ class SimaCodeService:
                 session_id=request.session_id or "unknown",
                 error=str(e)
             )
+
+    async def _requires_async_execution(self, request: ReActRequest) -> bool:
+        """
+        检测是否需要异步执行。
+
+        Args:
+            request: ReAct 请求
+
+        Returns:
+            bool: 是否需要异步执行
+        """
+        task_lower = request.task.lower()
+
+        # 长时间运行任务的关键词
+        long_running_indicators = [
+            "analyze large", "process big", "download", "upload", "backup",
+            "bulk", "batch", "mass", "crawl", "scrape", "generate report",
+            "train model", "build", "compile", "migrate", "import data",
+            "export data", "convert large", "archive", "extract large"
+        ]
+
+        # 检查任务描述
+        if any(indicator in task_lower for indicator in long_running_indicators):
+            return True
+
+        # 检查任务长度（复杂任务通常描述较长）
+        if len(request.task) > 200:
+            return True
+
+        # 检查上下文中的异步指示器
+        if request.context:
+            context_str = str(request.context).lower()
+            if any(indicator in context_str for indicator in ["async", "background", "long"]):
+                return True
+
+        return False
+
+    async def _requires_async_chat_processing(self, request: ChatRequest) -> bool:
+        """
+        检测聊天消息是否需要异步处理。
+
+        Args:
+            request: 聊天请求
+
+        Returns:
+            bool: 是否需要异步处理
+        """
+        message_lower = request.message.lower()
+
+        # ReAct 模式触发词
+        react_triggers = [
+            "help me", "can you", "please", "create", "build", "generate",
+            "analyze", "process", "download", "upload", "backup", "migrate",
+            "convert", "extract", "compile", "train", "optimize"
+        ]
+
+        # 长时间运行任务的关键词
+        long_running_indicators = [
+            "large file", "big data", "multiple files", "batch process",
+            "bulk operation", "mass", "crawl", "scrape", "backup",
+            "analyze codebase", "process repository", "generate report"
+        ]
+
+        # 检查是否触发 ReAct 模式
+        if any(trigger in message_lower for trigger in react_triggers):
+            return True
+
+        # 检查长时间运行指示器
+        if any(indicator in message_lower for indicator in long_running_indicators):
+            return True
+
+        # 检查消息长度（复杂请求通常较长）
+        if len(request.message) > 300:
+            return True
+
+        # 检查上下文中的异步指示器
+        if request.context:
+            context_str = str(request.context).lower()
+            if any(indicator in context_str for indicator in ["async", "background", "react"]):
+                return True
+
+        return False
+
+    async def _process_react_async(self, request: ReActRequest, stream: bool) -> ReActResponse:
+        """
+        异步 ReAct 处理。
+
+        Args:
+            request: ReAct 请求
+            stream: 是否流式处理
+
+        Returns:
+            ReActResponse: 响应结果
+        """
+        # 创建异步任务
+        task_id = await self.task_manager.submit_task(
+            TaskType.REACT,
+            request,
+            progress_callback=self._handle_react_progress
+        )
+
+        # 在 CLI 模式下，等待任务完成并显示进度
+        if self._is_cli_mode():
+            logger.info(f"Executing ReAct task in async mode (CLI): {task_id}")
+
+            final_result = None
+            steps = []
+
+            async for progress in self.task_manager.get_task_progress_stream(task_id):
+                progress_type = progress.get('type', 'progress')
+
+                if progress_type == 'progress':
+                    logger.info(f"Progress: {progress.get('message', 'Processing...')}")
+
+                elif progress_type == 'final_result':
+                    final_result = progress.get('result')
+                    steps = progress.get('steps', [])
+                    break
+
+                elif progress_type == 'error':
+                    error_msg = progress.get('error', 'Unknown error')
+                    logger.error(f"Async task failed: {error_msg}")
+                    return ReActResponse(
+                        result="",
+                        session_id=request.session_id,
+                        error=error_msg,
+                        metadata={"async_task_id": task_id, "execution_mode": "async"}
+                    )
+
+            return ReActResponse(
+                result=final_result or "Task completed",
+                session_id=request.session_id,
+                steps=steps,
+                metadata={"async_task_id": task_id, "execution_mode": "async"}
+            )
+
+        else:
+            # API 模式返回任务 ID，让客户端轮询或使用 WebSocket
+            return ReActResponse(
+                result=f"Task submitted for background execution: {task_id}",
+                session_id=request.session_id,
+                metadata={
+                    "async_task_id": task_id,
+                    "execution_mode": "async",
+                    "task_type": "long_running"
+                }
+            )
+
+    async def _process_react_sync(self, request: ReActRequest, stream: bool) -> Union[ReActResponse, AsyncGenerator[Dict[str, Any], None]]:
+        """
+        同步 ReAct 处理（原有逻辑）。
+
+        Args:
+            request: ReAct 请求
+            stream: 是否流式处理
+
+        Returns:
+            ReActResponse 或 AsyncGenerator
+        """
+        if stream:
+            # Return streaming generator directly
+            return self._stream_react_response(request)
+        else:
+            # Execute ReAct task and collect results
+            execution_results = []
+            async for result in self.react_service.process_user_request(
+                request.task,
+                session_id=request.session_id,  # Pass through session_id for continuity
+                context=request.context,
+                skip_confirmation=request.skip_confirmation  # Pass through skip_confirmation
+            ):
+                # Handle different result formats from ReActService
+                if isinstance(result, dict):
+                    execution_results.append(result)
+                else:
+                    execution_results.append({
+                        "type": result.type.value if hasattr(result, 'type') else "result",
+                        "content": str(result),
+                        "timestamp": result.timestamp if hasattr(result, 'timestamp') else None
+                    })
+
+            # Format final result
+            if execution_results:
+                final_result = execution_results[-1].get("content", "Task completed")
+            else:
+                final_result = "Task completed"
+
+        return ReActResponse(
+            result=final_result,
+            session_id=request.session_id,
+            steps=execution_results,
+            metadata={"mode": "react", "execution_mode": "sync"}
+        )
+
+    async def _handle_react_progress(self, progress_data: Dict[str, Any]):
+        """处理 ReAct 任务进度回调"""
+        logger.debug(f"ReAct task progress: {progress_data}")
+        # 这里可以添加更多的进度处理逻辑
+
+    def _is_cli_mode(self) -> bool:
+        """检查是否为 CLI 模式"""
+        return not self.api_mode
+
+    async def get_task_status(self, task_id: str) -> Optional[Dict[str, Any]]:
+        """
+        获取异步任务状态。
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            Optional[Dict[str, Any]]: 任务状态信息
+        """
+        task = await self.task_manager.get_task_status(task_id)
+        if not task:
+            return None
+
+        return {
+            "task_id": task.task_id,
+            "task_type": task.task_type.value,
+            "status": task.status.value,
+            "created_at": task.created_at,
+            "started_at": task.started_at,
+            "completed_at": task.completed_at,
+            "error": task.error,
+            "metadata": task.metadata
+        }
+
+    async def get_task_progress_stream(self, task_id: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """
+        获取任务进度流。
+
+        Args:
+            task_id: 任务ID
+
+        Yields:
+            Dict[str, Any]: 进度数据
+        """
+        async for progress in self.task_manager.get_task_progress_stream(task_id):
+            yield progress
+
+    async def cancel_task(self, task_id: str) -> bool:
+        """
+        取消异步任务。
+
+        Args:
+            task_id: 任务ID
+
+        Returns:
+            bool: 是否成功取消
+        """
+        return await self.task_manager.cancel_task(task_id)
+
+    def get_task_manager_stats(self) -> Dict[str, Any]:
+        """获取任务管理器统计信息"""
+        return self.task_manager.get_stats()
     
     async def get_session_info(self, session_id: str) -> Dict[str, Any]:
         """

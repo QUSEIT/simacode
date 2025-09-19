@@ -7,7 +7,7 @@ including connection management, health monitoring, and tool discovery.
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any, Set
+from typing import Dict, List, Optional, Any, Set, AsyncGenerator, Callable
 from pathlib import Path
 import time
 
@@ -429,7 +429,84 @@ class MCPServerManager:
                 # Record failed usage
                 self.tool_discovery.record_tool_usage(tool_name, False, execution_time)
                 raise
-    
+
+    async def call_tool_async(
+        self,
+        server_name: str,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        progress_callback: Optional[Callable] = None,
+        timeout: Optional[float] = None
+    ) -> AsyncGenerator[MCPResult, None]:
+        """
+        异步调用工具，支持进度回传和长时间运行任务。
+
+        Args:
+            server_name: 服务器名称
+            tool_name: 工具名称
+            arguments: 工具参数
+            progress_callback: 进度回调函数
+            timeout: 超时时间（秒）
+
+        Yields:
+            MCPResult: 进度更新和最终结果
+
+        Raises:
+            MCPConnectionError: 如果服务器未找到或未连接
+            MCPToolNotFoundError: 如果工具未找到
+        """
+        if server_name not in self.servers:
+            raise MCPConnectionError(f"Server '{server_name}' not found")
+
+        client = self.servers[server_name]
+
+        if not client.is_connected():
+            # 尝试重连
+            success = await self.connect_server(server_name)
+            if not success:
+                raise MCPConnectionError(f"Server '{server_name}' is not connected and reconnection failed")
+
+        # 使用信号量限制并发调用
+        async with self.executor:
+            start_time = time.time()
+            success = False
+            try:
+                logger.info(f"Starting async tool call '{tool_name}' on server '{server_name}'")
+
+                # 使用客户端的异步调用
+                async for result in client.call_tool_async(
+                    tool_name=tool_name,
+                    arguments=arguments,
+                    progress_callback=progress_callback,
+                    timeout=timeout
+                ):
+                    # 记录成功状态（在最终结果时）
+                    if result.metadata and result.metadata.get("type") == "final_result":
+                        success = result.success
+                        execution_time = time.time() - start_time
+                        self.tool_discovery.record_tool_usage(tool_name, success, execution_time)
+
+                    yield result
+
+            except Exception as e:
+                execution_time = time.time() - start_time
+                # 记录失败的使用情况
+                self.tool_discovery.record_tool_usage(tool_name, False, execution_time)
+                logger.error(f"Async tool call failed for '{tool_name}' on '{server_name}': {str(e)}")
+
+                # 返回错误结果
+                yield MCPResult(
+                    success=False,
+                    error=str(e),
+                    metadata={
+                        "server_name": server_name,
+                        "tool_name": tool_name,
+                        "error_type": type(e).__name__,
+                        "execution_time": execution_time,
+                        "async_call": True
+                    }
+                )
+
     async def call_tool_any_server(self, tool_name: str, arguments: Dict[str, Any]) -> MCPResult:
         """
         Call a tool on any server that has it.

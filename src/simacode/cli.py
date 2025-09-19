@@ -14,11 +14,20 @@ from typing import Optional
 import click
 from rich.console import Console
 from rich.traceback import install
+from rich.progress import Progress, TaskID, BarColumn, TextColumn, TimeRemainingColumn, SpinnerColumn
+from rich.panel import Panel
+from rich.live import Live
+from rich.layout import Layout
+from rich.table import Table
+from rich.text import Text
+from rich import box
+import time
 
 from .config import Config
 from .logging_config import setup_logging
 from .core.service import SimaCodeService, ChatRequest, ReActRequest
 from .cli_mcp import mcp_group
+from .mcp.async_integration import get_global_task_manager, TaskType, TaskStatus
 
 # Install rich traceback handler for better error display
 install(show_locals=True)
@@ -218,6 +227,97 @@ async def _run_chat(ctx: click.Context, message: Optional[str], interactive: boo
         console.print(f"[red]{traceback.format_exc()}[/red]")
 
 
+async def _show_async_task_progress(task_manager, task_id: str, task_name: str) -> None:
+    """显示异步任务的富文本进度。"""
+    console.print(f"[bold green]🔄 Detected long-running task, switching to async mode...[/bold green]")
+    console.print(f"[dim]🚀 Task submitted: {task_id}[/dim]\n")
+
+    # 创建进度显示
+    progress = Progress(
+        SpinnerColumn(),
+        TextColumn("[bold blue]{task.description}"),
+        BarColumn(bar_width=40),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeRemainingColumn(),
+        console=console,
+        transient=False
+    )
+
+    task_progress_id = progress.add_task(f"[green]Processing: {task_name}", total=100)
+
+    messages = []
+    start_time = time.time()
+
+    with progress:
+        try:
+            async for progress_data in task_manager.get_task_progress_stream(task_id):
+                progress_type = progress_data.get("type", "progress")
+                message = progress_data.get("message", "")
+                progress_value = progress_data.get("progress")
+
+                # 更新进度条
+                if progress_value is not None:
+                    progress.update(task_progress_id, completed=progress_value)
+
+                # 显示状态消息
+                if progress_type == "started":
+                    console.print("[dim]📈 Task started...[/dim]")
+                    progress.update(task_progress_id, description="[blue]Starting task...")
+
+                elif progress_type == "progress":
+                    if message:
+                        stage = progress_data.get("stage", "Processing")
+                        console.print(f"[dim]📈 {stage}: {message}[/dim]")
+                        progress.update(task_progress_id, description=f"[blue]{stage}...")
+
+                elif progress_type == "final_result":
+                    progress.update(task_progress_id, completed=100)
+                    progress.update(task_progress_id, description="[green]✅ Completed")
+
+                    result = progress_data.get("result", {})
+                    if isinstance(result, dict):
+                        if result.get("status"):
+                            console.print(f"[bold green]✅ {result['status']}[/bold green]")
+                        if result.get("task"):
+                            console.print(f"[green]Task: {result['task']}[/green]")
+
+                    # 显示执行摘要
+                    elapsed_time = time.time() - start_time
+                    execution_time = progress_data.get("execution_time", elapsed_time)
+
+                    summary_table = Table(show_header=False, box=box.ROUNDED, width=60)
+                    summary_table.add_column("Field", style="bold cyan")
+                    summary_table.add_column("Value", style="white")
+
+                    summary_table.add_row("Task ID", task_id)
+                    summary_table.add_row("Execution Time", f"{execution_time:.2f}s")
+                    summary_table.add_row("Status", "[green]Completed Successfully[/green]")
+
+                    summary_panel = Panel(
+                        summary_table,
+                        title="📊 Task Summary",
+                        title_align="left"
+                    )
+
+                    console.print("\n")
+                    console.print(summary_panel)
+                    break
+
+                elif progress_type == "error":
+                    progress.update(task_progress_id, description="[red]❌ Failed")
+                    error_msg = progress_data.get("error", message)
+                    console.print(f"[red]❌ Error: {error_msg}[/red]")
+                    break
+
+                elif progress_type == "cancelled":
+                    progress.update(task_progress_id, description="[yellow]🚫 Cancelled")
+                    console.print(f"[yellow]🚫 Task was cancelled[/yellow]")
+                    break
+
+        except Exception as e:
+            console.print(f"[red]❌ Progress monitoring error: {str(e)}[/red]")
+
+
 async def _handle_react_mode(simacode_service: SimaCodeService, message: Optional[str], interactive: bool, session_id: Optional[str], context: dict = None) -> None:
     """Handle ReAct mode for intelligent task planning and execution."""
     console.print("[bold green]🤖 ReAct Engine Activated[/bold green]")
@@ -225,14 +325,32 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
     
     try:
         if not interactive and message:
-            # Single message mode with ReAct - use streaming for better UX
+            # Single message mode with ReAct - check if async processing is needed
             request = ReActRequest(task=message, session_id=session_id, context=context or {})
-            
+
+            # 检测是否需要异步处理
+            try:
+                requires_async = await simacode_service._requires_async_execution(request)
+
+                if requires_async:
+                    # 异步模式：提交任务并显示进度
+                    task_manager = get_global_task_manager()
+                    task_id = await task_manager.submit_task(TaskType.REACT, request)
+
+                    # 显示富文本进度
+                    await _show_async_task_progress(task_manager, task_id, message)
+                    return
+
+            except Exception as e:
+                # 如果异步检测失败，回退到同步模式
+                console.print(f"[yellow]⚠️ Async detection failed, using sync mode: {str(e)}[/yellow]")
+
+            # 同步模式：原有的流式处理
             console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {message}\n")
-            
+
             final_result = None
             step_count = 0
-            
+
             async for update in await simacode_service.process_react(request, stream=True):
                 step_count += 1
                 update_type = update.get("type", "unknown")
@@ -279,13 +397,31 @@ async def _handle_react_mode(simacode_service: SimaCodeService, message: Optiona
                     
                     if user_input.strip():
                         request = ReActRequest(task=user_input, session_id=session_id, context=context or {})
-                        
+
+                        # 检测是否需要异步处理（交互式模式下也支持）
+                        try:
+                            requires_async = await simacode_service._requires_async_execution(request)
+
+                            if requires_async:
+                                # 异步模式：提交任务并显示进度
+                                task_manager = get_global_task_manager()
+                                task_id = await task_manager.submit_task(TaskType.REACT, request)
+
+                                # 显示富文本进度
+                                await _show_async_task_progress(task_manager, task_id, user_input)
+                                continue  # 继续下一次交互
+
+                        except Exception as e:
+                            # 如果异步检测失败，回退到同步模式
+                            console.print(f"[yellow]⚠️ Async detection failed, using sync mode: {str(e)}[/yellow]")
+
+                        # 同步模式：原有的流式处理
                         console.print(f"[bold yellow]🔄 Processing:[/bold yellow] {user_input}\n")
-                        
+
                         final_result = None
                         step_count = 0
                         current_session_id = session_id
-                        
+
                         async for update in await simacode_service.process_react(request, stream=True):
                             step_count += 1
                             update_type = update.get("type", "unknown")
@@ -492,7 +628,225 @@ def serve(ctx: click.Context, host: str, port: int, workers: int, reload: bool, 
         sys.exit(1)
 
 
-# Add MCP command group to main CLI
+# Task management commands
+@click.group(name="task")
+def task_group():
+    """Manage async tasks."""
+    pass
+
+
+@task_group.command("list")
+@click.pass_context
+def list_tasks(ctx: click.Context) -> None:
+    """List all active async tasks."""
+    asyncio.run(_list_tasks_async(ctx))
+
+
+async def _list_tasks_async(ctx: click.Context) -> None:
+    """Async implementation of list tasks."""
+    try:
+        task_manager = get_global_task_manager()
+        stats = task_manager.get_stats()
+
+        if stats["active_tasks"] == 0:
+            console.print("[dim]No active tasks[/dim]")
+            return
+
+        # Create tasks table
+        table = Table(title="Active Async Tasks")
+        table.add_column("Task ID", style="cyan")
+        table.add_column("Type", style="blue")
+        table.add_column("Status", style="green")
+        table.add_column("Created", style="dim")
+
+        for task_id, task in task_manager.active_tasks.items():
+            created_time = time.strftime("%H:%M:%S", time.localtime(task.created_at))
+            status_color = {
+                "pending": "yellow",
+                "running": "blue",
+                "completed": "green",
+                "failed": "red",
+                "cancelled": "orange1"
+            }.get(task.status.value, "white")
+
+            table.add_row(
+                task_id,
+                task.task_type.value,
+                f"[{status_color}]{task.status.value}[/{status_color}]",
+                created_time
+            )
+
+        console.print(table)
+
+        # Show summary
+        summary_panel = Panel(
+            f"Total: {stats['active_tasks']} tasks\\n" +
+            "\\n".join([f"{status}: {count}" for status, count in stats["task_breakdown"].items()]),
+            title="📊 Summary"
+        )
+        console.print("\\n")
+        console.print(summary_panel)
+
+    except Exception as e:
+        console.print(f"[red]Error listing tasks: {e}[/red]")
+
+
+@task_group.command("status")
+@click.argument("task_id")
+@click.pass_context
+def task_status(ctx: click.Context, task_id: str) -> None:
+    """Get detailed status of a specific task."""
+    asyncio.run(_task_status_async(ctx, task_id))
+
+
+async def _task_status_async(ctx: click.Context, task_id: str) -> None:
+    """Async implementation of task status."""
+    try:
+        task_manager = get_global_task_manager()
+        task = await task_manager.get_task_status(task_id)
+
+        if not task:
+            console.print(f"[red]Task {task_id} not found[/red]")
+            return
+
+        # Create status table
+        status_table = Table(show_header=False, box=box.ROUNDED)
+        status_table.add_column("Field", style="bold cyan")
+        status_table.add_column("Value", style="white")
+
+        status_table.add_row("Task ID", task.task_id)
+        status_table.add_row("Type", task.task_type.value)
+        status_table.add_row("Status", f"[{task.status.value}]{task.status.value}[/{task.status.value}]")
+
+        if task.created_at:
+            created_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(task.created_at))
+            status_table.add_row("Created", created_time)
+
+        if task.started_at:
+            started_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(task.started_at))
+            status_table.add_row("Started", started_time)
+
+        if task.completed_at:
+            completed_time = time.strftime("%Y-%m-%d %H:%M:%S", time.localtime(task.completed_at))
+            status_table.add_row("Completed", completed_time)
+
+            # Calculate duration
+            duration = task.completed_at - (task.started_at or task.created_at)
+            status_table.add_row("Duration", f"{duration:.2f}s")
+
+        if task.error:
+            status_table.add_row("Error", f"[red]{task.error}[/red]")
+
+        if task.metadata:
+            status_table.add_row("Metadata", str(task.metadata))
+
+        status_panel = Panel(
+            status_table,
+            title=f"📋 Task {task_id} Status"
+        )
+        console.print(status_panel)
+
+    except Exception as e:
+        console.print(f"[red]Error getting task status: {e}[/red]")
+
+
+@task_group.command("cancel")
+@click.argument("task_id")
+@click.pass_context
+def cancel_task_cli(ctx: click.Context, task_id: str) -> None:
+    """Cancel a running task."""
+    asyncio.run(_cancel_task_async(ctx, task_id))
+
+
+async def _cancel_task_async(ctx: click.Context, task_id: str) -> None:
+    """Async implementation of cancel task."""
+    try:
+        task_manager = get_global_task_manager()
+        success = await task_manager.cancel_task(task_id)
+
+        if success:
+            console.print(f"[green]✅ Task {task_id} cancelled successfully[/green]")
+        else:
+            console.print(f"[red]❌ Failed to cancel task {task_id} (not found or already completed)[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Error cancelling task: {e}[/red]")
+
+
+@task_group.command("restart")
+@click.argument("task_id")
+@click.pass_context
+def restart_task_cli(ctx: click.Context, task_id: str) -> None:
+    """Restart a failed or cancelled task."""
+    asyncio.run(_restart_task_async(ctx, task_id))
+
+
+async def _restart_task_async(ctx: click.Context, task_id: str) -> None:
+    """Async implementation of restart task."""
+    try:
+        task_manager = get_global_task_manager()
+
+        # Check original task status first
+        original_task = await task_manager.get_task_status(task_id)
+        if not original_task:
+            console.print(f"[red]❌ Task {task_id} not found[/red]")
+            return
+
+        if original_task.status not in [TaskStatus.FAILED, TaskStatus.CANCELLED]:
+            console.print(f"[yellow]⚠️ Task {task_id} cannot be restarted (status: {original_task.status.value})[/yellow]")
+            console.print("[dim]Only failed or cancelled tasks can be restarted[/dim]")
+            return
+
+        # Restart the task
+        new_task_id = await task_manager.restart_task(task_id)
+
+        if new_task_id:
+            console.print(f"[green]✅ Task {task_id} restarted successfully[/green]")
+            console.print(f"[dim]New task ID: {new_task_id}[/dim]")
+
+            # Offer to monitor the new task
+            if console.input("[bold blue]Monitor the restarted task? (y/N):[/bold blue] ").lower() in ['y', 'yes']:
+                console.print(f"[dim]Monitoring new task: {new_task_id}[/dim]\n")
+                await _show_async_task_progress(task_manager, new_task_id, f"Restarted Task {task_id}")
+        else:
+            console.print(f"[red]❌ Failed to restart task {task_id}[/red]")
+
+    except Exception as e:
+        console.print(f"[red]Error restarting task: {e}[/red]")
+
+
+@task_group.command("monitor")
+@click.argument("task_id")
+@click.pass_context
+def monitor_task(ctx: click.Context, task_id: str) -> None:
+    """Monitor a task's progress in real-time."""
+    asyncio.run(_monitor_task_async(ctx, task_id))
+
+
+async def _monitor_task_async(ctx: click.Context, task_id: str) -> None:
+    """Async implementation of monitor task."""
+    try:
+        task_manager = get_global_task_manager()
+        task = await task_manager.get_task_status(task_id)
+
+        if not task:
+            console.print(f"[red]Task {task_id} not found[/red]")
+            return
+
+        console.print(f"[bold green]🔍 Monitoring task: {task_id}[/bold green]")
+        console.print(f"[dim]Press Ctrl+C to stop monitoring[/dim]\\n")
+
+        # Use the existing progress display function
+        await _show_async_task_progress(task_manager, task_id, f"Task {task_id}")
+
+    except KeyboardInterrupt:
+        console.print("\\n[yellow]Monitoring stopped[/yellow]")
+    except Exception as e:
+        console.print(f"[red]Error monitoring task: {e}[/red]")
+
+
+# Add command groups to main CLI
+main.add_command(task_group)
 main.add_command(mcp_group)
 
 

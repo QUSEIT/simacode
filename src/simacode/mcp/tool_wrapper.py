@@ -9,9 +9,10 @@ import asyncio
 import json
 import logging
 import time
-from typing import Any, AsyncGenerator, Dict, List, Optional, Type, Union
+from typing import Any, AsyncGenerator, Dict, List, Optional, Type, Union, Callable
 from datetime import datetime
 from pathlib import Path
+from enum import Enum
 
 from pydantic import BaseModel, Field, create_model
 
@@ -20,8 +21,16 @@ from ..permissions import PermissionManager
 from .protocol import MCPTool, MCPResult
 from .server_manager import MCPServerManager
 from .exceptions import MCPConnectionError, MCPToolNotFoundError
+from .async_integration import TaskType, get_global_task_manager
 
 logger = logging.getLogger(__name__)
+
+
+class TaskComplexity(Enum):
+    """任务复杂度枚举"""
+    SIMPLE = "simple"           # 简单任务，快速完成
+    STANDARD = "standard"       # 标准任务，正常处理
+    LONG_RUNNING = "long_running"  # 长时间运行任务，需要异步处理
 
 
 class MCPToolInput(ToolInput):
@@ -86,6 +95,9 @@ class MCPToolWrapper(Tool):
         self.server_name = mcp_tool.server_name
         self.original_name = mcp_tool.name
         self.mcp_schema = mcp_tool.input_schema
+
+        # 异步任务管理
+        self.task_manager = get_global_task_manager()
     
     def _create_input_schema(self) -> Type[MCPToolInput]:
         """
@@ -268,7 +280,103 @@ class MCPToolWrapper(Tool):
             return "execute"
         
         return None
-    
+
+    def _classify_task_complexity(self, input_data: ToolInput) -> TaskComplexity:
+        """
+        智能分类任务复杂度。
+
+        Args:
+            input_data: 工具输入数据
+
+        Returns:
+            TaskComplexity: 任务复杂度级别
+        """
+        # 基于工具名称的分类
+        tool_name_lower = self.original_name.lower()
+
+        # 长时间运行任务的关键词
+        long_running_keywords = [
+            "download", "upload", "backup", "sync", "process", "analyze",
+            "generate", "compile", "build", "train", "convert", "import",
+            "export", "migrate", "crawl", "spider", "scrape", "batch",
+            "bulk", "mass", "large", "archive", "extract", "compress"
+        ]
+
+        # 简单任务的关键词
+        simple_keywords = [
+            "get", "read", "list", "show", "view", "check", "test",
+            "ping", "status", "info", "count", "exists", "validate"
+        ]
+
+        # 检查工具名称
+        if any(keyword in tool_name_lower for keyword in long_running_keywords):
+            return TaskComplexity.LONG_RUNNING
+
+        if any(keyword in tool_name_lower for keyword in simple_keywords):
+            return TaskComplexity.SIMPLE
+
+        # 基于输入参数的分析
+        args_dict = input_data.dict()
+
+        # 检查文件路径大小指示器
+        for key, value in args_dict.items():
+            if isinstance(value, str):
+                key_lower = key.lower()
+
+                # 大文件路径
+                if "path" in key_lower and len(value) > 100:
+                    return TaskComplexity.LONG_RUNNING
+
+                # URL 下载
+                if "url" in key_lower and value.startswith(("http://", "https://")):
+                    return TaskComplexity.LONG_RUNNING
+
+                # 批量操作指示器
+                if any(batch_key in key_lower for batch_key in ["batch", "bulk", "multiple", "array"]):
+                    return TaskComplexity.LONG_RUNNING
+
+            elif isinstance(value, (list, dict)):
+                # 大量数据处理
+                if len(str(value)) > 1000:  # 大型数据结构
+                    return TaskComplexity.LONG_RUNNING
+
+        # 基于服务器类型的推断
+        server_name_lower = self.server_name.lower()
+        if any(keyword in server_name_lower for keyword in ["ai", "ml", "model", "llm"]):
+            # AI/ML 相关工具通常需要更多时间
+            return TaskComplexity.STANDARD
+
+        # 检查特定参数模式
+        for key, value in args_dict.items():
+            if isinstance(value, (int, float)):
+                # 大数值可能表示批量操作
+                if value > 1000:
+                    return TaskComplexity.LONG_RUNNING
+
+        # 默认为标准任务
+        return TaskComplexity.STANDARD
+
+    async def _should_use_async_execution(self, input_data: ToolInput) -> bool:
+        """
+        判断是否应该使用异步执行。
+
+        Args:
+            input_data: 工具输入数据
+
+        Returns:
+            bool: 是否使用异步执行
+        """
+        complexity = self._classify_task_complexity(input_data)
+
+        # 长时间运行任务总是使用异步执行
+        if complexity == TaskComplexity.LONG_RUNNING:
+            return True
+
+        # 检查服务器是否支持异步
+        # 这里可以检查服务器能力或配置
+        # 暂时对所有非简单任务尝试异步
+        return complexity != TaskComplexity.SIMPLE
+
     async def _has_path_restrictions(self, input_data: ToolInput, security_config) -> bool:
         """
         Check if input contains paths that violate security restrictions.
@@ -340,62 +448,205 @@ class MCPToolWrapper(Tool):
     
     async def execute(self, input_data: ToolInput) -> AsyncGenerator[ToolResult, None]:
         """
-        Execute the MCP tool.
-        
+        增强的 MCP 工具执行方法，支持智能异步执行。
+
         Args:
-            input_data: Validated input data
-            
+            input_data: 验证过的输入数据
+
         Yields:
-            ToolResult: Execution results
+            ToolResult: 执行结果
         """
         execution_start = time.time()
-        
-        # Access session information if available
+
+        # 分析任务复杂度
+        complexity = self._classify_task_complexity(input_data)
+        should_use_async = await self._should_use_async_execution(input_data)
+
+        # 访问会话信息
         session = await self.get_session(input_data)
         if session:
-            # Log MCP tool execution to session
-            session.add_log_entry(f"Executing MCP tool '{self.original_name}' on server '{self.server_name}'")
-            
-            # Yield session-aware progress indicator
+            session.add_log_entry(
+                f"Executing MCP tool '{self.original_name}' on server '{self.server_name}' "
+                f"(complexity: {complexity.value}, async: {should_use_async})"
+            )
+
             yield ToolResult(
                 type=ToolResultType.INFO,
-                content=f"Executing MCP tool in session {session.id} (state: {session.state.value})",
+                content=f"Executing MCP tool in session {session.id} (complexity: {complexity.value})",
                 tool_name=self.name,
                 execution_id=input_data.execution_id,
                 metadata={
                     "session_id": session.id,
                     "session_state": session.state.value,
                     "mcp_server": self.server_name,
-                    "mcp_tool": self.original_name
+                    "mcp_tool": self.original_name,
+                    "task_complexity": complexity.value,
+                    "async_execution": should_use_async
                 }
             )
-        
+
+        # 选择执行模式
+        if should_use_async and complexity == TaskComplexity.LONG_RUNNING:
+            # 使用异步执行
+            async for result in self._execute_async(input_data, complexity):
+                yield result
+        else:
+            # 使用同步执行
+            async for result in self._execute_sync(input_data, complexity):
+                yield result
+
+    async def _execute_async(self, input_data: ToolInput, complexity: TaskComplexity) -> AsyncGenerator[ToolResult, None]:
+        """
+        异步执行模式，适用于长时间运行任务。
+
+        Args:
+            input_data: 工具输入数据
+            complexity: 任务复杂度
+
+        Yields:
+            ToolResult: 执行结果
+        """
         try:
-            # Progress indicator
+            # 检查服务器是否支持异步调用
+            if hasattr(self.server_manager, 'call_tool_async'):
+                # 使用服务器管理器的异步调用
+                async for result in self._execute_with_server_async(input_data):
+                    yield result
+            else:
+                # 使用任务管理器的异步包装
+                async for result in self._execute_with_task_manager_async(input_data):
+                    yield result
+
+        except Exception as e:
+            logger.error(f"Async execution failed for {self.name}: {str(e)}")
+            yield ToolResult(
+                type=ToolResultType.ERROR,
+                content=f"Async execution failed: {str(e)}",
+                tool_name=self.name,
+                execution_id=input_data.execution_id,
+                metadata={"error_type": "async_execution_error", "complexity": complexity.value}
+            )
+
+    async def _execute_with_server_async(self, input_data: ToolInput) -> AsyncGenerator[ToolResult, None]:
+        """使用服务器管理器的异步调用"""
+
+        # 进度回调函数
+        async def progress_callback(progress_data: Dict[str, Any]):
+            # 这里可以进一步处理进度数据
+            logger.debug(f"Tool {self.name} progress: {progress_data}")
+
+        # 转换输入参数
+        mcp_arguments = self._convert_input_to_mcp_args(input_data)
+
+        # 调用异步执行
+        async for mcp_result in self.server_manager.call_tool_async(
+            self.server_name,
+            self.original_name,
+            mcp_arguments,
+            progress_callback=progress_callback
+        ):
+            # 转换 MCP 结果为工具结果
+            async for tool_result in self._convert_mcp_result_to_tool_result(
+                mcp_result, input_data.execution_id, 0
+            ):
+                yield tool_result
+
+    async def _execute_with_task_manager_async(self, input_data: ToolInput) -> AsyncGenerator[ToolResult, None]:
+        """使用任务管理器的异步包装"""
+
+        # 创建任务请求
+        task_request = {
+            "tool_name": self.original_name,
+            "server_name": self.server_name,
+            "arguments": self._convert_input_to_mcp_args(input_data),
+            "execution_id": input_data.execution_id
+        }
+
+        # 提交到任务管理器
+        task_id = await self.task_manager.submit_task(
+            TaskType.MCP_TOOL,
+            task_request
+        )
+
+        yield ToolResult(
+            type=ToolResultType.INFO,
+            content=f"Task submitted for background execution: {task_id}",
+            tool_name=self.name,
+            execution_id=input_data.execution_id,
+            metadata={"async_task_id": task_id, "task_type": "long_running"}
+        )
+
+        # 订阅进度流
+        async for progress in self.task_manager.get_task_progress_stream(task_id):
+            progress_type = progress.get('type', 'progress')
+
+            if progress_type == 'progress':
+                yield ToolResult(
+                    type=ToolResultType.PROGRESS,
+                    content=progress.get('message', 'Processing...'),
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id,
+                    metadata=progress
+                )
+            elif progress_type == 'final_result':
+                yield ToolResult(
+                    type=ToolResultType.SUCCESS,
+                    content=str(progress.get('result', 'Task completed')),
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id,
+                    metadata=progress
+                )
+                break
+            elif progress_type == 'error':
+                yield ToolResult(
+                    type=ToolResultType.ERROR,
+                    content=progress.get('error', 'Task failed'),
+                    tool_name=self.name,
+                    execution_id=input_data.execution_id,
+                    metadata=progress
+                )
+                break
+
+    async def _execute_sync(self, input_data: ToolInput, complexity: TaskComplexity) -> AsyncGenerator[ToolResult, None]:
+        """
+        同步执行模式，适用于快速任务。
+
+        Args:
+            input_data: 工具输入数据
+            complexity: 任务复杂度
+
+        Yields:
+            ToolResult: 执行结果
+        """
+        execution_start = time.time()
+
+        try:
+            # 进度指示器
             yield ToolResult(
                 type=ToolResultType.PROGRESS,
                 content=f"Executing MCP tool '{self.original_name}' on server '{self.server_name}'",
                 tool_name=self.name,
-                execution_id=input_data.execution_id
+                execution_id=input_data.execution_id,
+                metadata={"execution_mode": "sync", "complexity": complexity.value}
             )
-            
-            # Convert input to MCP arguments
+
+            # 转换输入为 MCP 参数
             mcp_arguments = self._convert_input_to_mcp_args(input_data)
-            
-            # Call MCP tool through server manager
+
+            # 通过服务器管理器调用 MCP 工具
             mcp_result = await self.server_manager.call_tool(
                 self.server_name,
                 self.original_name,
                 mcp_arguments
             )
-            
-            # Convert MCP result to SimaCode result
+
+            # 转换 MCP 结果为 SimaCode 结果
             execution_time = time.time() - execution_start
             async for result in self._convert_mcp_result_to_tool_result(
                 mcp_result, input_data.execution_id, execution_time
             ):
                 yield result
-                
+
         except MCPConnectionError as e:
             yield ToolResult(
                 type=ToolResultType.ERROR,
@@ -404,7 +655,7 @@ class MCPToolWrapper(Tool):
                 execution_id=input_data.execution_id,
                 metadata={"error_type": "connection_error", "server_name": self.server_name}
             )
-            
+
         except MCPToolNotFoundError as e:
             yield ToolResult(
                 type=ToolResultType.ERROR,
@@ -413,7 +664,7 @@ class MCPToolWrapper(Tool):
                 execution_id=input_data.execution_id,
                 metadata={"error_type": "tool_not_found", "server_name": self.server_name}
             )
-            
+
         except Exception as e:
             logger.error(f"MCP tool execution failed for {self.name}: {str(e)}")
             yield ToolResult(

@@ -29,6 +29,7 @@ class ReActRequest(BaseModel):
     session_id: Optional[str] = Field(None, description="Optional session ID")
     context: Optional[Dict[str, Any]] = Field(default_factory=dict, description="Additional context")
     execution_mode: Optional[str] = Field(None, description="Execution mode (adaptive, conservative, aggressive)")
+    skip_confirmation: Optional[bool] = Field(False, description="Skip confirmation prompts")
 
 
 # Response Models
@@ -45,6 +46,7 @@ class ReActResponse(BaseModel):
     session_id: str = Field(..., description="Session identifier")
     steps: List[Dict[str, Any]] = Field(default_factory=list, description="Execution steps")
     metadata: Dict[str, Any] = Field(default_factory=dict, description="Additional metadata")
+    error: Optional[str] = Field(None, description="Error message if execution failed")
 
 
 class SessionInfo(BaseModel):
@@ -93,6 +95,43 @@ class StreamingChatChunk(BaseModel):
     
     # 🆕 确认相关字段
     confirmation_data: Optional[Dict[str, Any]] = Field(None, description="确认请求数据")
+
+
+# 新增：异步任务相关模型
+class AsyncTaskResponse(BaseModel):
+    """异步任务提交响应模型."""
+    task_id: str = Field(..., description="异步任务ID")
+    status: str = Field(..., description="任务状态")
+    session_id: str = Field(..., description="会话ID")
+    submitted_at: datetime = Field(default_factory=datetime.utcnow, description="提交时间")
+
+
+class TaskStatusResponse(BaseModel):
+    """任务状态查询响应模型."""
+    task_id: str = Field(..., description="任务ID")
+    task_type: str = Field(..., description="任务类型")
+    status: str = Field(..., description="任务状态")
+    created_at: float = Field(..., description="创建时间戳")
+    started_at: Optional[float] = Field(None, description="开始时间戳")
+    completed_at: Optional[float] = Field(None, description="完成时间戳")
+    error: Optional[str] = Field(None, description="错误信息")
+    metadata: Dict[str, Any] = Field(default_factory=dict, description="任务元数据")
+
+
+class TaskProgressUpdate(BaseModel):
+    """任务进度更新模型."""
+    task_id: str = Field(..., description="任务ID")
+    type: str = Field(..., description="更新类型 (progress, final_result, error)")
+    message: Optional[str] = Field(None, description="进度消息")
+    progress: Optional[float] = Field(None, description="进度百分比 (0-100)")
+    timestamp: float = Field(..., description="时间戳")
+    data: Dict[str, Any] = Field(default_factory=dict, description="额外数据")
+
+
+class TaskManagerStatsResponse(BaseModel):
+    """任务管理器统计信息响应模型."""
+    active_tasks: int = Field(..., description="活跃任务数量")
+    task_breakdown: Dict[str, int] = Field(default_factory=dict, description="任务状态分布")
     requires_response: Optional[bool] = Field(False, description="是否需要用户响应")
     stream_paused: Optional[bool] = Field(False, description="流是否暂停等待响应")
 

@@ -2,6 +2,7 @@
 Tests for MCP protocol implementation.
 """
 
+import asyncio
 import json
 import pytest
 from unittest.mock import AsyncMock, MagicMock
@@ -376,3 +377,287 @@ class TestMCPConstants:
         assert MCPErrorCodes.METHOD_NOT_FOUND == -32601
         assert MCPErrorCodes.TOOL_NOT_FOUND == -32000
         assert MCPErrorCodes.SECURITY_ERROR == -32002
+
+
+class TestMCPProtocolAsync:
+    """Test MCPProtocol async functionality."""
+
+    @pytest.fixture
+    def mock_transport(self):
+        """Create a mock transport for async tests."""
+        transport = AsyncMock()
+        transport.is_connected.return_value = True
+        return transport
+
+    @pytest.fixture
+    def protocol(self, mock_transport):
+        """Create MCPProtocol instance with mock transport."""
+        protocol = MCPProtocol(mock_transport)
+        # Set mock server capabilities to support async
+        protocol.set_server_capabilities({
+            "tools": {"async_support": True}
+        })
+        return protocol
+
+    async def test_call_tool_async_with_progress(self, protocol, mock_transport):
+        """Test async tool call with progress updates."""
+        request_id = None
+
+        def capture_send(data):
+            nonlocal request_id
+            msg_data = json.loads(data.decode('utf-8'))
+            request_id = msg_data["id"]
+
+        mock_transport.send.side_effect = capture_send
+
+        # Mock progress and result notifications
+        progress_responses = [
+            MCPMessage(method="tools/progress", params={
+                "request_id": None,  # Will be set dynamically
+                "progress": 50,
+                "message": "Processing..."
+            }),
+            MCPMessage(method="tools/result", params={
+                "request_id": None,  # Will be set dynamically
+                "result": "Task completed"
+            })
+        ]
+
+        # Progress callback to capture progress updates
+        progress_updates = []
+
+        async def progress_callback(data):
+            progress_updates.append(data)
+
+        # Create a task to simulate async responses
+        async def send_async_responses():
+            await asyncio.sleep(0.1)  # Small delay to ensure request is sent first
+
+            for response in progress_responses:
+                # Set the request_id that was captured
+                response.params["request_id"] = request_id
+
+                # Put response in the queue
+                if request_id in protocol._async_response_queues:
+                    await protocol._async_response_queues[request_id].put(response)
+
+        # Start the background task
+        response_task = asyncio.create_task(send_async_responses())
+
+        # Collect results
+        results = []
+        async for result in protocol.call_tool_async(
+            tool_name="test_tool",
+            arguments={"param": "value"},
+            progress_callback=progress_callback
+        ):
+            results.append(result)
+
+        # Wait for response task to complete
+        await response_task
+
+        # Verify results
+        assert len(results) == 2
+
+        # First result should be progress
+        progress_result = results[0]
+        assert progress_result.success is True
+        assert progress_result.metadata["type"] == "progress"
+        assert progress_result.content["progress"] == 50
+
+        # Second result should be final result
+        final_result = results[1]
+        assert final_result.success is True
+        assert final_result.metadata["type"] == "final_result"
+        assert final_result.content == "Task completed"
+
+        # Verify progress callback was called
+        assert len(progress_updates) == 1
+        assert progress_updates[0]["progress"] == 50
+
+    async def test_call_tool_async_server_no_support(self, mock_transport):
+        """Test async tool call fallback when server doesn't support async."""
+        protocol = MCPProtocol(mock_transport)
+        # Set server capabilities without async support
+        protocol.set_server_capabilities({
+            "tools": {"async_support": False}
+        })
+
+        request_id = None
+
+        def capture_send(data):
+            nonlocal request_id
+            msg_data = json.loads(data.decode('utf-8'))
+            request_id = msg_data["id"]
+
+        mock_transport.send.side_effect = capture_send
+
+        # Mock standard tool call response
+        def mock_receive():
+            response = MCPMessage(id=request_id, result="Standard result")
+            return response.to_json().encode('utf-8')
+
+        mock_transport.receive.side_effect = mock_receive
+
+        # Collect results
+        results = []
+        async for result in protocol.call_tool_async(
+            tool_name="test_tool",
+            arguments={"param": "value"}
+        ):
+            results.append(result)
+
+        # Should get one result from fallback
+        assert len(results) == 1
+        result = results[0]
+        assert result.success is True
+        assert result.content == "Standard result"
+        assert result.metadata.get("fallback_mode") is True
+
+    async def test_call_tool_async_error(self, protocol, mock_transport):
+        """Test async tool call with error response."""
+        request_id = None
+
+        def capture_send(data):
+            nonlocal request_id
+            msg_data = json.loads(data.decode('utf-8'))
+            request_id = msg_data["id"]
+
+        mock_transport.send.side_effect = capture_send
+
+        # Mock error response
+        error_response = MCPMessage(method="tools/error", params={
+            "request_id": None,  # Will be set dynamically
+            "error": "Tool execution failed"
+        })
+
+        # Create a task to simulate async error response
+        async def send_error_response():
+            await asyncio.sleep(0.1)
+            error_response.params["request_id"] = request_id
+
+            if request_id in protocol._async_response_queues:
+                await protocol._async_response_queues[request_id].put(error_response)
+
+        response_task = asyncio.create_task(send_error_response())
+
+        # Collect results
+        results = []
+        async for result in protocol.call_tool_async(
+            tool_name="failing_tool",
+            arguments={"param": "value"}
+        ):
+            results.append(result)
+
+        await response_task
+
+        # Should get one error result
+        assert len(results) == 1
+        result = results[0]
+        assert result.success is False
+        assert result.error == "Tool execution failed"
+        assert result.metadata["type"] == "error"
+
+    async def test_call_tool_async_timeout(self, protocol, mock_transport):
+        """Test async tool call timeout."""
+        mock_transport.send.side_effect = lambda data: None
+
+        # No responses will be sent, should timeout
+        results = []
+        async for result in protocol.call_tool_async(
+            tool_name="slow_tool",
+            arguments={"param": "value"},
+            timeout=0.1  # Very short timeout
+        ):
+            results.append(result)
+
+        # Should get one timeout error result
+        assert len(results) == 1
+        result = results[0]
+        assert result.success is False
+        assert "timeout" in result.error.lower()
+        assert result.metadata["type"] == "timeout_error"
+
+    async def test_handle_notification_routing(self, protocol):
+        """Test notification routing to async response queues."""
+        # Create a mock async response queue
+        request_id = "test_req_123"
+        protocol._async_response_queues[request_id] = asyncio.Queue()
+
+        # Create a progress notification
+        notification = MCPMessage(
+            method="tools/progress",
+            params={
+                "request_id": request_id,
+                "progress": 75,
+                "message": "Almost done..."
+            }
+        )
+
+        # Handle the notification
+        await protocol._handle_notification(notification)
+
+        # Verify it was routed to the correct queue
+        queue = protocol._async_response_queues[request_id]
+        assert not queue.empty()
+
+        routed_message = await queue.get()
+        assert routed_message.method == "tools/progress"
+        assert routed_message.params["progress"] == 75
+
+    async def test_handle_notification_no_queue(self, protocol):
+        """Test notification handling when no matching queue exists."""
+        # Create a notification for non-existent request
+        notification = MCPMessage(
+            method="tools/progress",
+            params={
+                "request_id": "nonexistent_req",
+                "progress": 50
+            }
+        )
+
+        # Should handle gracefully without error
+        await protocol._handle_notification(notification)
+        # No assertion needed, just verify it doesn't raise an exception
+
+    def test_set_server_capabilities(self, protocol):
+        """Test setting server capabilities."""
+        capabilities = {
+            "tools": {"async_support": True, "streaming": False},
+            "resources": {"subscribe": True}
+        }
+
+        protocol.set_server_capabilities(capabilities)
+
+        assert protocol._server_capabilities == capabilities
+
+    async def test_server_supports_async_detection(self, protocol):
+        """Test server async support detection."""
+        # Test with async support
+        protocol.set_server_capabilities({
+            "tools": {"async_support": True}
+        })
+
+        assert await protocol._server_supports_async() is True
+
+        # Test without async support
+        protocol.set_server_capabilities({
+            "tools": {"async_support": False}
+        })
+
+        assert await protocol._server_supports_async() is False
+
+        # Test with no capabilities
+        protocol._server_capabilities = None
+        assert await protocol._server_supports_async() is True  # Default behavior
+
+
+class TestAsyncMethodConstants:
+    """Test new async method constants."""
+
+    def test_async_methods(self):
+        """Test new async method constants."""
+        assert MCPMethods.TOOLS_CALL_ASYNC == "tools/call_async"
+        assert MCPMethods.TOOLS_PROGRESS == "tools/progress"
+        assert MCPMethods.TOOLS_RESULT == "tools/result"
+        assert MCPMethods.TOOLS_ERROR == "tools/error"

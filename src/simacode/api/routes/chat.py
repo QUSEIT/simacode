@@ -18,9 +18,13 @@ except ImportError:
     APIRouter = None
 
 from ..dependencies import get_simacode_service
-from ..models import ChatRequest, ChatResponse, ErrorResponse, StreamingChatChunk
+from ..models import (
+    ChatRequest, ChatResponse, ErrorResponse, StreamingChatChunk,
+    AsyncTaskResponse, TaskStatusResponse, TaskProgressUpdate, TaskManagerStatsResponse
+)
 from ..chat_confirmation import chat_confirmation_manager
 from ...core.service import SimaCodeService, ChatRequest as CoreChatRequest
+from ...mcp.async_integration import get_global_task_manager, TaskType
 
 logger = logging.getLogger(__name__)
 
@@ -381,6 +385,265 @@ async def handle_confirmation_response(
             media_type="text/plain",
             headers={"Cache-Control": "no-cache"}
         )
+
+
+@router.post("/async", response_model=AsyncTaskResponse)
+async def chat_async(
+    request: ChatRequest,
+    service: SimaCodeService = Depends(get_simacode_service)
+) -> AsyncTaskResponse:
+    """
+    Submit a chat message for asynchronous processing.
+
+    This endpoint is designed for complex chat interactions that may
+    trigger long-running ReAct tasks or MCP tool executions.
+
+    Args:
+        request: Chat request containing message and optional session ID
+        service: SimaCode service instance
+
+    Returns:
+        Task submission confirmation with task ID
+    """
+    try:
+        # Convert API request to core request
+        core_request = CoreChatRequest(
+            message=request.message,
+            session_id=request.session_id,
+            context=request.context,
+            stream=False
+        )
+
+        # Check if message requires async processing
+        # This could trigger ReAct mode if the message indicates complex tasks
+        if not await service._requires_async_chat_processing(core_request):
+            # For simple chat, redirect to synchronous processing
+            response = await service.process_chat(core_request)
+            if response.error:
+                raise HTTPException(status_code=500, detail=response.error)
+
+            # Return a "completed" async response for consistency
+            return AsyncTaskResponse(
+                task_id=f"sync_chat_{response.session_id}",
+                status="completed",
+                session_id=response.session_id
+            )
+
+        # Submit task to async task manager
+        task_manager = get_global_task_manager()
+        task_id = await task_manager.submit_task(
+            task_type=TaskType.CHAT,
+            request=core_request
+        )
+
+        logger.info(f"Async chat task {task_id} submitted for session {core_request.session_id}")
+
+        return AsyncTaskResponse(
+            task_id=task_id,
+            status="pending",
+            session_id=core_request.session_id
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Async chat task submission error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks/{task_id}", response_model=TaskStatusResponse)
+async def get_chat_task_status(
+    task_id: str,
+    service: SimaCodeService = Depends(get_simacode_service)
+) -> TaskStatusResponse:
+    """
+    Get the status of an async chat task.
+
+    Args:
+        task_id: The task identifier returned from /async
+        service: SimaCode service instance
+
+    Returns:
+        Current task status and metadata
+    """
+    try:
+        # Handle sync task IDs (fake async responses)
+        if task_id.startswith("sync_chat_"):
+            return TaskStatusResponse(
+                task_id=task_id,
+                task_type="chat",
+                status="completed",
+                created_at=0,
+                completed_at=0,
+                metadata={"sync_task": True}
+            )
+
+        task_manager = get_global_task_manager()
+        task = await task_manager.get_task_status(task_id)
+
+        if not task:
+            raise HTTPException(status_code=404, detail=f"Task {task_id} not found")
+
+        return TaskStatusResponse(
+            task_id=task.task_id,
+            task_type=task.task_type.value,
+            status=task.status.value,
+            created_at=task.created_at,
+            started_at=task.started_at,
+            completed_at=task.completed_at,
+            error=task.error,
+            metadata=task.metadata or {}
+        )
+
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Chat task status query error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.get("/tasks")
+async def get_task_manager_stats(
+    service: SimaCodeService = Depends(get_simacode_service)
+) -> TaskManagerStatsResponse:
+    """
+    Get task manager statistics and status.
+
+    Returns:
+        Current task manager statistics
+    """
+    try:
+        task_manager = get_global_task_manager()
+        stats = task_manager.get_stats()
+
+        return TaskManagerStatsResponse(
+            active_tasks=stats["active_tasks"],
+            task_breakdown=stats["task_breakdown"]
+        )
+
+    except Exception as e:
+        logger.error(f"Task manager stats error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@router.websocket("/ws/async")
+async def chat_async_websocket(
+    websocket: WebSocket,
+    service: SimaCodeService = Depends(get_simacode_service)
+):
+    """
+    WebSocket endpoint for real-time async chat with progress updates.
+
+    Protocol:
+    - Client sends: {"message": "...", "session_id": "...", "context": {...}}
+    - Server responds with task_id and then streams progress updates
+    - Final message contains the complete response
+
+    Args:
+        websocket: WebSocket connection
+        service: SimaCode service instance
+    """
+    await websocket.accept()
+    logger.info("WebSocket async chat connection established")
+
+    try:
+        while True:
+            # Receive message from client
+            data = await websocket.receive_json()
+
+            try:
+                # Validate message format
+                if "message" not in data:
+                    await websocket.send_json({
+                        "error": "Missing 'message' field",
+                        "type": "error"
+                    })
+                    continue
+
+                # Create core request
+                core_request = CoreChatRequest(
+                    message=data["message"],
+                    session_id=data.get("session_id"),
+                    context=data.get("context", {}),
+                    stream=False
+                )
+
+                # Check if message requires async processing
+                if not await service._requires_async_chat_processing(core_request):
+                    # Execute synchronously for simple chat
+                    await websocket.send_json({
+                        "type": "sync_execution",
+                        "message": "Processing simple chat message synchronously"
+                    })
+
+                    response = await service.process_chat(core_request)
+
+                    if response.error:
+                        await websocket.send_json({
+                            "error": response.error,
+                            "type": "error",
+                            "session_id": response.session_id
+                        })
+                    else:
+                        await websocket.send_json({
+                            "content": response.content,
+                            "session_id": response.session_id,
+                            "metadata": response.metadata,
+                            "type": "response"
+                        })
+                    continue
+
+                # Submit async task
+                task_manager = get_global_task_manager()
+                task_id = await task_manager.submit_task(
+                    task_type=TaskType.CHAT,
+                    request=core_request
+                )
+
+                # Send task submission confirmation
+                await websocket.send_json({
+                    "type": "task_submitted",
+                    "task_id": task_id,
+                    "session_id": core_request.session_id,
+                    "message": "Chat message submitted for async processing"
+                })
+
+                # Stream progress updates
+                try:
+                    async for progress_data in task_manager.get_task_progress_stream(task_id):
+                        await websocket.send_json({
+                            "type": "progress_update",
+                            "task_id": task_id,
+                            "progress": progress_data
+                        })
+
+                        # Stop streaming after final result
+                        if progress_data.get("type") == "final_result":
+                            break
+
+                except Exception as e:
+                    logger.error(f"Chat progress streaming error: {e}")
+                    await websocket.send_json({
+                        "type": "stream_error",
+                        "task_id": task_id,
+                        "error": str(e)
+                    })
+
+            except Exception as e:
+                logger.error(f"WebSocket async chat processing error: {e}")
+                await websocket.send_json({
+                    "error": str(e),
+                    "type": "error"
+                })
+
+    except WebSocketDisconnect:
+        logger.info("WebSocket async chat connection closed")
+    except Exception as e:
+        logger.error(f"WebSocket async chat error: {e}")
+        try:
+            await websocket.close()
+        except:
+            pass
 
 
 def process_regular_chunk(chunk: str, session_id: str) -> StreamingChatChunk:

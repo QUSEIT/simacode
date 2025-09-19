@@ -21,7 +21,7 @@ from ..core.service import SimaCodeService
 
 logger = logging.getLogger(__name__)
 
-from .routes import chat, react, health, sessions
+from .routes import chat, react, health, sessions, tasks
 from .routes import config as config_routes
 from ..universalform import router as universalform_router, UNIVERSALFORM_AVAILABLE
 from .models import ErrorResponse
@@ -201,6 +201,7 @@ def create_app(config: Config):
     app.include_router(react.router, prefix="/api/v1/react", tags=["react"])
     app.include_router(sessions.router, prefix="/api/v1/sessions", tags=["sessions"])
     app.include_router(config_routes.router, prefix="/api/v1/config", tags=["config"])
+    app.include_router(tasks.router, prefix="/api/v1/tasks", tags=["tasks"])
     
     # Include universal form router if available
     if UNIVERSALFORM_AVAILABLE and universalform_router:

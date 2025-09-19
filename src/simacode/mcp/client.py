@@ -7,7 +7,7 @@ MCP servers, tool discovery, and method invocation.
 
 import asyncio
 import logging
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, AsyncGenerator, Callable
 from cachetools import TTLCache
 
 from .protocol import (
@@ -189,9 +189,12 @@ class MCPClient:
             # Store server info and capabilities
             self.server_info = result.get("serverInfo", {})
             self.server_capabilities = result.get("capabilities", {})
-            
+
+            # 设置协议层的服务器能力信息，用于异步能力检测
+            self.protocol.set_server_capabilities(self.server_capabilities)
+
             logger.info(f"Initialized session with server '{self.server_name}': {self.server_info}")
-            
+
             # Send initialized notification
             await self.protocol.send_notification(MCPMethods.NOTIFICATIONS_INITIALIZED)
             
@@ -395,7 +398,7 @@ class MCPClient:
             self.result_cache[cache_key] = mcp_result
             
             return mcp_result
-            
+
         except Exception as e:
             logger.error(f"Tool call failed for '{tool_name}' on '{self.server_name}': {str(e)}")
             return MCPResult(
@@ -407,7 +410,77 @@ class MCPClient:
                     "error_type": type(e).__name__
                 }
             )
-    
+
+    async def call_tool_async(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        progress_callback: Optional[Callable] = None,
+        timeout: Optional[float] = None
+    ) -> AsyncGenerator[MCPResult, None]:
+        """
+        异步调用工具，支持进度回传和长时间运行任务。
+
+        Args:
+            tool_name: 工具名称
+            arguments: 工具参数
+            progress_callback: 进度回调函数
+            timeout: 超时时间（秒）
+
+        Yields:
+            MCPResult: 进度更新和最终结果
+
+        Raises:
+            MCPToolNotFoundError: 如果工具不存在
+            MCPConnectionError: 如果连接断开
+        """
+        if not self.is_connected():
+            raise MCPConnectionError(f"Not connected to server '{self.server_name}'")
+
+        # 检查工具是否存在
+        tool = await self.get_tool(tool_name)
+        if not tool:
+            raise MCPToolNotFoundError(
+                f"Tool '{tool_name}' not found",
+                tool_name=tool_name,
+                server_name=self.server_name
+            )
+
+        try:
+            logger.info(f"Starting async call for tool '{tool_name}' on server '{self.server_name}'")
+
+            # 使用协议层的异步调用
+            async for mcp_result in self.protocol.call_tool_async(
+                tool_name=tool_name,
+                arguments=arguments,
+                progress_callback=progress_callback,
+                timeout=timeout
+            ):
+                # 为结果添加客户端元数据
+                if mcp_result.metadata is None:
+                    mcp_result.metadata = {}
+
+                mcp_result.metadata.update({
+                    "server_name": self.server_name,
+                    "tool_name": tool_name,
+                    "client_version": "1.0.0"
+                })
+
+                yield mcp_result
+
+        except Exception as e:
+            logger.error(f"Async tool call failed for '{tool_name}' on '{self.server_name}': {str(e)}")
+            yield MCPResult(
+                success=False,
+                error=str(e),
+                metadata={
+                    "server_name": self.server_name,
+                    "tool_name": tool_name,
+                    "error_type": type(e).__name__,
+                    "async_call": True
+                }
+            )
+
     async def list_resources(self) -> List[MCPResource]:
         """
         Get list of available resources from the server.

@@ -11,7 +11,7 @@ import logging
 import uuid
 from abc import ABC, abstractmethod
 from dataclasses import dataclass, field
-from typing import Any, Dict, List, Optional, Union
+from typing import Any, Dict, List, Optional, Union, AsyncGenerator, Callable
 
 from .exceptions import MCPProtocolError
 
@@ -213,6 +213,12 @@ class MCPProtocol:
         self._receive_task: Optional[asyncio.Task] = None
         self._protocol_lock = asyncio.Lock()
         self._loop: Optional[asyncio.AbstractEventLoop] = None
+
+        # 新增：异步任务和进度回传支持
+        self._long_running_tasks: Dict[str, asyncio.Task] = {}
+        self._progress_callbacks: Dict[str, List[Callable]] = {}
+        self._async_response_queues: Dict[str, asyncio.Queue] = {}
+        self._server_capabilities: Optional[Dict[str, Any]] = None
         
     async def send_message(self, message: MCPMessage) -> None:
         """Send MCP message through transport."""
@@ -313,7 +319,226 @@ class MCPProtocol:
         )
         
         await self.send_message(notification)
-    
+
+    async def call_tool_async(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        progress_callback: Optional[Callable] = None,
+        timeout: Optional[float] = None
+    ) -> AsyncGenerator[MCPResult, None]:
+        """
+        异步工具调用，支持进度回传和长时间运行任务。
+
+        Args:
+            tool_name: 工具名称
+            arguments: 工具参数
+            progress_callback: 进度回调函数
+            timeout: 超时时间（秒），默认为1小时
+
+        Yields:
+            MCPResult: 进度更新和最终结果
+        """
+        # 检查服务器是否支持异步调用
+        if await self._server_supports_async():
+            # 使用新的异步协议
+            async for result in self._call_tool_async_protocol(
+                tool_name, arguments, progress_callback, timeout or 3600
+            ):
+                yield result
+        else:
+            # 回退到标准同步调用
+            logger.debug(f"Server doesn't support async, falling back to sync call for tool '{tool_name}'")
+            try:
+                result = await self.call_method(MCPMethods.TOOLS_CALL, {
+                    "name": tool_name,
+                    "arguments": arguments
+                })
+                yield MCPResult(
+                    success=True,
+                    content=result,
+                    metadata={"type": "final_result", "fallback_mode": True}
+                )
+            except Exception as e:
+                yield MCPResult(
+                    success=False,
+                    error=str(e),
+                    metadata={"type": "error", "fallback_mode": True}
+                )
+
+    async def _server_supports_async(self) -> bool:
+        """检查服务器是否支持异步扩展"""
+        if self._server_capabilities is None:
+            # 尝试获取服务器能力
+            try:
+                # 这个信息通常在初始化握手时获得
+                # 暂时默认支持，后续可以通过其他方式检测
+                return True
+            except Exception:
+                return False
+
+        # 检查服务器能力中是否包含异步工具支持
+        tools_capabilities = self._server_capabilities.get("tools", {})
+        return tools_capabilities.get("async_support", False)
+
+    async def _call_tool_async_protocol(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        progress_callback: Optional[Callable],
+        timeout: float
+    ) -> AsyncGenerator[MCPResult, None]:
+        """实现异步协议扩展"""
+
+        request_id = self._generate_request_id()
+
+        # 注册进度回调
+        if progress_callback:
+            if request_id not in self._progress_callbacks:
+                self._progress_callbacks[request_id] = []
+            self._progress_callbacks[request_id].append(progress_callback)
+
+        # 创建响应队列
+        response_queue = asyncio.Queue()
+        self._async_response_queues[request_id] = response_queue
+
+        try:
+            # 发送异步工具调用请求
+            request = MCPMessage(
+                id=request_id,
+                method="tools/call_async",  # 新的异步方法
+                params={
+                    "name": tool_name,
+                    "arguments": arguments,
+                    "enable_progress": True,
+                    "timeout": timeout
+                }
+            )
+
+            await self.send_message(request)
+            logger.debug(f"Sent async tool call request for '{tool_name}' with ID {request_id}")
+
+            # 等待响应流
+            async for message in self._wait_for_async_responses(request_id, timeout):
+                if message.method == "tools/progress":
+                    # 进度通知
+                    progress_data = message.params
+
+                    # 调用进度回调
+                    if request_id in self._progress_callbacks:
+                        for callback in self._progress_callbacks[request_id]:
+                            try:
+                                await callback(progress_data)
+                            except Exception as e:
+                                logger.warning(f"Progress callback error: {e}")
+
+                    yield MCPResult(
+                        success=True,
+                        content=progress_data,
+                        metadata={"type": "progress", "request_id": request_id}
+                    )
+
+                elif message.method == "tools/result":
+                    # 最终结果
+                    result_data = message.params
+                    yield MCPResult(
+                        success=True,
+                        content=result_data.get("result"),
+                        metadata={"type": "final_result", "request_id": request_id}
+                    )
+                    break
+
+                elif message.method == "tools/error":
+                    # 错误结果
+                    error_data = message.params
+                    yield MCPResult(
+                        success=False,
+                        error=error_data.get("error", "Unknown error"),
+                        metadata={"type": "error", "request_id": request_id}
+                    )
+                    break
+
+        except asyncio.TimeoutError:
+            logger.error(f"Async tool call timeout for '{tool_name}' (request_id: {request_id})")
+            yield MCPResult(
+                success=False,
+                error=f"Tool call timeout after {timeout} seconds",
+                metadata={"type": "timeout_error", "request_id": request_id}
+            )
+
+        except Exception as e:
+            logger.error(f"Async tool call error for '{tool_name}': {e}")
+            yield MCPResult(
+                success=False,
+                error=str(e),
+                metadata={"type": "protocol_error", "request_id": request_id}
+            )
+
+        finally:
+            # 清理资源
+            self._progress_callbacks.pop(request_id, None)
+            self._async_response_queues.pop(request_id, None)
+
+    async def _wait_for_async_responses(self, request_id: str, timeout: float) -> AsyncGenerator[MCPMessage, None]:
+        """等待异步响应流"""
+        response_queue = self._async_response_queues.get(request_id)
+        if not response_queue:
+            raise ValueError(f"No response queue found for request {request_id}")
+
+        start_time = asyncio.get_event_loop().time()
+
+        while True:
+            try:
+                # 计算剩余超时时间
+                elapsed = asyncio.get_event_loop().time() - start_time
+                remaining_timeout = max(0, timeout - elapsed)
+
+                if remaining_timeout <= 0:
+                    raise asyncio.TimeoutError()
+
+                # 等待下一个响应，使用较短的超时以便定期检查
+                message = await asyncio.wait_for(
+                    response_queue.get(),
+                    timeout=min(remaining_timeout, 5.0)
+                )
+
+                yield message
+
+                # 如果是最终结果或错误，停止等待
+                if message.method in ["tools/result", "tools/error"]:
+                    break
+
+            except asyncio.TimeoutError:
+                # 检查是否真的超时了
+                elapsed = asyncio.get_event_loop().time() - start_time
+                if elapsed >= timeout:
+                    raise
+                # 否则继续等待
+                continue
+
+    async def _handle_notification(self, message: MCPMessage):
+        """处理服务器通知"""
+        if message.method in ["tools/progress", "tools/result", "tools/error"]:
+            # 异步任务相关通知，路由到对应的响应队列
+            request_id = message.params.get("request_id") if message.params else None
+
+            if request_id and request_id in self._async_response_queues:
+                try:
+                    await self._async_response_queues[request_id].put(message)
+                    logger.debug(f"Routed {message.method} notification for request {request_id}")
+                except Exception as e:
+                    logger.error(f"Failed to route notification for request {request_id}: {e}")
+            else:
+                logger.debug(f"Received {message.method} notification but no corresponding request queue found")
+        else:
+            # 其他通知类型，记录日志
+            logger.debug(f"Received notification: {message.method}")
+
+    def set_server_capabilities(self, capabilities: Dict[str, Any]):
+        """设置服务器能力信息（通常在初始化时调用）"""
+        self._server_capabilities = capabilities
+        logger.debug(f"Server capabilities updated: {capabilities}")
+
     def _generate_request_id(self) -> str:
         """Generate unique request ID."""
         self._request_id_counter += 1
@@ -334,8 +559,8 @@ class MCPProtocol:
                     
                     # Handle notifications (could be logged or processed)
                     elif message.is_notification():
-                        # For now, just log notifications
-                        pass
+                        # 处理异步任务相关通知
+                        await self._handle_notification(message)
                         
                 except Exception as e:
                     # If there's an error, complete all pending requests with the error
@@ -376,6 +601,10 @@ class MCPMethods:
     # Tool methods
     TOOLS_LIST = "tools/list"
     TOOLS_CALL = "tools/call"
+    TOOLS_CALL_ASYNC = "tools/call_async"  # 新增：异步工具调用
+    TOOLS_PROGRESS = "tools/progress"      # 新增：工具执行进度通知
+    TOOLS_RESULT = "tools/result"          # 新增：异步工具结果通知
+    TOOLS_ERROR = "tools/error"            # 新增：异步工具错误通知
     
     # Resource methods  
     RESOURCES_LIST = "resources/list"
