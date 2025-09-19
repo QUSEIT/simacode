@@ -134,6 +134,12 @@ async def cancel_task(
 
         return {"message": f"Task {task_id} cancelled successfully"}
 
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"Task cancellation error: {e}")
+        raise HTTPException(status_code=500, detail=str(e))
+
 
 @router.post("/{task_id}/restart")
 async def restart_task(
