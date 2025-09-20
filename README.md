@@ -28,7 +28,7 @@ A modern AI programming assistant built with Python, featuring intelligent ReAct
 
 ```bash
 # Clone the repository
-git clone https://github.com/simacode/simacode.git
+git clone https://github.com/QUSEIT/simacode.git
 cd simacode
 
 # Install dependencies
@@ -696,5 +696,5 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 ## 📞 Support
 
 - **Documentation**: [simacode.readthedocs.io](https://simacode.readthedocs.io)
-- **Issues**: [GitHub Issues](https://github.com/simacode/simacode/issues)
-- **Discussions**: [GitHub Discussions](https://github.com/simacode/simacode/discussions)
+- **Issues**: [GitHub Issues](https://github.com/QUSEIT/simacode/issues)
+- **Discussions**: [GitHub Discussions](https://github.com/QUSEIT/simacode/discussions)

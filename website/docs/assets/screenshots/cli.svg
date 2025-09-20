@@ -1,0 +1,23 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540">
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0f172a"/>
+      <stop offset="100%" stop-color="#111827"/>
+    </linearGradient>
+    <style>
+      .title{fill:#e5e7eb;font:700 22px ui-monospace, SFMono-Regular, Menlo, monospace}
+      .label{fill:#9ca3af;font:600 16px Inter, ui-sans-serif, system-ui}
+      .mono{fill:#d1d5db;font:14px ui-monospace, SFMono-Regular, Menlo, monospace}
+      .green{fill:#22c55e}
+      .cyan{fill:#06b6d4}
+    </style>
+  </defs>
+  <rect width="960" height="540" rx="16" fill="url(#g)"/>
+  <rect x="24" y="24" width="912" height="492" rx="10" fill="#0b1220" stroke="#1f2937"/>
+  <text x="48" y="70" class="title">$ simacode chat --react --interactive</text>
+  <text x="48" y="120" class="mono"><tspan class="green">You</tspan>: 帮我生成一个读取 CSV 并统计均值的脚本</text>
+  <text x="48" y="160" class="mono"><tspan class="cyan">Assistant</tspan>: 正在规划步骤与执行工具...</text>
+  <text x="48" y="200" class="mono">1) 解析参数  2) 读取文件  3) 计算均值  4) 输出</text>
+  <text x="48" y="260" class="label">流式输出 · ReAct 任务规划 · MCP 工具调用</text>
+</svg>
+
