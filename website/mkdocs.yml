@@ -1,0 +1,70 @@
+site_name: SimaCode
+site_description: "现代 AI 编程助手：ReAct 任务规划 + MCP 工具集成 + CLI/API 双模式"
+site_url: https://example.com
+repo_url: https://github.com/simacode/simacode
+repo_name: simacode/simacode
+
+theme:
+  name: material
+  language: zh
+  logo: assets/logo.svg
+  favicon: assets/favicon.svg
+  features:
+    - navigation.tabs
+    - navigation.sections
+    - navigation.top
+    - navigation.instant
+    - content.code.copy
+    - content.code.annotate
+    - content.tabs.link
+    - toc.integrate
+    - header.autohide
+    - search.highlight
+    - search.suggest
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - scheme: slate
+      primary: indigo
+      accent: blue
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
+
+plugins:
+  - search
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - codehilite
+  - md_in_html
+  - pymdownx.superfences
+  - pymdownx.highlight
+  - pymdownx.inlinehilite
+  - pymdownx.details
+  - pymdownx.tabbed:
+      alternate_style: true
+  - pymdownx.magiclink
+  - pymdownx.tasklist:
+      custom_checkbox: true
+  - pymdownx.emoji:
+      emoji_index: !!python/name:material.extensions.emoji.twemoji
+      emoji_generator: !!python/name:material.extensions.emoji.to_svg
+extra_css:
+  - styles/overrides.css
+
+nav:
+  - 首页: index.md
+  - 快速开始: quickstart.md
+  - 功能: features.md
+  - 示例: examples.md
+  - 架构: architecture.md
+  - 故障排查: troubleshooting.md
+  - 贡献: contributing.md
+  - 路线图: roadmap.md
