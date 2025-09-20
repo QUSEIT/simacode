@@ -4,6 +4,10 @@
   --brand-primary: #7c3aed; /* violet-600 */
   --brand-accent: #0891b2;  /* cyan-600 */
   --hero-bg: linear-gradient(135deg, rgba(124,58,237,.12), rgba(8,145,178,.08));
+  /* Surface tokens for consistent dividers/shadows */
+  --surface-divider: rgba(0,0,0,.06);
+  --surface-divider-strong: rgba(0,0,0,.10);
+  --hairline-width: 1px; /* becomes .5px on HiDPI */
   /* Override Material primary to match content area for header/tabs */
   --md-primary-bg-color: var(--md-default-bg-color);
   --md-primary-fg-color: var(--md-default-fg-color);
@@ -70,7 +74,7 @@
   display: block;
   padding: 1rem;
   border-radius: .6rem;
-  border: 1px solid rgba(0,0,0,.06);
+  border: var(--hairline-width) solid var(--surface-divider);
   background: var(--md-default-bg-color);
   color: inherit !important;
   text-decoration: none !important;
@@ -101,7 +105,7 @@
 }
 .gallery figure {
   margin: 0;
-  border: 1px solid rgba(0,0,0,.06);
+  border: var(--hairline-width) solid var(--surface-divider);
   border-radius: .6rem;
   overflow: hidden;
   background: var(--md-default-bg-color);
@@ -132,7 +136,7 @@
   justify-content: center;
   height: 64px;
   padding: 10px 12px;
-  border: 1px solid rgba(0,0,0,.06);
+  border: var(--hairline-width) solid var(--surface-divider);
   border-radius: .6rem;
   background: var(--md-default-bg-color);
 }
@@ -147,8 +151,8 @@
   background: var(--md-default-bg-color); /* 与主体一致 */
   backdrop-filter: none;
   -webkit-backdrop-filter: none;
-  border-top: 1px solid rgba(0,0,0,.06);   /* 顶部灰线（更细） */
-  border-bottom: 1px solid rgba(0,0,0,.06);/* 底部灰线（更细） */
+  border-top: var(--hairline-width) solid var(--surface-divider);   /* 顶部灰线（更细） */
+  border-bottom: var(--hairline-width) solid var(--surface-divider);/* 底部灰线（更细） */
   box-shadow: none;
 }
 
@@ -169,20 +173,145 @@
   fill: currentColor;
 }
 
+/* Header search: match page bg and add subtle border */
+.md-header .md-search__form,
+.md-header .md-search__input {
+  background: var(--md-default-bg-color) !important; /* 与网页默认背景一致 */
+  box-shadow: none !important;
+}
+
+.md-header .md-search__form {
+  border: var(--hairline-width) solid var(--surface-divider);
+  border-radius: .5rem;
+}
+
+/* Focus/hover states keep consistent feel */
+.md-header .md-search__form:hover,
+.md-header .md-search__form:focus-within {
+  border-color: var(--surface-divider-strong);
+}
+
+/* Search input placeholder color */
+.md-header .md-search__input::placeholder {
+  color: var(--md-default-fg-color--light);
+  opacity: .9;
+}
+
+/* Search results panel: match page bg and add border */
+.md-search__output {
+  background: var(--md-default-bg-color);
+  border: var(--hairline-width) solid var(--surface-divider);
+  box-shadow: 0 12px 24px rgba(0,0,0,.08);
+}
+
 /* Make top navigation tabs match content background, with gray separators */
 .md-tabs {
   background: var(--md-default-bg-color) !important;
   color: var(--md-default-fg-color) !important;
-  border-top: 1px solid rgba(0,0,0,.06);
-  border-bottom: 1px solid rgba(0,0,0,.06);
+  border-top: var(--hairline-width) solid var(--surface-divider);
+  border-bottom: var(--hairline-width) solid var(--surface-divider);
 }
 .md-tabs__link { color: var(--md-default-fg-color) !important; opacity: .85; }
 .md-tabs__link:hover,
 .md-tabs__link--active { color: var(--md-default-fg-color) !important; opacity: 1; }
 
-[data-md-color-scheme="slate"] .md-tabs {
-  border-top: 1px solid rgba(255,255,255,.12);
-  border-bottom: 1px solid rgba(255,255,255,.12);
+/* Dark scheme tokens override */
+[data-md-color-scheme="slate"] {
+  --surface-divider: rgba(255,255,255,.10);
+  --surface-divider-strong: rgba(255,255,255,.12);
+}
+
+/* Dark scheme: search border uses sidebar-like divider color */
+[data-md-color-scheme="slate"] .md-header .md-search__form { /* uses vars */ }
+
+[data-md-color-scheme="slate"] .md-header .md-search__input::placeholder {
+  color: var(--md-default-fg-color--light);
+}
+
+[data-md-color-scheme="slate"] .md-search__output {
+  background: var(--md-default-bg-color);
+  border: var(--hairline-width) solid var(--surface-divider);
+  box-shadow: 0 12px 28px rgba(0,0,0,.50);
+}
+
+/* Search results group header/meta */
+.md-search-result__meta {
+  color: var(--md-default-fg-color--light);
+  font-size: .72rem;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: .04em;
+  padding: .35rem .5rem;
+  margin: .25rem .25rem .35rem;
+  border-bottom: var(--hairline-width) solid var(--surface-divider);
+}
+[data-md-color-scheme="slate"] .md-search-result__meta { /* uses vars */ }
+
+/* Search panel scrollbar (WebKit) */
+.md-search__output::-webkit-scrollbar,
+.md-search-result::-webkit-scrollbar {
+  width: 10px;
+  height: 10px;
+}
+.md-search__output::-webkit-scrollbar-thumb,
+.md-search-result::-webkit-scrollbar-thumb {
+  background-color: rgba(0,0,0,.18);
+  border: 3px solid var(--md-default-bg-color);
+  border-radius: 999px;
+}
+.md-search__output::-webkit-scrollbar-track,
+.md-search-result::-webkit-scrollbar-track {
+  background: var(--md-default-bg-color);
+}
+
+/* Search panel scrollbar (Firefox) */
+.md-search__output,
+.md-search-result {
+  scrollbar-width: thin;
+  scrollbar-color: color-mix(in srgb, var(--md-default-fg-color) 30%, transparent) transparent;
+}
+
+[data-md-color-scheme="slate"] .md-search__output,
+[data-md-color-scheme="slate"] .md-search-result {
+  scrollbar-color: color-mix(in srgb, var(--md-default-fg-color) 40%, transparent) transparent;
+}
+
+/* Search results: item hover/active and term highlight */
+.md-search-result__link {
+  border-radius: .4rem;
+  transition: background-color .12s ease;
+}
+.md-search-result__link:hover,
+.md-search-result__link:focus,
+.md-search-result__item:focus-within .md-search-result__link {
+  background: color-mix(in srgb, var(--brand-primary) 7%, var(--md-default-bg-color));
+}
+
+/* Selected/active state (keyboard nav fallback) */
+.md-search-result__link[aria-current],
+.md-search-result__link[aria-selected="true"] {
+  background: color-mix(in srgb, var(--brand-primary) 10%, var(--md-default-bg-color));
+}
+
+/* Keyword highlight in results */
+.md-search-result mark {
+  background: color-mix(in srgb, var(--brand-accent) 28%, transparent);
+  color: inherit;
+  padding: 0 .1em;
+  border-radius: .2rem;
+}
+
+[data-md-color-scheme="slate"] .md-search-result__link:hover,
+[data-md-color-scheme="slate"] .md-search-result__link:focus,
+[data-md-color-scheme="slate"] .md-search-result__item:focus-within .md-search-result__link {
+  background: color-mix(in srgb, var(--brand-primary) 16%, transparent);
+}
+[data-md-color-scheme="slate"] .md-search-result__link[aria-current],
+[data-md-color-scheme="slate"] .md-search-result__link[aria-selected="true"] {
+  background: color-mix(in srgb, var(--brand-primary) 22%, transparent);
+}
+[data-md-color-scheme="slate"] .md-search-result mark {
+  background: color-mix(in srgb, var(--brand-accent) 36%, transparent);
 }
 
 /* Slightly wider content grid on desktop */
@@ -197,7 +326,7 @@
   gap: .5rem;
   margin: .5rem 0 0;
   padding: .5rem .75rem;
-  border: 1px solid rgba(0,0,0,.06);
+  border: var(--hairline-width) solid var(--surface-divider);
   border-radius: .5rem;
   background: linear-gradient(180deg, rgba(124,58,237,.06), transparent);
   color: inherit;
@@ -219,7 +348,7 @@
 .md-typeset pre > code { font-variant-ligatures: none; }
 .md-typeset pre, .md-typeset .highlight {
   border-radius: .6rem;
-  border: 1px solid rgba(0,0,0,.06);
+  border: var(--hairline-width) solid var(--surface-divider);
   box-shadow: 0 6px 14px rgba(0,0,0,.04);
 }
 .md-typeset code { background: color-mix(in srgb, var(--md-default-bg-color) 85%, transparent); }
@@ -229,13 +358,10 @@
 .md-typeset .tabbed-set > input + label { font-weight: 600; }
 
 /* Footer: lighter look */
-.md-footer { border-top: 1px solid rgba(0,0,0,.06); }
+.md-footer { border-top: var(--hairline-width) solid var(--surface-divider); }
 
 /* Dark scheme refinements */
-[data-md-color-scheme="slate"] .md-header {
-  border-top: 1px solid rgba(255,255,255,.10);
-  border-bottom: 1px solid rgba(255,255,255,.10);
-}
+/* Borders use tokens above; keep card/hero/announce specific tweaks */
 [data-md-color-scheme="slate"] .card { border-color: rgba(255,255,255,.08); }
 [data-md-color-scheme="slate"] .card:hover {
   border-color: color-mix(in srgb, #8b5cf6 35%, white 0%);
@@ -243,15 +369,11 @@
 }
 [data-md-color-scheme="slate"] .hero { border-color: rgba(255,255,255,.08); }
 [data-md-color-scheme="slate"] .announce { border-color: rgba(255,255,255,.08); }
-[data-md-color-scheme="slate"] .md-tabs {
-  border-top: 1px solid rgba(255,255,255,.10);
-  border-bottom: 1px solid rgba(255,255,255,.10);
-}
+/* Tabs use tokenized borders */
 
 /* Use hairline borders if supported (0.5px) for crisper lines on HiDPI */
 @supports (border: 0.5px solid rgba(0,0,0,0.1)) {
-  .md-header { border-top-width: .5px; border-bottom-width: .5px; }
-  .md-tabs { border-top-width: .5px; border-bottom-width: .5px; }
+  :root { --hairline-width: .5px; }
 }
 
 /* =========================================================
@@ -261,8 +383,8 @@
 .md-nav--primary .md-nav__source {
   background: var(--md-default-bg-color) !important;
   color: var(--md-default-fg-color) !important;
-  border-top: 1px solid rgba(0,0,0,.06);
-  border-bottom: 1px solid rgba(0,0,0,.06);
+  border-top: var(--hairline-width) solid var(--surface-divider);
+  border-bottom: var(--hairline-width) solid var(--surface-divider);
   box-shadow: none;
 }
 .md-nav--primary .md-nav__title .md-logo svg,
@@ -273,10 +395,7 @@
 .md-nav--primary .md-nav__source a { color: var(--md-default-fg-color) !important; }
 
 [data-md-color-scheme="slate"] .md-nav--primary .md-nav__title,
-[data-md-color-scheme="slate"] .md-nav--primary .md-nav__source {
-  border-top: 1px solid rgba(255,255,255,.10);
-  border-bottom: 1px solid rgba(255,255,255,.10);
-}
+[data-md-color-scheme="slate"] .md-nav--primary .md-nav__source { /* uses vars */ }
 
 @supports (border: 0.5px solid rgba(0,0,0,0.1)) {
   .md-nav--primary .md-nav__title,

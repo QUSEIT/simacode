@@ -4,7 +4,7 @@
 
 ```bash
 # 克隆并进入项目
-git clone https://github.com/simacode/simacode.git
+git clone https://github.com/QUSEIT/simacode.git
 cd simacode
 
 # 安装依赖（开发环境可加 --with dev）
@@ -51,4 +51,3 @@ poetry run black . && poetry run isort .
 poetry run flake8 src/simacode
 poetry run mypy src/simacode
 ```
-

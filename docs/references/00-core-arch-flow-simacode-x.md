@@ -2599,8 +2599,8 @@ description = "Modern AI-powered programming assistant"
 authors = ["SimaCode Team"]
 license = "MIT"
 readme = "README.md"
-homepage = "https://github.com/simacode/simacode"
-repository = "https://github.com/simacode/simacode"
+homepage = "https://github.com/QUSEIT/simacode"
+repository = "https://github.com/QUSEIT/simacode"
 keywords = ["ai", "programming", "assistant", "deepseek", "oneapi"]
 
 [tool.poetry.dependencies]
@@ -2636,7 +2636,7 @@ build-backend = "poetry.core.masonry.api"
 pip install simacode
 
 # 开发模式安装
-git clone https://github.com/simacode/simacode.git
+git clone https://github.com/QUSEIT/simacode.git
 cd simacode
 poetry install
 

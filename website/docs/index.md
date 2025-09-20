@@ -4,7 +4,7 @@
   <p class="hero-subtitle">现代 AI 编程助手 · ReAct 任务规划 · MCP 工具集成 · CLI / API 双模式</p>
   <div class="cta-buttons">
     <a class="button primary" href="quickstart/">开始使用</a>
-    <a class="button ghost" href="https://github.com/simacode/simacode" target="_blank" rel="noopener">GitHub</a>
+    <a class="button ghost" href="https://github.com/QUSEIT/simacode" target="_blank" rel="noopener">GitHub</a>
   </div>
 </div>
 
@@ -82,10 +82,10 @@ poetry run simacode serve --reload --debug
 ## 信任与指标
 
 <div class="badge-row">
-  <a href="https://github.com/simacode/simacode" target="_blank" rel="noopener">
-    <img alt="GitHub stars" src="https://img.shields.io/github/stars/simacode/simacode?style=social" />
+  <a href="https://github.com/QUSEIT/simacode" target="_blank" rel="noopener">
+    <img alt="GitHub stars" src="https://img.shields.io/github/stars/QUSEIT/simacode?style=social" />
   </a>
-  <img alt="License" src="https://img.shields.io/github/license/simacode/simacode" />
+  <img alt="License" src="https://img.shields.io/github/license/QUSEIT/simacode" />
   <img alt="Python versions" src="https://img.shields.io/badge/python-3.10%20|%203.11%20|%203.12-blue" />
   <img alt="Code style: black" src="https://img.shields.io/badge/code%20style-black-000000.svg" />
   <img alt="Tests: pytest" src="https://img.shields.io/badge/tests-pytest-green" />

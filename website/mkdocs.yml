@@ -1,8 +1,8 @@
 site_name: SimaCode
 site_description: "现代 AI 编程助手：ReAct 任务规划 + MCP 工具集成 + CLI/API 双模式"
 site_url: https://example.com
-repo_url: https://github.com/simacode/simacode
-repo_name: simacode/simacode
+repo_url: https://github.com/QUSEIT/simacode
+repo_name: QUSEIT/simacode
 
 theme:
   name: material
