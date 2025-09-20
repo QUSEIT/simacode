@@ -259,6 +259,19 @@ class TICMakerAsyncAIClient:
     ) -> str:
         """Generate course introduction with async support and progress reporting"""
 
+        mcp_debug(f"🤖 [AI_CALL_START] Starting AI course intro generation", {
+            "course_title": course_title,
+            "user_input_length": len(user_input),
+            "user_input_preview": user_input[:100] + "..." if len(user_input) > 100 else user_input,
+            "ai_client_available": self.client is not None,
+            "ai_config": {
+                "enabled": self.config.ai_enabled,
+                "base_url": self.config.ai_base_url,
+                "model": self.config.ai_model,
+                "api_key_configured": bool(self.config.ai_api_key)
+            }
+        }, tool_name="ticmaker_async")
+
         if progress_callback:
             await progress_callback({
                 "type": "progress",
@@ -329,6 +342,13 @@ class TICMakerAsyncAIClient:
 格式示例: 🎓 欢迎来到xxx课程！这里将带你...
 """
 
+            mcp_debug(f"📝 [AI_PROMPT_BUILT] AI prompt constructed", {
+                "prompt_length": len(prompt),
+                "course_title": course_title,
+                "user_input_in_prompt": user_input in prompt,
+                "prompt_preview": prompt[:200] + "..." if len(prompt) > 200 else prompt
+            }, tool_name="ticmaker_async")
+
             if progress_callback:
                 await progress_callback({
                     "type": "progress",
@@ -346,15 +366,20 @@ class TICMakerAsyncAIClient:
                 "temperature": self.config.ai_temperature
             }
 
-            mcp_debug(f"Sending async AI request for course intro generation", {
+            mcp_debug(f"🌐 [AI_REQUEST_PREPARE] Preparing HTTP request to AI service", {
+                "endpoint": "/chat/completions",
+                "method": "POST",
+                "base_url": self.config.ai_base_url,
+                "full_url": f"{self.config.ai_base_url}/chat/completions",
                 "model": self.config.ai_model,
                 "max_tokens": self.config.ai_max_tokens,
                 "temperature": self.config.ai_temperature,
                 "prompt_length": len(prompt),
                 "course_title": course_title,
                 "user_input_preview": user_input[:100] + "..." if len(user_input) > 100 else user_input,
-                "client_base_url": self.config.ai_base_url,
-                "api_key_configured": bool(self.config.ai_api_key)
+                "api_key_configured": bool(self.config.ai_api_key),
+                "request_payload_keys": list(request_data.keys()),
+                "messages_count": len(request_data.get("messages", []))
             }, tool_name="ticmaker_async")
 
             if progress_callback:
@@ -364,10 +389,24 @@ class TICMakerAsyncAIClient:
                     "message": "Processing AI response..."
                 })
 
+            # Record start time for HTTP request timing
+            request_start_time = time.time()
+
+            mcp_debug(f"🚀 [AI_HTTP_CALL] Sending HTTP request to TICMAKER_AI", {
+                "timestamp": request_start_time,
+                "request_url": f"{self.config.ai_base_url}/chat/completions",
+                "request_method": "POST",
+                "headers_sent": {"Content-Type": "application/json"},
+                "payload_size_bytes": len(str(request_data))
+            }, tool_name="ticmaker_async")
+
             response = await self.client.post(
                 "/chat/completions",
                 json=request_data
             )
+
+            request_end_time = time.time()
+            request_duration = request_end_time - request_start_time
 
             if progress_callback:
                 await progress_callback({
@@ -376,29 +415,55 @@ class TICMakerAsyncAIClient:
                     "message": "Parsing and cleaning AI-generated content..."
                 })
 
-            # Debug log: AI client response status
-            mcp_debug(f"AI client HTTP response received", {
+            # Debug log: AI client response status with timing
+            mcp_debug(f"📡 [AI_HTTP_RESPONSE] HTTP response received from TICMAKER_AI", {
                 "status_code": response.status_code,
-                "headers": dict(response.headers),
+                "request_duration_seconds": round(request_duration, 3),
+                "request_duration_ms": round(request_duration * 1000, 1),
+                "response_headers": dict(response.headers),
                 "request_url": str(response.url),
-                "request_method": "POST"
+                "request_method": "POST",
+                "response_size_bytes": len(response.content) if hasattr(response, 'content') else 0,
+                "timestamp": request_end_time
             }, tool_name="ticmaker_async")
 
             if response.status_code == 200:
+                mcp_debug(f"✅ [AI_RESPONSE_SUCCESS] HTTP 200 OK - parsing JSON response", {
+                    "content_type": response.headers.get("content-type", "unknown"),
+                    "response_size": len(response.content),
+                    "status_code": response.status_code
+                }, tool_name="ticmaker_async")
+
                 data = response.json()
 
                 # Debug log: AI response data structure
-                mcp_debug(f"AI client successful response data", {
+                mcp_debug(f"📋 [AI_RESPONSE_PARSED] Successfully parsed AI service JSON response", {
                     "response_keys": list(data.keys()) if isinstance(data, dict) else "not_dict",
                     "has_choices": "choices" in data if isinstance(data, dict) else False,
                     "choices_count": len(data.get("choices", [])) if isinstance(data, dict) else 0,
                     "model_used": data.get("model", "unknown") if isinstance(data, dict) else "unknown",
-                    "usage": data.get("usage", {}) if isinstance(data, dict) else {}
+                    "usage": data.get("usage", {}) if isinstance(data, dict) else {},
+                    "object_type": data.get("object", "unknown") if isinstance(data, dict) else "unknown",
+                    "created_timestamp": data.get("created", "unknown") if isinstance(data, dict) else "unknown"
                 }, tool_name="ticmaker_async")
 
                 if "choices" in data and len(data["choices"]) > 0:
+                    mcp_debug(f"🎯 [AI_CONTENT_EXTRACT] Extracting content from AI response choices", {
+                        "choice_index": 0,
+                        "total_choices": len(data["choices"]),
+                        "message_role": data["choices"][0]["message"].get("role", "unknown"),
+                        "finish_reason": data["choices"][0].get("finish_reason", "unknown")
+                    }, tool_name="ticmaker_async")
+
                     raw_content = data["choices"][0]["message"]["content"]
                     content = raw_content.strip()
+
+                    mcp_debug(f"🧹 [AI_CONTENT_CLEAN] Processing and cleaning AI-generated content", {
+                        "raw_content_length": len(raw_content),
+                        "stripped_content_length": len(content),
+                        "raw_content_preview": raw_content[:150] + "..." if len(raw_content) > 150 else raw_content,
+                        "needs_cleaning": raw_content != content
+                    }, tool_name="ticmaker_async")
 
                     # Clean content for JSON compatibility
                     content = self._clean_content_for_json(content)
@@ -410,50 +475,83 @@ class TICMakerAsyncAIClient:
                             "message": "AI content generation completed successfully"
                         })
 
-                    # Debug log: AI generated content details
-                    mcp_debug(f"AI content generation successful", {
-                        "raw_content_length": len(raw_content),
-                        "cleaned_content_length": len(content),
+                    # Debug log: Final AI generated content
+                    mcp_debug(f"🎉 [AI_CONTENT_READY] AI content generation completed successfully", {
+                        "final_content_length": len(content),
                         "content_preview": content[:100] + "..." if len(content) > 100 else content,
                         "finish_reason": data["choices"][0].get("finish_reason", "unknown"),
-                        "choice_index": data["choices"][0].get("index", 0)
+                        "choice_index": data["choices"][0].get("index", 0),
+                        "model_used": data.get("model", "unknown"),
+                        "total_tokens_used": data.get("usage", {}).get("total_tokens", "unknown"),
+                        "request_duration_ms": round(request_duration * 1000, 1)
                     }, tool_name="ticmaker_async")
 
                     return content
                 else:
                     # Debug log: Invalid response structure
-                    mcp_debug(f"AI response missing choices or empty choices", {
+                    mcp_debug(f"❌ [AI_RESPONSE_ERROR] AI response missing choices or empty choices", {
                         "has_choices_key": "choices" in data if isinstance(data, dict) else False,
                         "choices_data": data.get("choices", []) if isinstance(data, dict) else [],
-                        "full_response": data if isinstance(data, dict) else str(data)
+                        "full_response": data if isinstance(data, dict) else str(data),
+                        "response_type": type(data).__name__,
+                        "response_size": len(str(data))
                     }, tool_name="ticmaker_async")
             else:
                 # Debug log: Non-200 status code
-                try:
-                    error_data = response.json() if response.content else {}
-                except:
-                    error_data = {"raw_content": response.text[:200] if response.text else "empty"}
-
-                mcp_debug(f"AI client HTTP error response", {
+                mcp_debug(f"🚨 [AI_HTTP_ERROR] HTTP error response from TICMAKER_AI", {
                     "status_code": response.status_code,
-                    "error_data": error_data,
-                    "response_text_preview": response.text[:200] if hasattr(response, 'text') else "no_text"
+                    "status_reason": response.reason_phrase if hasattr(response, 'reason_phrase') else "unknown",
+                    "request_duration_ms": round(request_duration * 1000, 1),
+                    "response_headers": dict(response.headers),
+                    "content_length": len(response.content) if hasattr(response, 'content') else 0
                 }, tool_name="ticmaker_async")
 
+                try:
+                    error_data = response.json() if response.content else {}
+                    mcp_debug(f"📝 [AI_ERROR_DETAILS] Parsed error response from AI service", {
+                        "error_data": error_data,
+                        "error_keys": list(error_data.keys()) if isinstance(error_data, dict) else [],
+                        "error_message": error_data.get("error", {}).get("message", "no_message") if isinstance(error_data, dict) else "not_dict"
+                    }, tool_name="ticmaker_async")
+                except Exception as json_parse_error:
+                    raw_text = response.text[:300] if hasattr(response, 'text') else "no_text"
+                    mcp_debug(f"💥 [AI_ERROR_PARSE_FAIL] Failed to parse error response as JSON", {
+                        "json_parse_error": str(json_parse_error),
+                        "response_text_preview": raw_text,
+                        "content_type": response.headers.get("content-type", "unknown")
+                    }, tool_name="ticmaker_async")
+
         except Exception as e:
-            # Debug log: Exception details
-            mcp_debug(f"AI client exception occurred", {
+            # Debug log: Exception details with comprehensive context
+            exception_context = {
                 "exception_type": type(e).__name__,
                 "exception_message": str(e),
                 "exception_args": str(e.args) if hasattr(e, 'args') else "no_args",
                 "ai_client_available": self.client is not None,
                 "config_ai_enabled": self.config.ai_enabled,
-                "config_api_key_set": bool(self.config.ai_api_key)
-            }, tool_name="ticmaker_async")
+                "config_api_key_set": bool(self.config.ai_api_key),
+                "config_base_url": self.config.ai_base_url,
+                "config_model": self.config.ai_model,
+                "prompt_length": len(prompt) if 'prompt' in locals() else "unknown"
+            }
+
+            # Add timing info if available
+            if 'request_start_time' in locals():
+                exception_time = time.time()
+                exception_context["request_duration_before_exception"] = round(exception_time - request_start_time, 3)
+
+            mcp_debug(f"💥 [AI_REQUEST_EXCEPTION] Exception occurred during AI service request", exception_context, tool_name="ticmaker_async")
 
             mcp_warning(f"AI client error: {e}", tool_name="ticmaker_async")
 
         # If AI call failed, return fallback content
+        mcp_debug(f"🔄 [AI_FALLBACK_START] AI request failed, generating fallback content", {
+            "course_title": course_title,
+            "fallback_reason": "ai_call_failed_or_invalid_response",
+            "ai_enabled": self.config.ai_enabled,
+            "client_available": self.client is not None
+        }, tool_name="ticmaker_async")
+
         fallback_intros = [
             f"🎓 欢迎学习「{course_title}」！这是一门精心设计的互动式课程。",
             f"📚 「{course_title}」将通过丰富的互动内容带你掌握核心知识。",
@@ -468,12 +566,13 @@ class TICMakerAsyncAIClient:
                 "message": "Using fallback content after AI service issue"
             })
 
-        # Debug log: Using fallback content after AI failure
-        mcp_debug(f"AI call failed, using fallback content", {
+        # Debug log: Fallback content ready
+        mcp_debug(f"🎯 [AI_FALLBACK_READY] Fallback content generated successfully", {
             "fallback_content": selected_fallback,
+            "fallback_content_length": len(selected_fallback),
             "fallback_options_count": len(fallback_intros),
             "course_title": course_title,
-            "fallback_reason": "ai_call_failed_or_invalid_response"
+            "selected_option_index": fallback_intros.index(selected_fallback)
         }, tool_name="ticmaker_async")
 
         return selected_fallback
@@ -628,7 +727,11 @@ class TICMakerAsyncClient:
         session_context: Optional[Dict[str, Any]] = None,
         progress_callback: Optional[Callable] = None
     ) -> TICMakerAsyncResult:
-        """Create interactive course with async support and progress reporting"""
+        """Create interactive course with async support and progress reporting
+
+        Note: Always generates new content regardless of existing file presence.
+        If a file exists at the target path, it will be overwritten with new content.
+        """
 
         start_time = time.time()
         task_id = f"create_course_{uuid.uuid4().hex[:8]}"
@@ -696,32 +799,25 @@ class TICMakerAsyncClient:
                     file_path = self.output_dir / Path(file_path).name
                     await report_progress(15, f"File path adjusted for security: {original_path} → {file_path}")
 
-            # Check if modifying existing file
-            file_exists = file_path.exists()
-            await report_progress(20, f"File exists check: {file_exists}")
+            # Always generate new content (file existence check removed)
+            mcp_debug(f"📝 [CONTENT_STRATEGY] Always generating new content, file existence check disabled", {
+                "file_path": str(file_path),
+                "strategy": "always_generate_new",
+                "modification_disabled": True
+            }, tool_name="ticmaker_async")
 
-            if file_exists:
-                await report_progress(25, "Reading existing file content...")
-                # Read existing content and modify
-                existing_content = file_path.read_text(encoding='utf-8')
-                await report_progress(40, f"Existing content read: {len(existing_content)} characters")
+            await report_progress(20, "Generating new HTML content...")
 
-                await report_progress(50, "Modifying existing HTML content...")
-                html_content = await self._modify_html_content_async(
-                    existing_content, user_input, progress_callback=report_progress
-                )
-            else:
-                await report_progress(25, "Creating new HTML content...")
-                # Create new page with async support
-                html_content = await self._generate_html_content_async(
-                    user_input,
-                    course_title,
-                    template_style or self.config.default_template,
-                    content_type or "course",
-                    session_context,
-                    task_id,
-                    progress_callback=report_progress
-                )
+            # Create new page with async support
+            html_content = await self._generate_html_content_async(
+                user_input,
+                course_title,
+                template_style or self.config.default_template,
+                content_type or "course",
+                session_context,
+                task_id,
+                progress_callback=report_progress
+            )
 
             await report_progress(90, "Validating and writing file...")
 
@@ -741,7 +837,7 @@ class TICMakerAsyncClient:
 
             # Get file info
             file_size = file_path.stat().st_size
-            action = "Modified" if file_exists else "Created"
+            action = "Created"  # Always creating new content
             execution_time = time.time() - start_time
 
             await report_progress(100, f"Interactive course {action.lower()} successfully")
@@ -850,6 +946,22 @@ class TICMakerAsyncClient:
         ai_generated_intro = await self.ai_client.generate_course_intro_async(
             title, user_input, progress_callback=ai_progress_callback
         )
+
+        # Debug log: Complete AI request flow summary
+        mcp_debug(f"🎯 [AI_FLOW_COMPLETE] Complete AI request flow finished", {
+            "user_input": user_input[:100] + "..." if len(user_input) > 100 else user_input,
+            "course_title": title,
+            "ai_intro_received": bool(ai_generated_intro),
+            "ai_intro_length": len(ai_generated_intro) if ai_generated_intro else 0,
+            "ai_intro_preview": ai_generated_intro[:80] + "..." if ai_generated_intro and len(ai_generated_intro) > 80 else ai_generated_intro,
+            "ai_client_config": {
+                "enabled": self.config.ai_enabled,
+                "base_url": self.config.ai_base_url,
+                "model": self.config.ai_model,
+                "api_key_configured": bool(self.config.ai_api_key)
+            },
+            "flow_stage": "ai_content_generated_proceeding_to_html_template"
+        }, tool_name="ticmaker_async")
 
         if progress_callback:
             await progress_callback(70, "Building interactive HTML template...")
@@ -1624,7 +1736,7 @@ class TICMakerAsyncStdioMCPServer:
         self.tools = {
             "create_interactive_course_async": {
                 "name": "create_interactive_course_async",
-                "description": "Create interactive teaching content with async task support, including HTML pages, slides, PPT, courses, etc., and publish them in HTML format. Automatically detects task complexity and uses async execution for optimal performance.",
+                "description": "Create interactive teaching content with async task support, including HTML pages, slides, PPT, courses, etc., and publish them in HTML format. Always generates new content regardless of existing file presence. Automatically detects task complexity and uses async execution for optimal performance.",
                 "input_schema": {
                     "type": "object",
                     "properties": {
@@ -1788,7 +1900,11 @@ class TICMakerAsyncStdioMCPServer:
 
     async def handle_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Handle incoming MCP message with async task support"""
-        mcp_debug(f"🔄 Processing {message.method} message with id: {message.id}", tool_name="ticmaker_async")
+        mcp_debug(f"📥 [REQUEST_RECEIVED] Processing {message.method} message with id: {message.id}", tool_name="ticmaker_async")
+
+        # Log detailed message information
+        if message.params:
+            mcp_debug(f"📋 [REQUEST_PARAMS] Message parameters: {json.dumps(message.params, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
 
         if message.method == "notifications/initialized":
             mcp_info("Received initialized notification", tool_name="ticmaker_async")
@@ -1885,15 +2001,19 @@ class TICMakerAsyncStdioMCPServer:
 
     async def _handle_tool_call(self, message: MCPMessage) -> MCPMessage:
         """Handle tool execution with automatic async detection"""
-        mcp_info("⚡ Processing TOOLS_CALL request with async support", tool_name="ticmaker_async")
+        mcp_info("⚡ [TOOL_CALL_START] Processing TOOLS_CALL request with async support", tool_name="ticmaker_async")
 
         try:
             params = message.params or {}
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
 
-            mcp_info(f"🔧 Executing async tool: {tool_name}", tool_name="ticmaker_async")
-            mcp_debug(f"📝 Tool arguments: {arguments}", tool_name="ticmaker_async")
+            mcp_info(f"🔧 [TOOL_EXECUTION] Executing async tool: {tool_name}", tool_name="ticmaker_async")
+            mcp_debug(f"📝 [TOOL_ARGS] Tool arguments: {json.dumps(arguments, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
+
+            # Log user input specifically for debugging
+            user_input = arguments.get("user_input", "")
+            mcp_debug(f"👤 [USER_INPUT] User request: {user_input}", tool_name="ticmaker_async")
 
             if tool_name not in self.tools:
                 mcp_error(f"❌ Tool '{tool_name}' not found", tool_name="ticmaker_async")
@@ -1906,12 +2026,16 @@ class TICMakerAsyncStdioMCPServer:
                 )
 
             # Execute async tool
+            mcp_debug(f"🚀 [TOOL_DISPATCH] Dispatching to tool handler: {tool_name}", tool_name="ticmaker_async")
+
             if tool_name == "create_interactive_course_async":
+                mcp_debug(f"📋 [COURSE_CREATE] Starting interactive course creation", tool_name="ticmaker_async")
                 result = await self._create_interactive_course_async(arguments, message.id)
             elif tool_name == "modify_interactive_course_async":
+                mcp_debug(f"✏️ [COURSE_MODIFY] Starting interactive course modification", tool_name="ticmaker_async")
                 result = await self._modify_interactive_course_async(arguments, message.id)
             else:
-                mcp_error(f"Unknown async tool requested: {tool_name}", tool_name="ticmaker_async")
+                mcp_error(f"❌ [TOOL_ERROR] Unknown async tool requested: {tool_name}", tool_name="ticmaker_async")
                 raise ValueError(f"Unknown async tool: {tool_name}")
 
             mcp_info(f"✅ Async tool '{tool_name}' completed successfully", tool_name="ticmaker_async")

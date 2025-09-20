@@ -214,7 +214,7 @@ servers:
     command: ["python", "tools/mcp_ticmaker_async_stdio_server.py"]
     args: ["--config", ".simacode/config.yaml"]
     environment:
-      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-.simacode/mcp/ticmaker_output}"
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-.simacode/mcp/ticmaker_async_output}"
       TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
       TICMAKER_AI_ENABLED: "${TICMAKER_AI_ENABLED:-true}"
       TICMAKER_AI_BASE_URL: "${TICMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
