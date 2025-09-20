@@ -1,0 +1,6 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="220" height="60" viewBox="0 0 220 60">
+  <rect width="220" height="60" rx="10" fill="#fef3c7"/>
+  <path d="M22 38 L34 22 L46 38 Z" fill="#f59e0b"/>
+  <text x="56" y="36" fill="#92400e" style="font:700 20px Inter, system-ui">SunPeak</text>
+</svg>
+
