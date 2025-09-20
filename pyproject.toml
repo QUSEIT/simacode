@@ -5,8 +5,8 @@ description = "A modern AI programming assistant built on Python with intelligen
 authors = ["SimaCode Team <sima@quseit.com>"]
 readme = "README.md"
 packages = [{include = "simacode", from = "src"}]
-homepage = "https://github.com/simacode/simacode"
-repository = "https://github.com/simacode/simacode"
+homepage = "https://github.com/QUSEIT/simacode"
+repository = "https://github.com/QUSEIT/simacode"
 documentation = "https://simacode.readthedocs.io"
 keywords = ["ai", "programming", "assistant", "cli", "automation"]
 classifiers = [
