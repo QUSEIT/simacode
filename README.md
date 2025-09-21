@@ -213,7 +213,7 @@ simacode mcp status
 创建 MCP 配置文件来定义您的工具服务器：
 
 ```yaml
-# .simacode/mcp.yaml 或 mcp.yaml
+# .simacode/mcp.yaml
 servers:
   file_tools:
     command: ["python", "-m", "file_mcp_server"]
