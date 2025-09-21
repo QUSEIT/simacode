@@ -1,21 +1,21 @@
 # SimaCode
 
-A modern AI programming assistant built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and a sophisticated multi-agent system. SimaCode operates in dual modes: as an independent terminal AI Agent application for direct use, and as a backend API service providing RESTful API and WebSocket services for integration with frameworks like DevGenius Agent.
+A modern AI orchestration workflow framework built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and comprehensive workflow orchestration capabilities. SimaCode operates in dual modes: as an independent terminal workflow agent for direct workflow execution, and as a backend API service providing RESTful API and WebSocket services for enterprise workflow integration and automation.
 
 ## 🚀 Features
 
 ### Core Capabilities
-- **Intelligent Task Planning**: Advanced ReAct framework for understanding and executing complex programming tasks
-- **Multi-Agent System**: Planned specialized agents for different operations (files, code analysis, system commands)
-- **MCP Integration**: Full support for Model Context Protocol tools with seamless AI and direct command-line access
-- **Secure by Design**: Comprehensive permission system and safety checks
-- **Extensible Architecture**: Tool registry system with plugin support for custom capabilities and MCP tools
-- **Multi-Provider AI Support**: Currently supports OpenAI, with planned support for Anthropic and other providers
+- **Intelligent Workflow Orchestration**: Advanced ReAct framework for understanding and executing complex workflow tasks
+- **Multi-Agent Workflow System**: Planned specialized agents for different workflow operations (files, code analysis, system commands, data processing)
+- **MCP Workflow Integration**: Full support for Model Context Protocol tools with seamless AI-driven and direct command-line workflow access
+- **Secure Workflow Execution**: Comprehensive permission system and safety checks for workflow operations
+- **Extensible Workflow Architecture**: Tool registry system with plugin support for custom workflow capabilities and MCP tools
+- **Multi-Provider AI Support**: Currently supports OpenAI for workflow decision-making, with planned support for Anthropic and other providers
 
 ### Dual-Mode Operation
-- **Terminal AI Agent Mode**: Direct command-line interaction for individual developers
-- **Backend API Service Mode**: RESTful API and WebSocket endpoints for enterprise integration
-- **DevGenius Agent Integration**: Seamless integration with DevGenius Agent framework through standardized APIs
+- **Terminal Workflow Agent Mode**: Direct command-line interaction for individual workflow execution and development
+- **Backend Workflow Service Mode**: RESTful API and WebSocket endpoints for enterprise workflow integration
+- **DevGenius Agent Integration**: Seamless integration with DevGenius Agent framework through standardized workflow APIs
 
 ## 📦 Installation
 
@@ -40,36 +40,36 @@ poetry install --with dev
 
 ### Quick Start
 
-#### Terminal AI Agent Mode
+#### Terminal Workflow Agent Mode
 ```bash
-# Initialize a new project
+# Initialize a new workflow project
 simacode init
 
-# Start interactive mode
+# Start interactive workflow mode
 simacode chat --interactive
 
-# Run a single command
-simacode chat "Create a Python function to calculate fibonacci numbers"
+# Run a single workflow command
+simacode chat "Create a complete Python project with tests and documentation"
 
-# Check configuration
+# Check workflow configuration
 simacode config
 ```
 
-#### Backend API Service Mode
+#### Backend Workflow Service Mode
 ```bash
-# Start API server
+# Start workflow orchestration server
 simacode serve --host 0.0.0.0 --port 8000
 
-# Start with custom configuration
-simacode api --config api_config.yaml
+# Start with custom workflow configuration
+simacode api --config workflow_config.yaml
 
-# Check API status
+# Check workflow API status
 curl http://localhost:8000/health
 ```
 
 ## 🎯 Usage
 
-### Terminal AI Agent Mode
+### Terminal Workflow Agent Mode
 
 ```bash
 # Display help
@@ -78,131 +78,131 @@ simacode --help
 # Show version
 simacode --version
 
-# Initialize project
+# Initialize workflow project
 simacode init
 
-# Start chat
-simacode chat "Your message here"
+# Start workflow execution
+simacode chat "Your workflow request here"
 
-# Interactive chat mode
+# Interactive workflow mode
 simacode chat --interactive
 
-# Use ReAct engine for intelligent task planning
-simacode chat --react "Create a Python function to calculate fibonacci numbers"
+# Use ReAct engine for intelligent workflow orchestration
+simacode chat --react "Create a complete Python project with tests and documentation"
 
-# Interactive ReAct mode
+# Interactive ReAct workflow mode
 simacode chat --react --interactive
 
-# Resume a session
+# Resume a workflow session
 simacode chat --react --session-id <session_id>
 
-# Configuration management
+# Workflow configuration management
 simacode config --check
 ```
 
-### Backend API Service Mode
+### Backend Workflow Service Mode
 
 ```bash
-# Start API server
+# Start workflow orchestration server
 simacode serve --host 0.0.0.0 --port 8000
 
-# Start with custom configuration
-simacode api --config api_config.yaml --workers 4
+# Start with custom workflow configuration
+simacode api --config workflow_config.yaml --workers 4
 
-# Start with specific AI provider
+# Start with specific AI provider for workflows
 simacode serve --ai-provider anthropic --model claude-3
 
 # Enable development mode with auto-reload
 simacode serve --dev --reload
 ```
 
-#### API Endpoints
+#### Workflow API Endpoints
 
-Once the API server is running, you can access:
+Once the workflow orchestration server is running, you can access:
 
 ```bash
 # Health check
 GET /health
 
-# Single chat completion
+# Single workflow completion
 POST /api/v1/chat/
 Content-Type: application/json
 {
-  "message": "Create a Python function to calculate fibonacci numbers",
-  "session_id": "optional-session-id"
+  "message": "Create a complete Python project with tests and documentation",
+  "session_id": "optional-workflow-session-id"
 }
 
-# Streaming chat
+# Streaming workflow execution
 POST /api/v1/chat/stream/
 
-# ReAct task execution
+# ReAct workflow orchestration
 POST /api/v1/react/execute/
 {
-  "task": "Create a Python project with tests",
+  "task": "Create a comprehensive Python project with CI/CD pipeline",
   "context": {}
 }
 
-# WebSocket real-time chat
+# WebSocket real-time workflow interaction
 WS /api/v1/chat/ws/
 
-# WebSocket ReAct execution
+# WebSocket ReAct workflow execution
 WS /api/v1/react/ws/
 ```
 
-## 🔧 MCP Tool Integration
+## 🔧 MCP Workflow Tool Integration
 
-SimaCode provides comprehensive support for Model Context Protocol (MCP) tools, enabling both AI-assisted and direct command-line access to external tools.
+SimaCode provides comprehensive support for Model Context Protocol (MCP) tools, enabling both AI-assisted workflow orchestration and direct command-line access to workflow tools.
 
 ### Two Ways to Use MCP Tools
 
-#### 1. AI-Assisted Usage (ReAct Mode)
-Let the AI intelligently choose and use MCP tools based on your natural language requests:
+#### 1. AI-Assisted Workflow Usage (ReAct Mode)
+Let the AI intelligently orchestrate and use MCP workflow tools based on your natural language workflow requests:
 
 ```bash
-# Start interactive ReAct mode with MCP tools
+# Start interactive ReAct workflow mode with MCP tools
 simacode chat --react --interactive
 
-# Example conversation:
-> Please read the contents of my config.yaml file
-# AI will automatically discover and use the appropriate MCP file tool
+# Example workflow conversations:
+> Create a data processing workflow that reads config.yaml, processes the data, and generates a report
+# AI will automatically orchestrate file tools, data processing tools, and reporting tools
 
-> Help me scrape the title from https://example.com
-# AI will use web scraping MCP tools if available
+> Build a web scraping workflow that extracts data from multiple URLs and consolidates results
+# AI will orchestrate web scraping MCP tools and data consolidation workflows
 
-> Process this JSON data and extract the user information
-# AI will use data processing MCP tools
+> Set up a complete project workflow with testing, documentation, and deployment
+# AI will orchestrate file management, testing tools, and deployment workflow tools
 ```
 
-#### 2. Direct Tool Execution
-Execute specific MCP tools directly with precise control:
+#### 2. Direct Workflow Tool Execution
+Execute specific MCP workflow tools directly with precise control:
 
 ```bash
-# Initialize MCP integration
+# Initialize MCP workflow integration
 simacode mcp init
 
-# List all available tools
+# List all available workflow tools
 simacode mcp list
 
-# Search for specific tools
+# Search for specific workflow tools
 simacode mcp search "file"
-simacode mcp search "web" --fuzzy
+simacode mcp search "workflow" --fuzzy
 
-# Get detailed tool information
+# Get detailed workflow tool information
 simacode mcp info file_tools:read_file
 
-# Execute tools with parameters
+# Execute workflow tools with parameters
 simacode mcp run file_tools:read_file --param file_path=/path/to/file.txt
 
-# Interactive parameter input
+# Interactive workflow parameter input
 simacode mcp run web_tools:fetch_url --interactive
 
-# Execute with JSON parameters
+# Execute with JSON workflow parameters
 simacode mcp run data_tools:process_json --params '{"data": {"key": "value"}, "operation": "filter"}'
 
-# Dry run to see what would be executed
-simacode mcp run my_tool --param input=test --dry-run
+# Dry run to see what workflow would be executed
+simacode mcp run my_workflow_tool --param input=test --dry-run
 
-# Show system status
+# Show workflow system status
 simacode mcp status
 ```
 
