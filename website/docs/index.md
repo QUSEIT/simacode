@@ -3,14 +3,14 @@
   <h1 class="hero-title">SimaCode</h1>
   <p class="hero-subtitle">AI编排工作流框架 · ReAct 工作流编排 · MCP 工具集成 · CLI / API 双模式</p>
   <div class="cta-buttons">
-    <a class="button primary" href="quickstart/">开始使用</a>
+    <a class="button primary" href="quickstart.md">开始使用</a>
     <a class="button ghost" href="https://github.com/QUSEIT/simacode" target="_blank" rel="noopener">GitHub</a>
   </div>
 </div>
 
 <div class="announce">
   <span class="badge">New</span>
-  <span>v0.1 预览：更强 ReAct 规划与 MCP 体验，查看 <a href="quickstart/">快速开始</a> 或 <a href="roadmap/">路线图</a>。</span>
+  <span>v0.1 预览：更强 ReAct 规划与 MCP 体验，查看 <a href="quickstart.md">快速开始</a> 或 <a href="roadmap.md">路线图</a>。</span>
   
 </div>
 
@@ -33,28 +33,28 @@ poetry run simacode serve --reload --debug
 
 <div class="grid cards" markdown="1">
 
--   [:material-console: CLI 体验](examples/#cli-对话)
+-   [:material-console: CLI 体验](examples.md)
     交互与流式输出，适合日常开发与快速验证。
 
--   [:material-api: API 集成](examples/#api-请求)
+-   [:material-api: API 集成](examples.md)
     基于 FastAPI 的接口，易集成、易扩展。
 
--   [:material-puzzle: MCP 工具](examples/#mcp-工具)
+-   [:material-puzzle: MCP 工具](examples.md)
     自动发现与执行，支持 AI 调用与手动调用。
 
--   [:material-family-tree: 清晰架构](architecture/)
+-   [:material-family-tree: 清晰架构](architecture.md)
     核心共享、接口分层，易维护、好扩展。
 
--   [:material-lifebuoy: 故障排查](troubleshooting/)
+-   [:material-lifebuoy: 故障排查](troubleshooting.md)
     网络代理/MCP 常见问题与解决方案。
 
--   [:material-progress-clock: 异步任务](features/)
+-   [:material-progress-clock: 异步任务](features.md)
     支持异步与并发处理，提升吞吐与响应速度。
 
--   [:material-toolbox: 内嵌工具](features/)
+-   [:material-toolbox: 内嵌工具](features.md)
     内置并可扩展多种工具，便于组合调用与编排。
 
--   [:material-robot: ReAct 规划](features/)
+-   [:material-robot: ReAct 规划](features.md)
     从对话到执行，AI编排工具，自动完成目标。
 
 </div>

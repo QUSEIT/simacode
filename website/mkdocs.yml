@@ -68,3 +68,6 @@ nav:
   - 故障排查: troubleshooting.md
   - 贡献: contributing.md
   - 路线图: roadmap.md
+  - 附录:
+      - 站点进展: progress.md
+      - 网站方案: website_plan.md
