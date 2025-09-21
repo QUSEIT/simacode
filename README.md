@@ -1,8 +1,8 @@
-# SimaCode
+# 思码 (SimaCode)
 
 [English Version / 英文版本](README_EN.md)
 
-基于 Python 构建的现代 AI 编排工作流框架，具备智能 ReAct（推理与行动）机制和全面的工作流编排能力。SimaCode 采用双模式运行：既可作为独立的终端工作流代理直接执行工作流，也可作为后端 API 服务，为企业工作流集成和自动化提供 RESTful API 和 WebSocket 服务。
+基于 Python 构建的现代 AI 编排工作流框架，具备智能 ReAct（推理与行动）机制和全面的工作流编排能力。思码采用双模式运行：既可作为独立的终端工作流代理直接执行工作流，也可作为后端 API 服务，为企业工作流集成和自动化提供 RESTful API 和 WebSocket 服务。
 
 ## 🚀 特性
 
@@ -153,7 +153,7 @@ WS /api/v1/react/ws/
 
 ## 🔧 MCP 工作流工具集成
 
-SimaCode 为模型上下文协议（MCP）工具提供全面支持，既可以进行 AI 辅助的工作流编排，也可以直接命令行访问工作流工具。
+思码为模型上下文协议（MCP）工具提供全面支持，既可以进行 AI 辅助的工作流编排，也可以直接命令行访问工作流工具。
 
 ### 使用 MCP 工具的两种方式
 
@@ -213,7 +213,7 @@ simacode mcp status
 创建 MCP 配置文件来定义您的工具服务器：
 
 ```yaml
-# .simacode/mcp.yaml 或 mcp.yaml
+# .simacode/mcp.yaml
 servers:
   file_tools:
     command: ["python", "-m", "file_mcp_server"]
@@ -411,7 +411,7 @@ simacode mcp run file_tools:write_file --param file_path=users.csv
 
 ### 配置
 
-SimaCode 使用分层配置系统：
+思码使用分层配置系统：
 
 1. **运行时配置**（CLI 参数）
 2. **项目配置**（`.simacode/config.yaml`）
@@ -446,7 +446,7 @@ logging:
 
 ## 🏗️ 架构
 
-SimaCode 采用清晰的双模式架构，具有不同的层次，支持终端和 API 操作：
+思码采用清晰的双模式架构，具有不同的层次，支持终端和 API 操作：
 
 ### 双模式架构
 
@@ -470,7 +470,7 @@ SimaCode 采用清晰的双模式架构，具有不同的层次，支持终端�
 - **ReAct 引擎**：智能任务规划和执行，集成 MCP 工具
 - **工具系统**：可扩展框架，内置工具（bash、file_read、file_write）
 - **MCP 集成**：完整的模型上下文协议支持，包括：
-  - **工具包装器**：MCP 工具与 SimaCode 的无缝集成
+  - **工具包装器**：MCP 工具与思码的无缝集成
   - **工具注册表**：集中管理和命名空间处理
   - **自动发现**：智能工具发现和注册
   - **动态更新**：热重载和实时工具更新
@@ -756,7 +756,7 @@ poetry run pytest -v
 
 ## 📊 当前状态摘要
 
-**🎉 重大里程碑实现**：SimaCode 已远超初始预期，具备全面的 MCP 集成、双模式架构和生产就绪功能。
+**🎉 重大里程碑实现**：思码已远超初始预期，具备全面的 MCP 集成、双模式架构和生产就绪功能。
 
 **📈 项目成熟度**：
 - **代码库**：8 个主要模块中的 77 个 Python 文件
@@ -765,7 +765,7 @@ poetry run pytest -v
 - **测试覆盖**：39 个测试文件确保可靠性
 - **文档**：53 个有组织的文档文件
 
-**🚀 生产就绪**：SimaCode 现在是一个功能齐全的 AI 编排工作流框架，适合个人开发者和企业部署。
+**🚀 生产就绪**：思码现在是一个功能齐全的 AI 编排工作流框架，适合个人开发者和企业部署。
 
 ## 🤝 贡献
 
@@ -809,3 +809,12 @@ poetry run pytest -v
 - **文档**：[simacode.quseit.com](https://simacode.quseit.com/)
 - **问题**：[GitHub Issues](https://github.com/QUSEIT/simacode/issues)
 - **讨论**：[GitHub Discussions](https://github.com/QUSEIT/simacode/discussions)
+- **微信**：`yhc-startup`
+
+## 📱 获得思码更新
+
+<div align="center">
+<img src="website/assets/gongzhonghao.jpg" alt="思码公众号二维码" width="200">
+<br>
+<em>关注公众号获取思码最新动态</em>
+</div>

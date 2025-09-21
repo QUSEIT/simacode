@@ -1,6 +1,6 @@
 <div class="hero">
   <img class="hero-logo" src="assets/logo.svg" alt="SimaCode logo" />
-  <h1 class="hero-title">SimaCode</h1>
+  <h1 class="hero-title">思码 (SimaCode)</h1>
   <p class="hero-subtitle">AI编排工作流框架 · ReAct 工作流编排 · MCP 工具集成 · CLI / API 双模式</p>
   <div class="cta-buttons">
     <a class="button primary" href="quickstart.md">开始使用</a>
@@ -14,7 +14,7 @@
   
 </div>
 
-## 为什么选择 SimaCode
+## 为什么选择思码
 
 - 智能工作流编排：结合"思考 + 行动"，自动规划并执行工作流任务。
 - MCP 工具集成：统一接入文件/网络/数据等外部工具，AI编排/直连皆可。
@@ -94,7 +94,7 @@ poetry run simacode serve --reload --debug
 
 ## 快速对比
 
-| 维度 | SimaCode | n8n | Dify |
+| 维度 | 思码 | n8n | Dify |
 |------|----------|-----|------|
 | 定位 | AI编排工作流框架/Agent 基座 | 可视化自动化与集成平台 | LLM 应用/Agent 构建平台 |
 | 编排方式 | 目标→步骤，AI 编排工作流 MCP 工具 | 节点/工作流拖拽 | Flow/Graph + 组件、Agent 场景 |
