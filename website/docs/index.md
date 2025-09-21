@@ -1,6 +1,6 @@
 <div class="hero">
   <img class="hero-logo" src="assets/logo.svg" alt="SimaCode logo" />
-  <h1 class="hero-title">SimaCode</h1>
+  <h1 class="hero-title">思码 (SimaCode)</h1>
   <p class="hero-subtitle">AI编排工作流框架 · ReAct 工作流编排 · MCP 工具集成 · CLI / API 双模式</p>
   <div class="cta-buttons">
     <a class="button primary" href="quickstart.md">开始使用</a>
@@ -14,7 +14,7 @@
   
 </div>
 
-## 为什么选择 SimaCode
+## 为什么选择思码
 
 - 智能工作流编排：结合"思考 + 行动"，自动规划并执行工作流任务。
 - MCP 工具集成：统一接入文件/网络/数据等外部工具，AI编排/直连皆可。
@@ -94,7 +94,7 @@ poetry run simacode serve --reload --debug
 
 ## 快速对比
 
-| 维度 | SimaCode | n8n | Dify |
+| 维度 | 思码 | n8n | Dify |
 |------|----------|-----|------|
 | 定位 | AI编排工作流框架/Agent 基座 | 可视化自动化与集成平台 | LLM 应用/Agent 构建平台 |
 | 编排方式 | 目标→步骤，AI 编排工作流 MCP 工具 | 节点/工作流拖拽 | Flow/Graph + 组件、Agent 场景 |
@@ -105,6 +105,25 @@ poetry run simacode serve --reload --debug
 | 可扩展性 | Python 扩展 + MCP 服务器接入 | 自定义节点/函数 | 插件/函数调用/工具接入 |
 | 部署 | 本地 CLI/API 服务 | Docker/self-host 或云 | Docker/self-host 或云 |
 
-> 目标是兼顾“探索（AI 决策）”与“可控（你来驱动）”，既能独立使用，也便于集成到现有系统。
+> 目标是兼顾"探索（AI 决策）"与"可控（你来驱动）"，既能独立使用，也便于集成到现有系统。
+
+## 联系我们
+
+<div class="contact-section">
+  <div class="contact-info">
+    <h3>💬 技术交流</h3>
+    <p><strong>微信</strong>：<code>yhc-startup</code></p>
+    <p><strong>GitHub</strong>：<a href="https://github.com/QUSEIT/simacode/issues" target="_blank">Issues & Discussions</a></p>
+  </div>
+
+  <div class="qr-section">
+    <h3>📱 获得思码更新</h3>
+    <div align="center">
+      <img src="assets/gongzhonghao.jpg" alt="思码公众号二维码" width="180" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+      <br>
+      <em style="color: #666; font-size: 0.9em;">关注公众号获取最新动态</em>
+    </div>
+  </div>
+</div>
 
 <!-- 用户背书版块已移除 -->

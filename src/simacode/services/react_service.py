@@ -275,9 +275,7 @@ class ReActService:
             
             # Look for MCP configuration in standard locations
             mcp_config_paths = [
-                Path.cwd() / ".simacode" / "mcp.yaml",
-                Path.cwd() / "mcp.yaml",
-                Path.home() / ".config" / "simacode" / "mcp.yaml"
+                Path.cwd() / ".simacode" / "mcp.yaml"
             ]
             
             mcp_config_path = None

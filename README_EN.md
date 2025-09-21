@@ -213,7 +213,7 @@ simacode mcp status
 Create an MCP configuration file to define your tool servers:
 
 ```yaml
-# .simacode/mcp.yaml or mcp.yaml
+# .simacode/mcp.yaml
 servers:
   file_tools:
     command: ["python", "-m", "file_mcp_server"]
