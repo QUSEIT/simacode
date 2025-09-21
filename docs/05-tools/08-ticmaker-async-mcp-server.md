@@ -351,7 +351,7 @@ python -c "from tools.mcp_ticmaker_async_stdio_server import load_async_config; 
 
 该项目是 SimaCode MCP 异步任务增强特性的完整实现示例。如需改进或扩展功能，请参考：
 
-- `docs/mcp-async-task-enhancement.md` - 异步任务增强架构文档
+- `docs/05-tools/06-mcp-async-task-enhancement.md` - 异步任务增强架构文档
 - `src/simacode/mcp/async_integration.py` - 异步任务管理器
 - `src/simacode/mcp/protocol.py` - MCP 协议异步扩展
 

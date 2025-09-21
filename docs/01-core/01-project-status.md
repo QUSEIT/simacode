@@ -233,9 +233,9 @@ kubectl apply -f k8s/deployment.yaml
 ## 📞 支持和反馈
 
 ### 文档资源
-- **架构设计**: `docs/dual-mode-architecture.md`
-- **API使用**: `docs/api-usage-examples.md`
-- **实施总结**: `docs/PHASE1_SUMMARY.md`
+- **架构设计**: `docs/01-core/02-dual-mode-architecture.md`
+- **API使用**: `docs/06-api/01-api-usage-examples.md`
+- **实施总结**: `docs/07-testing/03-phase1-summary.md`
 
 ### 测试验证
 ```bash
