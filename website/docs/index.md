@@ -119,7 +119,7 @@ poetry run simacode serve --reload --debug
   <div class="qr-section">
     <h3>📱 获得思码更新</h3>
     <div align="center">
-      <img src="assets/gongzhonghao.jpg" alt="思码公众号二维码" width="180" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+      <img src="//github.com/QUSEIT/simacode/raw/master/website/assets/gongzhonghao.jpg" alt="思码公众号二维码" width="180" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
       <br>
       <em style="color: #666; font-size: 0.9em;">关注公众号获取最新动态</em>
     </div>
