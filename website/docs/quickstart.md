@@ -11,23 +11,23 @@ cd simacode
 poetry install
 ```
 
-## 终端 AI 助手（CLI）
+## 终端工作流代理（CLI）
 
 ```bash
 # 显示帮助
 poetry run simacode --help
 
-# 初始化项目目录（生成 .simacode/ 配置）
+# 初始化工作流项目目录（生成 .simacode/ 配置）
 poetry run simacode init
 
-# 交互对话（ReAct 智能模式）
+# 交互工作流任务及对话（ReAct 智能编排模式）
 poetry run simacode chat --react --interactive
 
-# 单次对话
-poetry run simacode chat "创建一个计算斐波那契数列的 Python 函数"
+# 单次工作流对话
+poetry run simacode chat "创建一个完整的Python项目，包含斐波那契函数、测试和文档"
 ```
 
-## API 服务（FastAPI + Uvicorn）
+## 工作流API服务（FastAPI + Uvicorn）
 
 ```bash
 # 启动开发服务
