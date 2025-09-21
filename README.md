@@ -1,5 +1,7 @@
 # SimaCode
 
+[中文版本 / Chinese Version](README_CN.md)
+
 A modern AI orchestration workflow framework built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and comprehensive workflow orchestration capabilities. SimaCode operates in dual modes: as an independent terminal workflow agent for direct workflow execution, and as a backend API service providing RESTful API and WebSocket services for enterprise workflow integration and automation.
 
 ## 🚀 Features
@@ -538,36 +540,126 @@ poetry run flake8 src/simacode
 ```
 simacode/
 ├── src/simacode/           # Main package
+│   ├── __init__.py        # Package initialization
+│   ├── __main__.py        # CLI entry point
 │   ├── cli.py             # Command-line interface
+│   ├── cli_mcp.py         # MCP command-line interface
 │   ├── config.py          # Configuration management
 │   ├── logging_config.py  # Logging setup
+│   ├── core/              # Core service layer
+│   │   ├── __init__.py    # Core module initialization
+│   │   └── service.py     # Unified SimaCodeService
 │   ├── ai/                # AI client implementations
+│   │   ├── __init__.py    # AI module initialization
 │   │   ├── base.py        # AI client abstractions
 │   │   ├── factory.py     # AI client factory
 │   │   ├── openai_client.py # OpenAI integration
 │   │   └── conversation.py  # Conversation management
-│   ├── react/             # ReAct engine implementation
-│   │   ├── engine.py      # Main ReAct engine
+│   ├── api/               # FastAPI web service
+│   │   ├── __init__.py    # API module initialization
+│   │   ├── app.py         # FastAPI application
+│   │   ├── models.py      # API data models
+│   │   ├── dependencies.py # Dependency injection
+│   │   ├── chat_confirmation.py # Chat confirmation handling
+│   │   └── routes/        # API route handlers
+│   │       ├── __init__.py # Routes initialization
+│   │       ├── chat.py    # Chat endpoints
+│   │       ├── chat_safe.py # Safe chat endpoints
+│   │       ├── config.py  # Configuration endpoints
+│   │       ├── health.py  # Health check endpoints
+│   │       ├── react.py   # ReAct endpoints
+│   │       ├── sessions.py # Session endpoints
+│   │       └── tasks.py   # Task endpoints
+│   ├── react/             # ReAct workflow engine
+│   │   ├── __init__.py    # ReAct module initialization
+│   │   ├── engine.py      # Main ReAct workflow engine
 │   │   ├── planner.py     # Task planning
-│   │   └── evaluator.py   # Result evaluation
-│   ├── tools/             # Tool system
+│   │   ├── evaluator.py   # Result evaluation
+│   │   ├── confirmation_manager.py # User confirmation handling
+│   │   ├── exceptions.py  # ReAct exceptions
+│   │   └── mcp_integration.py # MCP integration
+│   ├── mcp/               # MCP (Model Context Protocol) integration
+│   │   ├── __init__.py    # MCP module initialization
+│   │   ├── client.py      # MCP client implementation
+│   │   ├── config.py      # MCP configuration
+│   │   ├── connection.py  # Connection management
+│   │   ├── discovery.py   # Tool discovery
+│   │   ├── auto_discovery.py # Automatic tool discovery
+│   │   ├── dynamic_updates.py # Dynamic tool updates
+│   │   ├── exceptions.py  # MCP exceptions
+│   │   ├── health.py      # Health monitoring
+│   │   ├── integration.py # Integration utilities
+│   │   ├── namespace_manager.py # Namespace management
+│   │   ├── protocol.py    # Protocol implementation
+│   │   ├── server_manager.py # Server management
+│   │   ├── tool_registry.py # Tool registry
+│   │   ├── tool_wrapper.py # Tool wrapper
+│   │   └── async_integration.py # Async integration
+│   ├── tools/             # Built-in tool system
+│   │   ├── __init__.py    # Tools module initialization
 │   │   ├── base.py        # Tool abstractions
 │   │   ├── bash.py        # Bash execution tool
 │   │   ├── file_read.py   # File reading tool
-│   │   └── file_write.py  # File writing tool
+│   │   ├── file_write.py  # File writing tool
+│   │   ├── smc_content_coder.py # Content coding tool
+│   │   └── universal_ocr/ # Universal OCR tool
+│   │       ├── __init__.py # OCR module initialization
+│   │       ├── config.py  # OCR configuration
+│   │       ├── core.py    # OCR core functionality
+│   │       ├── file_processor.py # File processing
+│   │       ├── input_models.py # Input data models
+│   │       ├── test_basic.py # Basic tests
+│   │       └── engines/   # OCR engines
+│   │           ├── __init__.py # Engines initialization
+│   │           ├── base.py # Base engine
+│   │           └── claude_engine.py # Claude OCR engine
 │   ├── permissions/       # Security and permissions
+│   │   ├── __init__.py    # Permissions module initialization
 │   │   ├── manager.py     # Permission management
 │   │   └── validators.py  # Security validators
 │   ├── session/           # Session management
+│   │   ├── __init__.py    # Session module initialization
 │   │   └── manager.py     # Session handling
-│   └── services/          # Application services
-│       └── react_service.py # ReAct service layer
-├── config/                # Configuration files
-│   └── default.yaml       # Default configuration
+│   ├── services/          # Application services
+│   │   ├── __init__.py    # Services module initialization
+│   │   └── react_service.py # ReAct service layer
+│   ├── utils/             # Utility modules
+│   │   ├── __init__.py    # Utils module initialization
+│   │   ├── config_loader.py # Configuration loader
+│   │   ├── mcp_logger.py  # MCP logging utilities
+│   │   └── task_summary.py # Task summary utilities
+│   └── universalform/     # Universal form handling
+│       ├── __init__.py    # Universal form initialization
+│       └── app.py         # Form application
 ├── tests/                 # Test suite
-├── docs/                  # Documentation
-│   └── plans/             # Development plans
-└── pyproject.toml        # Project configuration
+│   ├── integration/       # Integration tests
+│   └── mcp/               # MCP-specific tests
+├── tools/                 # External MCP tools
+├── docs/                  # Documentation (organized structure)
+│   ├── README.md          # Documentation navigation
+│   ├── 01-core/           # Core project documentation
+│   ├── 02-architecture/   # Architecture design documents
+│   ├── 03-features/       # Feature specifications
+│   ├── 04-development/    # Development guides
+│   ├── 05-tools/          # Tool integration guides
+│   ├── 06-api/            # API documentation
+│   ├── 07-testing/        # Test documentation
+│   ├── 08-deployment/     # Deployment documentation
+│   ├── 09-troubleshooting/ # Problem resolution guides
+│   └── 10-references/     # Reference materials
+├── website/               # Official website (MkDocs)
+│   ├── mkdocs.yml         # Website configuration
+│   └── docs/              # Website content
+│       ├── index.md       # Homepage
+│       ├── assets/        # Website assets
+│       └── styles/        # Custom styles
+├── demo/                  # Demo scripts and examples
+├── scripts/               # Build and utility scripts
+├── .simacode/             # Local configuration
+│   ├── logs/              # Application logs
+│   ├── mcp/               # MCP data
+│   └── sessions/          # Session data
+└── pyproject.toml         # Project configuration
 ```
 
 ## 🧪 Testing
@@ -590,77 +682,90 @@ poetry run pytest -v
 
 ## 📋 Development Roadmap
 
-### Phase 1: Foundation ✅
-- [x] Basic CLI structure
-- [x] Configuration system
-- [x] Logging framework
-- [x] Project setup
+### Phase 1: Foundation ✅ **COMPLETED**
+- [x] Basic CLI structure with Click framework
+- [x] Hierarchical configuration system (YAML + env vars)
+- [x] Rich logging framework with structured output
+- [x] Poetry-based project setup and dependency management
 
-### Phase 2: AI Integration ✅
-- [x] OpenAI API client
-- [x] Basic conversation management
-- [x] Message history
-- [x] Streaming responses
+### Phase 2: AI Integration ✅ **COMPLETED**
+- [x] OpenAI API client with async support
+- [x] Conversation management with context handling
+- [x] Message history and session persistence
+- [x] Streaming responses for real-time interaction
 
-### Phase 3: Tool System ✅
-- [x] File operations
-- [x] Bash execution
-- [x] Permission system
-- [x] Tool registration
+### Phase 3: Tool System ✅ **COMPLETED**
+- [x] File operations (read/write with permissions)
+- [x] Bash execution with security controls
+- [x] Comprehensive permission system
+- [x] Extensible tool registration framework
 
-### Phase 4: ReAct Engine ✅
-- [x] Task planning
-- [x] Tool orchestration
-- [x] Error handling
-- [x] Session management
+### Phase 4: ReAct Workflow Engine ✅ **COMPLETED**
+- [x] Intelligent task planning and decomposition
+- [x] Tool orchestration and execution coordination
+- [x] Robust error handling and recovery
+- [x] Session management with state persistence
+- [x] User confirmation mechanisms for safety
 
-### Phase 5: Dual-Mode Architecture 🚧 **High Priority**
-- [ ] **Core Service Layer Abstraction**: Extract unified business logic
-- [ ] **FastAPI Integration**: RESTful API endpoints
-- [ ] **WebSocket Support**: Real-time communication
-- [ ] **Multi-User Session Management**: Concurrent session handling
-- [ ] **Async Task Processing**: Background task execution
-- [ ] **API Documentation**: OpenAPI/Swagger integration
+### Phase 5: MCP Integration ✅ **COMPLETED**
+- [x] **Complete MCP Protocol Support**: Full Model Context Protocol implementation
+- [x] **Tool Discovery & Registration**: Auto-discovery and namespace management
+- [x] **Dynamic Updates**: Hot-reload capabilities for tools
+- [x] **Dual Access Modes**: AI-assisted and direct CLI tool execution
+- [x] **Health Monitoring**: Connection status and tool availability tracking
+- [x] **Async Integration**: Background task processing and concurrent execution
 
-### Phase 6: Enhanced Tool System 🚧
-- [ ] Code analysis tools (AST parsing, syntax checking)
-- [ ] Git integration tools (commit, branch, merge)
-- [ ] Project management tools (dependency management)
-- [ ] Testing tools (unit test, integration test)
-- [ ] Build system integration
-- [ ] Documentation generation tools
+### Phase 6: Dual-Mode Architecture ✅ **COMPLETED**
+- [x] **Core Service Layer**: Unified SimaCodeService abstraction
+- [x] **FastAPI Integration**: Complete RESTful API with 13 endpoint modules
+- [x] **WebSocket Support**: Real-time communication for both chat and ReAct
+- [x] **Multi-User Session Management**: Concurrent session handling
+- [x] **OpenAPI Documentation**: Auto-generated Swagger documentation
+- [x] **Optional Dependencies**: Graceful degradation when API dependencies unavailable
 
-### Phase 7: Plugin System 🚧
-- [ ] Dynamic plugin loading mechanism
-- [ ] Plugin configuration management
-- [ ] Plugin dependency resolution
-- [ ] Plugin lifecycle management
-- [ ] Third-party plugin registry
-- [ ] MCP (Model Context Protocol) integration
+### Phase 7: Advanced Features ✅ **COMPLETED**
+- [x] **Universal OCR Tool**: Advanced OCR with multiple engines (Claude-based)
+- [x] **Content Processing**: Smart content coding and transformation tools
+- [x] **Universal Form Handling**: Dynamic form processing capabilities
+- [x] **Utility Framework**: Config loader, task summary, and MCP logging utilities
+- [x] **Comprehensive Testing**: 39 test files with integration and MCP-specific tests
 
-### Phase 8: Multi-Provider AI Support 🚧
-- [ ] Anthropic Claude client integration
-- [ ] Azure OpenAI client
-- [ ] Google Vertex AI client
-- [ ] Unified AI client interface
-- [ ] Provider-specific configuration
-- [ ] Fallback and load balancing
+### Phase 8: Production Ready Features 🎯 **CURRENT FOCUS**
+- [x] **Documentation System**: Comprehensive docs with 10 categorized sections
+- [x] **Website Integration**: Official MkDocs website with Material theme
+- [x] **Security Framework**: Permission-based access control and validation
+- [x] **Error Recovery**: Robust exception handling across all modules
+- [ ] **Performance Optimization**: Memory usage and response time improvements
+- [ ] **Enhanced Monitoring**: Advanced logging and metrics collection
 
-### Phase 9: Multi-Agent System 🚧
-- [ ] Agent abstraction framework
-- [ ] Specialized agents (FileAgent, CodeAgent, SystemAgent)
-- [ ] Inter-agent communication protocol
-- [ ] Task allocation and load balancing
-- [ ] Agent coordination strategies
-- [ ] Distributed execution support
+### Phase 9: Enterprise & Ecosystem 🚀 **NEAR TERM** (Q1-Q2 2025)
+- [ ] **Multi-Provider AI Support**: Anthropic Claude, Azure OpenAI, Google AI integration
+- [ ] **Advanced Workflow Features**: Conditional branching, parallel execution, workflow templates
+- [ ] **Enterprise Security**: RBAC, audit trails, compliance features
+- [ ] **Plugin Ecosystem**: Third-party plugin marketplace and certification
+- [ ] **Cloud Integration**: Native support for major cloud platforms
+- [ ] **Team Collaboration**: Shared workflows, team management, and collaborative editing
 
-### Phase 10: Production & Security
-- [ ] Sandboxed execution environment
-- [ ] Resource limits (CPU, memory, network)
-- [ ] Audit logging and monitoring
-- [ ] Threat detection and prevention
-- [ ] Enhanced session persistence
-- [ ] Performance optimization
+### Phase 10: Advanced AI Orchestration 🔮 **FUTURE** (H2 2025)
+- [ ] **Multi-Agent Coordination**: Specialized agent types with communication protocols
+- [ ] **Workflow Intelligence**: AI-powered workflow optimization and recommendations
+- [ ] **Enterprise Integration**: Native integrations with popular enterprise tools
+- [ ] **Distributed Execution**: Multi-node workflow execution and load balancing
+- [ ] **Advanced Analytics**: Workflow performance analysis and optimization insights
+- [ ] **Custom AI Models**: Support for custom and fine-tuned models
+
+## 📊 Current Status Summary
+
+**🎉 Major Milestone Achieved**: SimaCode has evolved far beyond initial expectations, with comprehensive MCP integration, dual-mode architecture, and production-ready features already implemented.
+
+**📈 Project Maturity**:
+- **Code Base**: 77 Python files across 8 major modules
+- **MCP Integration**: 16 specialized modules for complete protocol support
+- **API Layer**: 13 endpoint modules for comprehensive web service
+- **Testing Coverage**: 39 test files ensuring reliability
+- **Documentation**: 53 organized documentation files
+
+**🚀 Ready for Production**: SimaCode is now a fully-featured AI orchestration workflow framework suitable for both individual developers and enterprise deployment.
 
 ## 🤝 Contributing
 
@@ -695,6 +800,6 @@ This project is licensed under the MIT License - see the [LICENSE](LICENSE) file
 
 ## 📞 Support
 
-- **Documentation**: [simacode.readthedocs.io](https://simacode.readthedocs.io)
+- **Documentation**: [simacode.quseit.com](https://simacode.quseit.com/)
 - **Issues**: [GitHub Issues](https://github.com/QUSEIT/simacode/issues)
 - **Discussions**: [GitHub Discussions](https://github.com/QUSEIT/simacode/discussions)
