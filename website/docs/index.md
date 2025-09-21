@@ -105,6 +105,25 @@ poetry run simacode serve --reload --debug
 | 可扩展性 | Python 扩展 + MCP 服务器接入 | 自定义节点/函数 | 插件/函数调用/工具接入 |
 | 部署 | 本地 CLI/API 服务 | Docker/self-host 或云 | Docker/self-host 或云 |
 
-> 目标是兼顾“探索（AI 决策）”与“可控（你来驱动）”，既能独立使用，也便于集成到现有系统。
+> 目标是兼顾"探索（AI 决策）"与"可控（你来驱动）"，既能独立使用，也便于集成到现有系统。
+
+## 联系我们
+
+<div class="contact-section">
+  <div class="contact-info">
+    <h3>💬 技术交流</h3>
+    <p><strong>微信</strong>：<code>yhc-startup</code></p>
+    <p><strong>GitHub</strong>：<a href="https://github.com/QUSEIT/simacode/issues" target="_blank">Issues & Discussions</a></p>
+  </div>
+
+  <div class="qr-section">
+    <h3>📱 获得思码更新</h3>
+    <div align="center">
+      <img src="assets/gongzhonghao.jpg" alt="思码公众号二维码" width="180" style="border-radius: 8px; box-shadow: 0 2px 8px rgba(0,0,0,0.1);">
+      <br>
+      <em style="color: #666; font-size: 0.9em;">关注公众号获取最新动态</em>
+    </div>
+  </div>
+</div>
 
 <!-- 用户背书版块已移除 -->
