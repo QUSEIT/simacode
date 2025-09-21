@@ -1,0 +1,20 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 960 540" width="960" height="540">
+  <defs>
+    <linearGradient id="g3" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#22c55e"/>
+      <stop offset="100%" stop-color="#14b8a6"/>
+    </linearGradient>
+    <style>
+      .title{fill:#064e3b;font:700 22px Inter}
+      .mono{fill:#065f46;font:14px ui-monospace, SFMono-Regular, Menlo, monospace}
+      .box{fill:#ecfdf5;stroke:#a7f3d0}
+    </style>
+  </defs>
+  <rect width="960" height="540" rx="16" fill="url(#g3)"/>
+  <rect x="24" y="24" width="912" height="492" rx="10" class="box"/>
+  <text x="48" y="70" class="title">MCP 工具 · 发现与执行</text>
+  <text x="48" y="112" class="mono">$ simacode mcp init</text>
+  <text x="48" y="146" class="mono">$ simacode mcp list</text>
+  <text x="48" y="186" class="mono">$ simacode mcp run file_tools:read_file --param file_path=config.yaml</text>
+</svg>
+
