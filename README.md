@@ -809,3 +809,12 @@ poetry run pytest -v
 - **文档**：[simacode.quseit.com](https://simacode.quseit.com/)
 - **问题**：[GitHub Issues](https://github.com/QUSEIT/simacode/issues)
 - **讨论**：[GitHub Discussions](https://github.com/QUSEIT/simacode/discussions)
+- **微信**：`yhc-startup`
+
+## 📱 获得思码更新
+
+<div align="center">
+<img src="website/assets/gongzhonghao.jpg" alt="思码公众号二维码" width="200">
+<br>
+<em>关注公众号获取思码最新动态</em>
+</div>
