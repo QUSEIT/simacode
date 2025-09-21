@@ -4,23 +4,23 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 
 ## Project Overview
 
-SimaCode is a modern AI programming assistant built with Python featuring intelligent ReAct (Reasoning and Acting) mechanisms and a sophisticated multi-agent system. It operates in dual modes: as an independent terminal AI Agent application for direct use, and as a backend API service providing RESTful API and WebSocket services for integration with frameworks like DevGenius Agent.
+SimaCode is a modern AI orchestration workflow framework built with Python, featuring intelligent ReAct (Reasoning and Acting) mechanisms and comprehensive workflow orchestration capabilities. It operates in dual modes: as an independent terminal AI Agent application for direct workflow execution, and as a backend API service providing RESTful API and WebSocket services for enterprise workflow integration and automation.
 
 ## Architecture
 
 SimaCode follows a clean dual-mode architecture with distinct layers supporting both terminal and API operations:
 
 ### Dual-Mode Architecture
-- **Terminal AI Agent Mode**: CLI interface with Click framework and Rich terminal UI
-- **Backend API Service Mode**: FastAPI-based RESTful and WebSocket services for enterprise integration
-- **Unified Core Service**: Both modes share the same core business logic through `SimaCodeService`
+- **Terminal Workflow Agent Mode**: CLI interface with Click framework and Rich terminal UI for direct workflow execution
+- **Backend Workflow Service Mode**: FastAPI-based RESTful and WebSocket services for enterprise workflow integration
+- **Unified Workflow Engine**: Both modes share the same core workflow orchestration logic through `SimaCodeService`
 
 ### Core Components
-- **ReAct Engine** (`src/simacode/react/`): Intelligent task planning and execution with MCP tool integration
-- **MCP Integration** (`src/simacode/mcp/`): Complete Model Context Protocol support with auto-discovery and dynamic updates
-- **Tool System** (`src/simacode/tools/`): Extensible framework with built-in tools (bash, file operations)
-- **AI Integration** (`src/simacode/ai/`): Multi-provider AI support (OpenAI with planned Anthropic support)
-- **Security Framework** (`src/simacode/permissions/`): Comprehensive permission-based access control
+- **Workflow Orchestration Engine** (`src/simacode/react/`): Intelligent workflow planning, execution, and coordination with MCP tool integration
+- **MCP Integration** (`src/simacode/mcp/`): Complete Model Context Protocol support with auto-discovery and dynamic updates for workflow tools
+- **Tool Ecosystem** (`src/simacode/tools/`): Extensible framework with built-in workflow tools (bash, file operations, data processing)
+- **AI Integration** (`src/simacode/ai/`): Multi-provider AI support for intelligent workflow decision-making (OpenAI with planned Anthropic support)
+- **Security Framework** (`src/simacode/permissions/`): Comprehensive permission-based access control for workflow execution
 
 ## Development Commands
 
@@ -41,54 +41,54 @@ poetry run pre-commit install
 
 ### Running SimaCode
 
-#### Terminal AI Agent Mode
+#### Terminal Workflow Agent Mode
 ```bash
-# Basic chat
-simacode chat "Your message here"
+# Basic workflow execution
+simacode chat "Your workflow request here"
 
-# Interactive chat mode
+# Interactive workflow mode
 simacode chat --interactive
 
-# ReAct task execution
-simacode chat --react "Create a Python function to calculate fibonacci numbers"
+# ReAct workflow orchestration
+simacode chat --react "Create a complete Python project with tests and documentation"
 
-# Interactive ReAct mode
+# Interactive ReAct workflow mode
 simacode chat --react --interactive
 
-# Resume a session
+# Resume a workflow session
 simacode chat --react --session-id <session_id>
 ```
 
-#### Backend API Service Mode
+#### Backend Workflow Service Mode
 ```bash
-# Start API server
+# Start workflow orchestration server
 simacode serve --host 0.0.0.0 --port 8000
 
 # Development mode with auto-reload
 simacode serve --dev --reload
 
-# With custom configuration
-simacode serve --config api_config.yaml --workers 4
+# With custom workflow configuration
+simacode serve --config workflow_config.yaml --workers 4
 ```
 
-### MCP Tool Integration
+### MCP Workflow Tool Integration
 ```bash
-# Initialize MCP integration
+# Initialize MCP workflow tools
 simacode mcp init
 
-# List all available tools
+# List all available workflow tools
 simacode mcp list
 
-# Search for specific tools
+# Search for specific workflow tools
 simacode mcp search "file"
 
-# Execute tools directly
+# Execute workflow tools directly
 simacode mcp run file_tools:read_file --param file_path=/path/to/file.txt
 
-# Interactive parameter input
+# Interactive workflow parameter input
 simacode mcp run web_tools:fetch_url --interactive
 
-# Show system status
+# Show workflow system status
 simacode mcp status
 ```
 
@@ -172,34 +172,34 @@ SimaCode uses a hierarchical configuration system with YAML files and environmen
 - MCP integration tests
 - AI functionality tests
 
-## API Endpoints (Service Mode)
+## API Endpoints (Workflow Service Mode)
 
-Once the API server is running:
+Once the workflow orchestration server is running:
 - `GET /health`: Health check
-- `POST /api/v1/chat/`: Single chat completion  
-- `POST /api/v1/chat/stream/`: Streaming chat
-- `WS /api/v1/chat/ws/`: WebSocket real-time chat
-- `POST /api/v1/react/execute/`: ReAct task execution
-- `WS /api/v1/react/ws/`: WebSocket ReAct execution
-- `GET /api/v1/sessions/`: List sessions
-- `GET /api/v1/sessions/{id}`: Session details
+- `POST /api/v1/chat/`: Single workflow completion
+- `POST /api/v1/chat/stream/`: Streaming workflow execution
+- `WS /api/v1/chat/ws/`: WebSocket real-time workflow interaction
+- `POST /api/v1/react/execute/`: ReAct workflow orchestration
+- `WS /api/v1/react/ws/`: WebSocket ReAct workflow execution
+- `GET /api/v1/sessions/`: List workflow sessions
+- `GET /api/v1/sessions/{id}`: Workflow session details
 
-## MCP Integration Notes
+## MCP Workflow Integration Notes
 
-SimaCode provides comprehensive MCP (Model Context Protocol) support:
-- **Two Usage Modes**: AI-assisted (ReAct mode) and direct tool execution
-- **Auto-Discovery**: Automatically discover and register MCP tools
-- **Dynamic Updates**: Hot-reload tool changes without restart
-- **Namespace Management**: Avoid tool conflicts with namespacing
-- **Network Proxy Support**: Handle proxy configurations that may interfere with WebSocket connections
+SimaCode provides comprehensive MCP (Model Context Protocol) support for workflow orchestration:
+- **Two Usage Modes**: AI-assisted workflow orchestration (ReAct mode) and direct workflow tool execution
+- **Auto-Discovery**: Automatically discover and register MCP workflow tools
+- **Dynamic Updates**: Hot-reload workflow tool changes without restart
+- **Namespace Management**: Avoid workflow tool conflicts with namespacing
+- **Network Proxy Support**: Handle proxy configurations that may interfere with workflow WebSocket connections
 
-## Development Workflow
+## Workflow Development
 
-1. **Dual-Mode Development**: Implement features in core service layer first, then expose through both CLI and API interfaces
-2. **Testing**: Use `./tests/run_all_tests.sh` for comprehensive testing with coverage reports
-3. **MCP Tools**: Use `simacode mcp init` to set up tool integration
-4. **Configuration**: Leverage hierarchical config system for different environments
-5. **Sessions**: Both modes support session persistence and management
+1. **Dual-Mode Workflow Development**: Implement workflow features in core service layer first, then expose through both CLI and API interfaces
+2. **Workflow Testing**: Use `./tests/run_all_tests.sh` for comprehensive workflow testing with coverage reports
+3. **MCP Workflow Tools**: Use `simacode mcp init` to set up workflow tool integration
+4. **Workflow Configuration**: Leverage hierarchical config system for different workflow environments
+5. **Workflow Sessions**: Both modes support workflow session persistence and management
 
 ## Technology Stack
 

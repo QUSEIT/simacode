@@ -1,7 +1,7 @@
 <div class="hero">
   <img class="hero-logo" src="assets/logo.svg" alt="SimaCode logo" />
   <h1 class="hero-title">SimaCode</h1>
-  <p class="hero-subtitle">现代 AI 编程助手 · ReAct 任务规划 · MCP 工具集成 · CLI / API 双模式</p>
+  <p class="hero-subtitle">AI编排工作流框架 · ReAct 工作流编排 · MCP 工具集成 · CLI / API 双模式</p>
   <div class="cta-buttons">
     <a class="button primary" href="quickstart/">开始使用</a>
     <a class="button ghost" href="https://github.com/QUSEIT/simacode" target="_blank" rel="noopener">GitHub</a>
@@ -16,10 +16,10 @@
 
 ## 为什么选择 SimaCode
 
-- 智能 ReAct：结合“思考 + 行动”，自动规划并执行任务。
-- MCP 工具：统一接入文件/网络/数据等外部工具，AI/直连皆可。
-- 双模式：个人 CLI 高效开发，API 便于系统集成与自动化。
-- 工程化：类型检查、格式化、Lint、测试覆盖率一应俱全。
+- 智能工作流编排：结合"思考 + 行动"，自动规划并执行工作流任务。
+- MCP 工具集成：统一接入文件/网络/数据等外部工具，AI编排/直连皆可。
+- 双模式架构：个人CLI高效工作流执行，API便于企业工作流集成与自动化。
+- 工程化设计：类型检查、格式化、Lint、测试覆盖率一应俱全。
 
 ## 三步上手
 
@@ -96,12 +96,12 @@ poetry run simacode serve --reload --debug
 
 | 维度 | SimaCode | n8n | Dify |
 |------|----------|-----|------|
-| 定位 | ReAct 编排的开发者助手/Agent 基座 | 可视化自动化与集成平台 | LLM 应用/Agent 构建平台 |
-| 编排方式 | 目标→步骤，AI 编排 MCP 工具 | 节点/工作流拖拽 | Flow/Graph + 组件、Agent 场景 |
+| 定位 | AI编排工作流框架/Agent 基座 | 可视化自动化与集成平台 | LLM 应用/Agent 构建平台 |
+| 编排方式 | 目标→步骤，AI 编排工作流 MCP 工具 | 节点/工作流拖拽 | Flow/Graph + 组件、Agent 场景 |
 | 使用方式 | CLI + API（FastAPI） | Web UI + Self-host/Cloud | Web 控制台 + API |
 | 工具生态 | MCP 工具/系统工具，可自定义 | 上百第三方节点集成 | 模型/检索/工具插件，可扩展 |
 | 触发与自动化 | CLI/HTTP 触发，任务/会话上下文 | 触发器/定时/事件驱动 | 工作流/回调/定时 |
-| 典型场景 | 开发自动化、业务工作流、可控 Agent | 系统集成、ETL、通知、业务流程 | LLM 应用、RAG、Agent Studio |
+| 典型场景 | 工作流自动化、业务流程编排、可控 Agent | 系统集成、ETL、通知、业务流程 | LLM 应用、RAG、Agent Studio |
 | 可扩展性 | Python 扩展 + MCP 服务器接入 | 自定义节点/函数 | 插件/函数调用/工具接入 |
 | 部署 | 本地 CLI/API 服务 | Docker/self-host 或云 | Docker/self-host 或云 |
 

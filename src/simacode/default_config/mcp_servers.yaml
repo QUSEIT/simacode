@@ -205,6 +205,43 @@ servers:
       max_execution_time: 120
       network_access: true  # 需要网络访问以调用AI API
 
+  # TICMaker Async stdio MCP Server - HTML页面创建和修改工具 (异步任务增强版)
+  # Enhanced version with MCP async task support for complex content generation
+  ticmaker_async:
+    name: ticmaker_async
+    enabled: false  # Enable for TICMaker async HTML generation features with task enhancement
+    type: stdio
+    command: ["python", "tools/mcp_ticmaker_async_stdio_server.py"]
+    args: ["--config", ".simacode/config.yaml"]
+    environment:
+      TICMAKER_OUTPUT_DIR: "${TICMAKER_OUTPUT_DIR:-.simacode/mcp/ticmaker_async_output}"
+      TICMAKER_TEMPLATE: "${TICMAKER_TEMPLATE:-modern}"
+      TICMAKER_AI_ENABLED: "${TICMAKER_AI_ENABLED:-true}"
+      TICMAKER_AI_BASE_URL: "${TICMAKER_AI_BASE_URL:-https://openai.pgpt.cloud/v1}"
+      TICMAKER_AI_API_KEY: "${TICMAKER_AI_API_KEY:-${OPENAI_API_KEY}}"
+      TICMAKER_AI_MODEL: "${TICMAKER_AI_MODEL:-gpt-4o-mini}"
+      TICMAKER_AI_MAX_TOKENS: "${TICMAKER_AI_MAX_TOKENS:-16384}"
+      TICMAKER_AI_TEMPERATURE: "${TICMAKER_AI_TEMPERATURE:-0.7}"
+      TICMAKER_ASYNC_ENABLED: "${TICMAKER_ASYNC_ENABLED:-true}"
+      TICMAKER_ASYNC_THRESHOLD: "${TICMAKER_ASYNC_THRESHOLD:-30.0}"
+      TICMAKER_TASK_TIMEOUT: "${TICMAKER_TASK_TIMEOUT:-300.0}"
+    working_directory: null
+    timeout: 300
+    max_retries: 3
+    retry_delay: 2.0
+    security:
+      allowed_operations:
+        - "create"
+        - "modify"
+        - "read"
+        - "write"
+        - "execute"
+        - "async_task"
+      allowed_paths: [".simacode/mcp/ticmaker_output", "./", "/tmp"]
+      forbidden_paths: ["/etc", "/usr", "/sys", "/proc", "/root"]
+      max_execution_time: 300
+      network_access: true
+
   # Project Analyzer MCP Proxy Server (WebSocket) - Frontend Project Analysis via Remote REST Service
   # Note: Server must be started manually using: python tools/mcp_project_analyzer_proxy_server.py
   project_analyzer_proxy:

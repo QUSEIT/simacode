@@ -1,8 +1,8 @@
 # 功能
 
-## :material-robot: ReAct 智能任务规划
-- 从对话到执行，AI编排工具，自动完成目标。
-- 结合上下文会话，持续改进与重试。
+## :material-robot: ReAct 智能工作流编排
+- 从对话到执行，AI编排工作流工具，自动完成目标。
+- 结合上下文会话，持续改进与重试工作流。
 
 ## :material-progress-clock: 异步任务
 - 基于 async/await 的非阻塞执行，提升吞吐与响应速度。
@@ -55,15 +55,15 @@
       'curl -s -X POST "$API" -H "Content-Type: application/json" -d "{\"message\": \"{}\"}"'
     ```
 
-## :material-puzzle: MCP 工具集成
-- 通过 `simacode mcp` 指令进行工具发现/执行。
-- 支持 AI 自动调用与用户直连调用两种模式。
+## :material-puzzle: MCP 工作流工具集成
+- 通过 `simacode mcp` 指令进行工作流工具发现/执行。
+- 支持 AI 自动编排调用与用户直连调用两种模式。
 
 ## :material-toolbox: 内嵌工具
 - 内置常用工具（文件、命令执行、HTTP、MCP 适配器等），可即用可扩展。
 - 统一工具接口与权限边界，防止越权访问与危险操作。
 - 通过项目配置（如 `.simacode/config.yaml`）启用/禁用、配置凭据或注入自定义工具。
-- 同时支持 AI 自动编排调用与命令行手动调用，便于组合与编排。
+- 同时支持 AI 自动工作流编排调用与命令行手动调用，便于工作流组合与编排。
 
 === "示例：CLI 调用工具"
 
@@ -214,9 +214,9 @@
     poetry run simacode mcp run sys_tools:get_cpu_usage --param interval=0.5
     ```
 
-## :material-sync: 双模式运行
-- CLI：适合个人开发与实验；提供交互和流式输出。
-- API：FastAPI 服务，便于对外集成与自动化。
+## :material-sync: 双模式工作流运行
+- CLI：适合个人工作流开发与实验；提供交互和流式输出。
+- API：FastAPI 服务，便于企业工作流集成与自动化。
 
 ## :material-shield-check: 工程化与安全
 - Black/isort/flake8/mypy 全家桶；pytest+覆盖率。

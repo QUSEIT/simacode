@@ -6,9 +6,9 @@
 
 ## 🎯 项目概述
 
-SimaCode 是一个现代AI编程助手，采用双模式架构设计：
-- **终端AI Agent模式**: 独立命令行应用，适合个人开发者
-- **后端API服务模式**: RESTful/WebSocket服务，适合企业集成
+SimaCode 是一个现代AI编排工作流框架，采用双模式架构设计：
+- **终端工作流代理模式**: 独立命令行工作流执行应用，适合个人开发者
+- **后端工作流服务模式**: RESTful/WebSocket工作流编排服务，适合企业集成
 
 ## 📊 当前状态
 
@@ -20,27 +20,27 @@ SimaCode 是一个现代AI编程助手，采用双模式架构设计：
 - [x] **配置管理** - 分层配置系统，支持项目、用户、默认配置
 - [x] **错误处理** - 统一异常处理和优雅降级机制
 
-#### CLI模式 (终端AI Agent)
+#### CLI模式 (终端工作流代理)
 - [x] **Click框架集成** - 完整的命令行界面
 - [x] **Rich UI** - 丰富的终端用户界面
-- [x] **聊天功能** - 支持单次和交互式对话
-- [x] **ReAct引擎** - 智能任务规划和执行
-- [x] **MCP集成** - Model Context Protocol工具支持
-- [x] **会话管理** - 本地会话存储和恢复
+- [x] **工作流聊天功能** - 支持单次和交互式工作流对话
+- [x] **ReAct工作流引擎** - 智能工作流任务规划和执行
+- [x] **MCP工作流集成** - Model Context Protocol工作流工具支持
+- [x] **工作流会话管理** - 本地工作流会话存储和恢复
 
-#### API模式 (后端服务)
+#### API模式 (后端工作流服务)
 - [x] **FastAPI框架** - 现代异步Web框架
-- [x] **RESTful API** - 标准化REST端点
-- [x] **WebSocket支持** - 实时通信能力
-- [x] **OpenAPI文档** - 自动生成的API文档
+- [x] **RESTful API** - 标准化REST端点用于工作流编排
+- [x] **WebSocket支持** - 实时工作流通信能力
+- [x] **OpenAPI文档** - 自动生成的工作流API文档
 - [x] **健康检查** - 多层次服务监控
 - [x] **可选依赖** - 优雅处理FastAPI依赖
 
-#### 工具和集成
-- [x] **ReAct引擎** - 推理和行动框架
-- [x] **工具系统** - 可扩展的工具注册机制
-- [x] **MCP支持** - 第三方工具协议集成
-- [x] **AI客户端** - OpenAI API集成
+#### 工作流工具和集成
+- [x] **ReAct工作流引擎** - 推理和行动框架用于工作流编排
+- [x] **工作流工具系统** - 可扩展的工作流工具注册机制
+- [x] **MCP工作流支持** - 第三方工作流工具协议集成
+- [x] **AI编排客户端** - OpenAI API集成用于工作流决策
 - [x] **权限系统** - 安全的文件和命令访问控制
 
 ### 📁 项目结构
@@ -233,9 +233,9 @@ kubectl apply -f k8s/deployment.yaml
 ## 📞 支持和反馈
 
 ### 文档资源
-- **架构设计**: `docs/dual-mode-architecture.md`
-- **API使用**: `docs/api-usage-examples.md`
-- **实施总结**: `docs/PHASE1_SUMMARY.md`
+- **架构设计**: `docs/01-core/02-dual-mode-architecture.md`
+- **API使用**: `docs/06-api/01-api-usage-examples.md`
+- **实施总结**: `docs/07-testing/03-phase1-summary.md`
 
 ### 测试验证
 ```bash

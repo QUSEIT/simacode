@@ -1,6 +1,6 @@
 site_name: SimaCode
-site_description: "现代 AI 编程助手：ReAct 任务规划 + MCP 工具集成 + CLI/API 双模式"
-site_url: https://example.com
+site_description: "AI编排工作流框架：ReAct 工作流编排 + MCP 工具集成 + CLI/API 双模式"
+site_url: https://simacode.quseit.com
 repo_url: https://github.com/QUSEIT/simacode
 repo_name: QUSEIT/simacode
 
