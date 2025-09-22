@@ -49,7 +49,7 @@ bleach = "6.2.0"
 
 # API service dependencies (now required) - versions compatible with anyio>=4.5
 fastapi = {version = "^0.115.0", optional = true}
-uvicorn = {extras = ["standard"], version = "^0.32.0"}
+uvicorn = "^0.32.0"
 jinja2 = "^3.1.2"
 
 # File processing and OCR dependencies
@@ -84,6 +84,7 @@ isort = "^5.12.0"
 flake8 = "^6.1.0"
 mypy = "^1.7.1"
 pre-commit = "^3.5.0"
+watchfiles = "^0.13"
 
 [tool.poetry.scripts]
 simacode = "simacode.cli:main"
