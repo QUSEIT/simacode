@@ -1,18 +1,19 @@
 [tool.poetry]
 name = "simacode"
 version = "0.1.0"
-description = "A modern AI programming assistant built on Python with intelligent ReAct mechanisms"
+description = "Modern AI orchestration workflow framework with intelligent ReAct mechanisms and comprehensive workflow orchestration capabilities"
 authors = ["SimaCode Team <sima@quseit.com>"]
 readme = "README.md"
 packages = [{include = "simacode", from = "src"}]
 homepage = "https://github.com/QUSEIT/simacode"
 repository = "https://github.com/QUSEIT/simacode"
-documentation = "https://simacode.readthedocs.io"
-keywords = ["ai", "programming", "assistant", "cli", "automation"]
+documentation = "https://simacode.quseit.com"
+keywords = ["ai", "workflow", "orchestration", "react", "mcp", "automation", "cli", "api", "assistant"]
 classifiers = [
-    "Development Status :: 3 - Alpha",
+    "Development Status :: 4 - Beta",
     "Intended Audience :: Developers",
-    "License :: OSI Approved :: MIT License",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: Apache Software License",
     "Operating System :: OS Independent",
     "Programming Language :: Python :: 3",
     "Programming Language :: Python :: 3.10",
@@ -20,6 +21,8 @@ classifiers = [
     "Programming Language :: Python :: 3.12",
     "Topic :: Software Development :: Libraries :: Python Modules",
     "Topic :: Software Development :: Tools",
+    "Topic :: System :: Distributed Computing",
+    "Topic :: Scientific/Engineering :: Artificial Intelligence",
 ]
 
 [tool.poetry.dependencies]
