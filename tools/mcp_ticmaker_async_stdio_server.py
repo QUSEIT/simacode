@@ -371,103 +371,57 @@ class TICMakerAsyncAIClient:
                     "delta_content_preview": chunk.choices[0].delta.content[:100] + "..." if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 100 else (chunk.choices[0].delta.content if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content else None)
                 }, tool_name="ticmaker_async")
 
-                try:
-                    if chunk.choices and len(chunk.choices) > 0:
-                        choice = chunk.choices[0]
+                if chunk.choices and len(chunk.choices) > 0:
+                    choice = chunk.choices[0]
 
-                        # Handle delta content (progress messages)
-                        if choice.delta and choice.delta.content:
-                            content = choice.delta.content
-                            content_buffer += content
+                    # Handle delta content (progress messages)
+                    if choice.delta and choice.delta.content:
+                        content = choice.delta.content
+                        content_buffer += content
 
-                            # Send progress update with content
-                            await self._send_mcp_progress(content, {
-                                "type": "content_update",
-                                "chunk_size": len(content)
-                            })
+                        # Send progress update with content
+                        await self._send_mcp_progress(content, {
+                            "type": "content_update",
+                            "chunk_size": len(content)
+                        })
 
-                        # Handle finish_reason = "stop" (final result)
-                        if choice.finish_reason == "stop":
-                            # This should contain the complete result
-                            # Try to parse the complete response from the chunk safely
-                            try:
-                                # Look for extended fields in the chunk
-                                for field_name in ['knowledge_analysis', 'tech_strategies', 'web_generation', 'processing_time', 'total_time']:
-                                    if hasattr(chunk, field_name):
-                                        field_value = getattr(chunk, field_name)
+                    # Handle finish_reason = "stop" (final result)
+                    if choice.finish_reason == "stop":
+                        # Send final completion message
+                        await self._send_mcp_progress("🎉 互动内容生成完成！", {
+                            "type": "completion",
+                            "progress": 100,
+                            "files_saved": len(saved_files)
+                        })
 
-                                        if field_name == 'web_generation' and field_value:
-                                            await self._process_web_generation(field_value, output_dir, saved_files)
+                        # Close connection and exit after completing user_input course generation task
+                        await self.close()
+                        return content_buffer
 
-                                        if field_name in ['knowledge_analysis', 'tech_strategies']:
-                                            await self._send_mcp_progress(f"✅ 完成 {field_name} 步骤", {
-                                                "step": field_name,
-                                                "completed": True
-                                            })
-                            except Exception as field_error:
-                                mcp_debug(f"⚠️ Error accessing chunk fields: {str(field_error)}", tool_name="ticmaker_async")
+                        final_result = content_buffer
 
-                            # Send final completion message
-                            await self._send_mcp_progress("🎉 互动内容生成完成！", {
-                                "type": "completion",
-                                "progress": 100,
-                                "files_saved": len(saved_files)
-                            })
+                    # Handle step_progress (from streaming format)
+                    if hasattr(chunk, 'step_progress') and chunk.step_progress is not None:
+                        step_progress = chunk.step_progress
 
-                            final_result = content_buffer
-
-                        # Handle step_progress (from streaming format)
-                        if hasattr(chunk, 'step_progress') and chunk.step_progress is not None:
-                            step_progress = chunk.step_progress
-
-                            # Additional safety check: ensure step_progress is a dict-like object
-                            if hasattr(step_progress, 'get'):
-                                await self._send_mcp_progress(
-                                    f"📊 {step_progress.get('step_name', 'Processing')} - {step_progress.get('details', '')}",
-                                    {
-                                        "type": "step_progress",
-                                        "current_step": step_progress.get('current_step'),
-                                        "progress": step_progress.get('progress'),
-                                        "estimated_remaining": step_progress.get('estimated_remaining')
-                                    }
-                                )
-                            else:
-                                # Debug log for unexpected step_progress type
-                                mcp_debug(f"⚠️ step_progress exists but is not dict-like", {
-                                    "step_progress_type": type(step_progress).__name__,
-                                    "step_progress_value": str(step_progress),
-                                    "has_get_method": hasattr(step_progress, 'get')
-                                }, tool_name="ticmaker_async")
-
-                except Exception as chunk_error:
-                    # Enhanced error logging with more debugging context
-                    error_context = {
-                        "error_type": type(chunk_error).__name__,
-                        "error_message": str(chunk_error),
-                        "chunk_type": type(chunk).__name__ if chunk else None,
-                        "has_choices": hasattr(chunk, 'choices') if chunk else False,
-                        "chunk_attributes": dir(chunk) if chunk else None,
-                        "content_buffer_length": len(content_buffer),
-                        "saved_files_count": len(saved_files)
-                    }
-
-                    # Add chunk-specific debugging info
-                    if chunk:
-                        if hasattr(chunk, 'choices') and chunk.choices:
-                            error_context["choices_count"] = len(chunk.choices)
-                            if len(chunk.choices) > 0:
-                                choice = chunk.choices[0]
-                                error_context["choice_has_delta"] = hasattr(choice, 'delta')
-                                error_context["choice_has_finish_reason"] = hasattr(choice, 'finish_reason')
-                                error_context["choice_finish_reason"] = getattr(choice, 'finish_reason', None)
-
-                        if hasattr(chunk, 'step_progress'):
-                            error_context["has_step_progress"] = True
-                            error_context["step_progress_type"] = type(chunk.step_progress).__name__ if chunk.step_progress else "None"
-                            error_context["step_progress_is_none"] = chunk.step_progress is None
-
-                    mcp_error(f"Error processing chunk: {str(chunk_error)}", error_context, tool_name="ticmaker_async")
-                    continue
+                        # Additional safety check: ensure step_progress is a dict-like object
+                        if hasattr(step_progress, 'get'):
+                            await self._send_mcp_progress(
+                                f"📊 {step_progress.get('step_name', 'Processing')} - {step_progress.get('details', '')}",
+                                {
+                                    "type": "step_progress",
+                                    "current_step": step_progress.get('current_step'),
+                                    "progress": step_progress.get('progress'),
+                                    "estimated_remaining": step_progress.get('estimated_remaining')
+                                }
+                            )
+                        else:
+                            # Debug log for unexpected step_progress type
+                            mcp_debug(f"⚠️ step_progress exists but is not dict-like", {
+                                "step_progress_type": type(step_progress).__name__,
+                                "step_progress_value": str(step_progress),
+                                "has_get_method": hasattr(step_progress, 'get')
+                            }, tool_name="ticmaker_async")
 
             # Send final result
             result_message = final_result or content_buffer or "Interactive content generation completed"
@@ -722,7 +676,7 @@ class TICMakerAsyncStdioMCPServer:
         try:
             response_json = message.to_dict()
             response_line = json.dumps(response_json, ensure_ascii=False)
-            print(response_line, flush=True)
+            #print(response_line, flush=True)
             mcp_debug(f"📤 [MCP_PROGRESS] Sent: {response_line}", tool_name="ticmaker_async")
         except Exception as e:
             mcp_error(f"❌ [MCP_SEND_ERROR] Failed to send message: {str(e)}", tool_name="ticmaker_async")
