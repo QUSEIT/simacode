@@ -355,21 +355,10 @@ class TICMakerAsyncAIClient:
 
             # Process streaming chunks
             async for chunk in stream:
-                # DEBUG LOG: 打印每次收到的chunk信息
-                mcp_debug(f"📦 [STREAM_CHUNK] Received chunk from AI streaming", {
-                    "chunk_id": getattr(chunk, 'id', None),
-                    "chunk_object": getattr(chunk, 'object', None),
-                    "chunk_created": getattr(chunk, 'created', None),
-                    "chunk_model": getattr(chunk, 'model', None),
-                    "has_choices": hasattr(chunk, 'choices') and chunk.choices is not None,
-                    "choices_count": len(chunk.choices) if hasattr(chunk, 'choices') and chunk.choices else 0,
-                    "chunk_str_preview": str(chunk)[:200] + "..." if len(str(chunk)) > 200 else str(chunk),
-                    "choice_0_index": chunk.choices[0].index if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'index') else None,
-                    "choice_0_finish_reason": chunk.choices[0].finish_reason if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'finish_reason') else None,
-                    "has_delta": chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta is not None,
-                    "delta_content_length": len(chunk.choices[0].delta.content) if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content else 0,
-                    "delta_content_preview": chunk.choices[0].delta.content[:100] + "..." if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content and len(chunk.choices[0].delta.content) > 100 else (chunk.choices[0].delta.content if chunk.choices and len(chunk.choices) > 0 and hasattr(chunk.choices[0], 'delta') and chunk.choices[0].delta and hasattr(chunk.choices[0].delta, 'content') and chunk.choices[0].delta.content else None)
-                }, tool_name="ticmaker_async")
+                # DEBUG LOG: 打印chunk的json_dump
+                mcp_debug(f"📦 [STREAM_CHUNK] Chunk JSON dump",
+                         json.dumps(chunk.model_dump() if hasattr(chunk, 'model_dump') else chunk.__dict__, ensure_ascii=False, indent=2),
+                         tool_name="ticmaker_async")
 
                 if chunk.choices and len(chunk.choices) > 0:
                     choice = chunk.choices[0]
@@ -387,6 +376,10 @@ class TICMakerAsyncAIClient:
 
                     # Handle finish_reason = "stop" (final result)
                     if choice.finish_reason == "stop":
+                        # 写文件
+                        web_generation_pages = chunk.complete_response["web_generation"]
+                        await self._process_web_generation(web_generation_pages, output_dir, saved_files)
+                        # 首页
                         # Send final completion message
                         await self._send_mcp_progress("🎉 互动内容生成完成！", {
                             "type": "completion",
@@ -441,31 +434,55 @@ class TICMakerAsyncAIClient:
 
     async def _process_web_generation(self, web_generation: Dict, output_dir: str, saved_files: set):
         """Process web_generation data and save files"""
-        try:
-            # Save index page if present
-            if 'index_page' in web_generation:
-                index_page = web_generation['index_page']
-                if 'filename' in index_page and 'content' in index_page:
-                    filename = index_page['filename']
-                    if filename not in saved_files:
-                        await self._save_web_generation_file(output_dir, filename, index_page['content'])
-                        saved_files.add(filename)
+        mcp_debug(f"📁 [FILE_PROCESS] Starting web generation file processing", {
+            "output_dir": output_dir,
+            "saved_files_count": len(saved_files),
+            "has_index_page": 'index_page' in web_generation,
+            "has_html_pages": 'html_pages' in web_generation,
+            "html_pages_count": len(web_generation.get('html_pages', []))
+        }, tool_name="ticmaker_async")
 
-            # Save html pages if present
-            if 'html_pages' in web_generation:
-                for page in web_generation['html_pages']:
-                    if 'filename' in page and 'content' in page:
-                        filename = page['filename']
-                        if filename not in saved_files:
-                            await self._save_web_generation_file(output_dir, filename, page['content'])
-                            saved_files.add(filename)
+        # Save index page if present
+        if 'index_page' in web_generation:
+            index_page = web_generation['index_page']
+            if 'filename' in index_page and 'content' in index_page:
+                filename = index_page['filename']
+                if filename not in saved_files:
+                    mcp_debug(f"💾 [FILE_WRITE] Writing index page", {
+                        "filename": filename,
+                        "output_dir": output_dir,
+                        "content_length": len(index_page['content'])
+                    }, tool_name="ticmaker_async")
+                    await self._save_web_generation_file(output_dir, filename, index_page['content'])
+                    saved_files.add(filename)
+                    mcp_debug(f"✅ [FILE_SAVED] Index page saved successfully", {
+                        "filename": filename,
+                        "full_path": f"{output_dir}/{filename}"
+                    }, tool_name="ticmaker_async")
+                else:
+                    mcp_debug(f"⚠️ [FILE_SKIP] Index page already saved", {
+                        "filename": filename
+                    }, tool_name="ticmaker_async")
 
-        except Exception as e:
-            mcp_error(f"❌ [WEB_GEN_PROCESS_ERROR] Failed to process web_generation", {
-                "error": str(e),
-                "web_generation_keys": list(web_generation.keys()) if isinstance(web_generation, dict) else None
-            }, tool_name="ticmaker_async")
+        # Save html pages if present
+        if 'html_pages' in web_generation:
+            for i, page in enumerate(web_generation['html_pages']):
+                filename = page['filename']
+                mcp_debug(f"💾 [FILE_WRITE] Writing HTML page {i+1}", {
+                    "filename": filename,
+                    "output_dir": output_dir,
+                    "content_length": len(page['content']),
+                    "page_index": i+1
+                }, tool_name="ticmaker_async")
+                await self._save_web_generation_file(output_dir, filename, page['content'])
+                saved_files.add(filename)
+                mcp_debug(f"✅ [FILE_SAVED] HTML page saved successfully", {
+                    "filename": filename,
+                    "full_path": f"{output_dir}/{filename}",
+                    "page_index": i+1
+                }, tool_name="ticmaker_async")
 
+  
     async def close(self):
         """Close AI client"""
         if self.client:
