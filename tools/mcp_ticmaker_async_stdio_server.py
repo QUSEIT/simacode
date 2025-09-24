@@ -226,34 +226,26 @@ class TICMakerAsyncAIClient:
                 **(progress_data or {})
             }
 
-            # 添加 request_id 用于客户端路由
+            # 添加 request_id 用于客户端路由到对应的请求处理器
             if self.current_request_id:
                 params["request_id"] = self.current_request_id
 
+            # 构建 MCP 通知消息: tools/progress (Server -> Client)
+            # 用途: 向客户端报告工具执行的实时进度更新
+            # 消息类型: Notification (无需 id，不期待响应)
             message = MCPMessage(
-                method="tools/progress",  # 通知消息不需要id
+                method="tools/progress",
                 params=params
             )
-
-            # DEBUG LOG: 记录发送tools/progress消息
-            mcp_debug(f"📤 [TOOLS_PROGRESS_SEND] Sending tools/progress message", {
-                "message_id": message.id,
-                "method": message.method,
-                "content": content,
-                "progress_data": progress_data,
-                "full_params": message.params,
-                "timestamp": message.params.get("timestamp") if message.params else None,
-                "has_request_id": "request_id" in message.params if message.params else False,
-                "request_id": message.params.get("request_id") if message.params else None,
-                "mcp_send_available": self.mcp_send_message is not None,
-                "params_is_none": message.params is None
-            }, tool_name="ticmaker_async")
 
             await self.mcp_send_message(message)
 
     async def _send_mcp_result(self, content: str, success: bool = True, error: Optional[str] = None):
         """Send result message via MCP protocol"""
         if self.mcp_send_message:
+            # 构建 MCP 请求消息: tools/result (Server -> Client)
+            # 用途: 向客户端发送工具执行的最终结果
+            # 消息类型: Request (包含 id，可能期待响应)
             message = MCPMessage(
                 id=str(uuid.uuid4()),
                 method="tools/result",
@@ -276,13 +268,6 @@ class TICMakerAsyncAIClient:
             file_path = os.path.join(output_dir, filename)
             with open(file_path, 'w', encoding='utf-8') as f:
                 f.write(content)
-
-            mcp_debug(f"📁 [FILE_SAVED] Web generation file saved", {
-                "filename": filename,
-                "file_path": file_path,
-                "content_size": len(content),
-                "output_dir": output_dir
-            }, tool_name="ticmaker_async")
 
             # Send progress notification about file save
             await self._send_mcp_progress(
@@ -361,11 +346,7 @@ class TICMakerAsyncAIClient:
 
         # Process streaming chunks
         async for chunk in stream:
-            # DEBUG LOG: 打印chunk的json_dump
-            mcp_debug(f"📦 [STREAM_CHUNK] Chunk JSON dump",
-                     json.dumps(chunk.model_dump() if hasattr(chunk, 'model_dump') else chunk.__dict__, ensure_ascii=False, indent=2),
-                     tool_name="ticmaker_async")
-
+    
             if chunk.choices and len(chunk.choices) > 0:
                 choice = chunk.choices[0]
 
@@ -393,13 +374,6 @@ class TICMakerAsyncAIClient:
                         "files_saved": len(saved_files)
                     })
 
-                    # DEBUG LOG: Program execution reached this point
-                    mcp_debug("🔧 DEBUG: Program execution reached L386 - Setting final result and breaking", {
-                        "content_buffer_length": len(content_buffer),
-                        "saved_files_count": len(saved_files),
-                        "about_to_break": True,
-                        "finish_reason": "stop"
-                    }, tool_name="ticmaker_async")
 
                     # Set final result and break from stream loop
                     final_result = content_buffer
@@ -431,13 +405,6 @@ class TICMakerAsyncAIClient:
         # Close connection after stream processing is complete
         await self.close()
 
-        # DEBUG LOG: Program execution reached this point
-        mcp_debug("🔧 DEBUG: Program execution reached L417 - Sending final result", {
-            "final_result_length": len(final_result) if final_result else 0,
-            "content_buffer_length": len(content_buffer) if content_buffer else 0,
-            "has_final_result": final_result is not None,
-            "has_content_buffer": len(content_buffer) > 0 if content_buffer else False
-        }, tool_name="ticmaker_async")
 
         # Return final result
         result_message = final_result or content_buffer or "Interactive content generation completed"
@@ -445,13 +412,6 @@ class TICMakerAsyncAIClient:
 
     async def _process_web_generation(self, web_generation: Dict, output_dir: str, saved_files: set):
         """Process web_generation data and save files"""
-        mcp_debug(f"📁 [FILE_PROCESS] Starting web generation file processing", {
-            "output_dir": output_dir,
-            "saved_files_count": len(saved_files),
-            "has_index_page": 'index_page' in web_generation,
-            "has_html_pages": 'html_pages' in web_generation,
-            "html_pages_count": len(web_generation.get('html_pages', []))
-        }, tool_name="ticmaker_async")
 
         # Save index page if present
         if 'index_page' in web_generation:
@@ -459,39 +419,15 @@ class TICMakerAsyncAIClient:
             if 'filename' in index_page and 'content' in index_page:
                 filename = index_page['filename']
                 if filename not in saved_files:
-                    mcp_debug(f"💾 [FILE_WRITE] Writing index page", {
-                        "filename": filename,
-                        "output_dir": output_dir,
-                        "content_length": len(index_page['content'])
-                    }, tool_name="ticmaker_async")
                     await self._save_web_generation_file(output_dir, filename, index_page['content'])
                     saved_files.add(filename)
-                    mcp_debug(f"✅ [FILE_SAVED] Index page saved successfully", {
-                        "filename": filename,
-                        "full_path": f"{output_dir}/{filename}"
-                    }, tool_name="ticmaker_async")
-                else:
-                    mcp_debug(f"⚠️ [FILE_SKIP] Index page already saved", {
-                        "filename": filename
-                    }, tool_name="ticmaker_async")
 
         # Save html pages if present
         if 'html_pages' in web_generation:
             for i, page in enumerate(web_generation['html_pages']):
                 filename = page['filename']
-                mcp_debug(f"💾 [FILE_WRITE] Writing HTML page {i+1}", {
-                    "filename": filename,
-                    "output_dir": output_dir,
-                    "content_length": len(page['content']),
-                    "page_index": i+1
-                }, tool_name="ticmaker_async")
                 await self._save_web_generation_file(output_dir, filename, page['content'])
                 saved_files.add(filename)
-                mcp_debug(f"✅ [FILE_SAVED] HTML page saved successfully", {
-                    "filename": filename,
-                    "full_path": f"{output_dir}/{filename}",
-                    "page_index": i+1
-                }, tool_name="ticmaker_async")
 
   
     async def close(self):
@@ -516,25 +452,7 @@ class TICMakerAsyncClient:
         # Initialize async task manager
         self.task_manager = get_global_task_manager()
 
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] Output directory: {self.output_dir}", tool_name="ticmaker_async")
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] Default template: {self.config.default_template}", tool_name="ticmaker_async")
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] AI enhancement: {self.config.ai_enhancement}", tool_name="ticmaker_async")
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] Async detection enabled: {self.config.enable_async_detection}", tool_name="ticmaker_async")
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] Async threshold: {self.config.async_threshold_seconds}s", tool_name="ticmaker_async")
-        mcp_info(f"[TICMAKER_ASYNC_CONFIG] AI client enabled: {self.config.ai_enabled}", tool_name="ticmaker_async")
-
-        # Log initialization to file
-        mcp_info("TICMaker async client initialized", {
-            "output_dir": str(self.output_dir),
-            "default_template": self.config.default_template,
-            "ai_enhancement": self.config.ai_enhancement,
-            "ai_enabled": self.config.ai_enabled,
-            "ai_model": self.config.ai_model,
-            "async_detection_enabled": self.config.enable_async_detection,
-            "async_threshold": self.config.async_threshold_seconds,
-            "max_concurrent_tasks": self.config.max_concurrent_tasks,
-            "logging_available": True
-        }, tool_name="ticmaker_async")
+        mcp_info("TICMaker async client initialized", tool_name="ticmaker_async")
 
 
 
@@ -589,18 +507,13 @@ class TICMakerAsyncStdioMCPServer:
 
     def __init__(self, ticmaker_config: Optional[TICMakerAsyncConfig] = None):
         """Initialize TICMaker async stdio MCP server"""
-        mcp_debug("🔧 DEBUG: Server __init__ started", tool_name="ticmaker_async")
 
         # Initialize TICMaker client with configuration
         self.ticmaker_config = ticmaker_config or TICMakerAsyncConfig()
-        mcp_debug("🔧 DEBUG: Config set, creating TICMaker client...", tool_name="ticmaker_async")
         self.ticmaker_client = TICMakerAsyncClient(self.ticmaker_config, self.send_message)
-        mcp_debug("🔧 DEBUG: TICMaker client created", tool_name="ticmaker_async")
 
         # Initialize async task manager
-        mcp_debug("🔧 DEBUG: Getting task manager...", tool_name="ticmaker_async")
         self.task_manager = get_global_task_manager()
-        mcp_debug("🔧 DEBUG: Task manager obtained", tool_name="ticmaker_async")
 
         # MCP server info
         self.server_info = {
@@ -697,95 +610,59 @@ class TICMakerAsyncStdioMCPServer:
         self.active_async_tasks: Dict[str, str] = {}  # request_id -> task_id mapping
         self.progress_callbacks: Dict[str, Callable] = {}
 
-        mcp_debug("🔧 DEBUG: Server __init__ completed successfully", tool_name="ticmaker_async")
 
     async def send_message(self, message: MCPMessage):
         """Send MCP message via stdout"""
         try:
             response_json = message.to_dict()
             response_line = json.dumps(response_json, ensure_ascii=False)
-            print(response_line, flush=True)  # 修复：启用实际的消息发送
-            mcp_debug(f"📤 [MESSAGE_SENT] Sent to stdout: {response_line}", tool_name="ticmaker_async")
+            # MCP Stdio 协议: 通过 stdout 发送 JSON-RPC 消息 (Server -> Client)
+            # 格式: 每行一个完整的 JSON 对象，使用换行符分隔
+            # flush=True 确保消息立即发送，不在缓冲区中等待
+            print(response_line, flush=True)
         except Exception as e:
             mcp_error(f"❌ [MCP_SEND_ERROR] Failed to send message: {str(e)}", tool_name="ticmaker_async")
 
     async def run(self):
         """Run the async stdio MCP server"""
-        mcp_info("🚀 Starting TICMaker Async stdio MCP server...", tool_name="ticmaker_async")
-        mcp_info(f"📂 Output directory: {self.ticmaker_config.output_dir}", tool_name="ticmaker_async")
-        mcp_info(f"🎨 Default template: {self.ticmaker_config.default_template}", tool_name="ticmaker_async")
-        mcp_info(f"⚡ Async detection enabled: {self.ticmaker_config.enable_async_detection}", tool_name="ticmaker_async")
-        mcp_info(f"🧠 AI enhancement enabled: {self.ticmaker_config.ai_enabled}", tool_name="ticmaker_async")
-        mcp_info("📡 Ready to receive MCP messages via stdio with async support", tool_name="ticmaker_async")
-
-        # Debug: Server fully initialized
-        mcp_debug("🔧 DEBUG: Server initialization completed, entering main loop", tool_name="ticmaker_async")
-        mcp_debug(f"🔧 DEBUG: Tools available: {list(self.tools.keys())}", tool_name="ticmaker_async")
-
-        # Log server startup to file
-        mcp_info("TICMaker Async MCP server started", {
-            "server_version": self.server_info["version"],
-            "output_dir": self.ticmaker_config.output_dir,
-            "default_template": self.ticmaker_config.default_template,
-            "ai_enhancement": self.ticmaker_config.ai_enhancement,
-            "async_detection_enabled": self.ticmaker_config.enable_async_detection,
-            "async_threshold": self.ticmaker_config.async_threshold_seconds,
-            "max_concurrent_tasks": self.ticmaker_config.max_concurrent_tasks
-        }, tool_name="ticmaker_async")
+        mcp_info("TICMaker Async MCP server started", tool_name="ticmaker_async")
+        mcp_info(f"Output directory: {self.ticmaker_config.output_dir}", tool_name="ticmaker_async")
 
         try:
             while True:
                 try:
-                    # Debug: Waiting for input (suppress for ping requests)
-                    # mcp_debug("🔧 DEBUG: Waiting for stdin input...", tool_name="ticmaker_async")
-
-                    # Read from stdin
+                    # MCP Stdio 协议: 从 stdin 读取 JSON-RPC 消息 (Client -> Server)
+                    # 格式: 每行一个完整的 JSON 对象，使用换行符分隔
                     line = await asyncio.to_thread(sys.stdin.readline)
 
-                    # Debug: Input received (suppress for ping requests)
-                    # mcp_debug(f"🔧 DEBUG: Raw input received: {repr(line)}", tool_name="ticmaker_async")
-
+                    # EOF 检测: 空行表示客户端关闭了连接
                     if not line:
-                        mcp_debug("🔧 DEBUG: Empty line received, breaking", tool_name="ticmaker_async")
                         break
 
+                    # 忽略空白行
                     line = line.strip()
                     if not line:
-                        mcp_debug("🔧 DEBUG: Line is empty after strip, continuing", tool_name="ticmaker_async")
                         continue
 
-                    # mcp_debug(f"📥 Received: {line}", tool_name="ticmaker_async")
-
-                    # Parse MCP message
+                    # 解析 MCP JSON-RPC 消息
+                    # 消息格式: {"jsonrpc": "2.0", "id": "...", "method": "...", "params": {...}}
                     try:
-                        # mcp_debug("🔧 DEBUG: Parsing JSON message...", tool_name="ticmaker_async")
                         message_data = json.loads(line)
-                        # mcp_debug(f"🔧 DEBUG: JSON parsed successfully: {message_data}", tool_name="ticmaker_async")
-
                         message = MCPMessage(**message_data)
-                        # mcp_debug(f"🔧 DEBUG: MCPMessage created: {message.method}, id: {message.id}", tool_name="ticmaker_async")
                     except (json.JSONDecodeError, TypeError, ValueError) as e:
                         mcp_error(f"❌ Invalid JSON message: {str(e)}", tool_name="ticmaker_async")
                         continue
 
-                    # Process message
-                    # mcp_debug(f"🔧 DEBUG: Processing message method: {message.method}", tool_name="ticmaker_async")
+                    # 处理 MCP 消息并生成响应
                     response = await self.handle_message(message)
-                    # mcp_debug(f"🔧 DEBUG: Message handled, response: {response is not None}", tool_name="ticmaker_async")
 
-                    # Send response
+                    # MCP Stdio 协议: 通过 stdout 发送响应消息 (Server -> Client)
+                    # 仅在有响应时发送 (某些通知消息不需要响应)
                     if response:
-                        # mcp_debug("🔧 DEBUG: Preparing response...", tool_name="ticmaker_async")
                         response_json = response.to_dict()
                         response_line = json.dumps(response_json, ensure_ascii=False)
-                        # mcp_debug(f"🔧 DEBUG: Response JSON prepared: {response_line}", tool_name="ticmaker_async")
-
+                        # 发送 JSON-RPC 响应，每行一个完整的 JSON 对象
                         print(response_line, flush=True)
-                        # mcp_debug(f"📤 Sent: {response_line}", tool_name="ticmaker_async")
-                        # mcp_debug("🔧 DEBUG: Response sent successfully", tool_name="ticmaker_async")
-                    else:
-                        # mcp_debug("🔧 DEBUG: No response to send", tool_name="ticmaker_async")
-                        pass
 
                 except Exception as e:
                     mcp_error(f"💥 Error processing message: {str(e)}", tool_name="ticmaker_async")
@@ -815,31 +692,27 @@ class TICMakerAsyncStdioMCPServer:
 
     async def handle_message(self, message: MCPMessage) -> Optional[MCPMessage]:
         """Handle incoming MCP message with async task support"""
-        mcp_debug(f"📥 [REQUEST_RECEIVED] Processing {message.method} message with id: {message.id}", tool_name="ticmaker_async")
-        mcp_debug(f"🔧 DEBUG: handle_message called with method: {message.method}", tool_name="ticmaker_async")
-
-        # Log detailed message information
-        # if message.params:
-        #     mcp_debug(f"📋 [REQUEST_PARAMS] Message parameters: {json.dumps(message.params, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
-        # else:
-        #     mcp_debug("🔧 DEBUG: No parameters in message", tool_name="ticmaker_async")
-
+        # MCP 通知消息: notifications/initialized (Client -> Server)
+        # 用途: 客户端通知服务器初始化完成
+        # 响应: 无需响应 (Notification 类型)
         if message.method == "notifications/initialized":
-            # mcp_info("Received initialized notification", tool_name="ticmaker_async")
             return None
 
+        # MCP 请求消息: initialize (Client -> Server)
+        # 用途: 客户端请求初始化连接，协商协议版本和能力
+        # 响应: 返回服务器信息和能力列表
         if message.method == MCPMethods.INITIALIZE:
-            # Initialization request with async capabilities
             mcp_info("🔧 Processing INITIALIZE request", tool_name="ticmaker_async")
             capabilities = {
                 "tools": {
                     tool_name: tool_info["description"]
                     for tool_name, tool_info in self.tools.items()
                 } | {
-                    "async_support": True,  # Indicate async task support
-                    "progress_reporting": True
+                    "async_support": True,  # 表明支持异步任务执行
+                    "progress_reporting": True  # 表明支持进度报告
                 }
             }
+            # 构建 MCP 响应消息: initialize response (Server -> Client)
             response = MCPMessage(
                 id=message.id,
                 result={
@@ -851,14 +724,12 @@ class TICMakerAsyncStdioMCPServer:
             mcp_info("✅ Async server initialized successfully", tool_name="ticmaker_async")
             return response
 
+        # MCP 请求消息: tools/list (Client -> Server)
+        # 用途: 客户端请求服务器提供的所有可用工具列表
+        # 响应: 返回工具列表，包含名称、描述和输入schema
         elif message.method == MCPMethods.TOOLS_LIST:
-            # List available tools
-            # mcp_info("🛠️ Processing TOOLS_LIST request", tool_name="ticmaker_async")
-            # mcp_debug(f"🔧 DEBUG: Building tools list from {len(self.tools)} tools", tool_name="ticmaker_async")
-
             tools_list = []
             for tool_name, tool_info in self.tools.items():
-                # mcp_debug(f"🔧 DEBUG: Processing tool: {tool_name}", tool_name="ticmaker_async")
                 tool_data = {
                     "name": tool_name,
                     "description": tool_info["description"],
@@ -866,37 +737,42 @@ class TICMakerAsyncStdioMCPServer:
                 }
                 tools_list.append(tool_data)
 
-            # mcp_debug(f"🔧 DEBUG: Tools list built successfully with {len(tools_list)} tools", tool_name="ticmaker_async")
-
+            # 构建 MCP 响应消息: tools/list response (Server -> Client)
             response = MCPMessage(
                 id=message.id,
                 result={"tools": tools_list}
             )
-            # mcp_debug(f"✅ TOOLS_LIST response: {len(tools_list)} async tools", tool_name="ticmaker_async")
-            # mcp_debug(f"🔧 DEBUG: Response object created: {response.id}", tool_name="ticmaker_async")
             return response
 
+        # MCP 请求消息: tools/call (Client -> Server)
+        # 用途: 客户端请求执行指定的工具，自动检测是否需要异步执行
+        # 响应: 返回工具执行结果 (可能是同步或异步)
         elif message.method == MCPMethods.TOOLS_CALL:
-            # Execute tool with async support
             return await self._handle_tool_call(message)
 
+        # MCP 请求消息: tools/call_async (Client -> Server) - 扩展协议
+        # 用途: 客户端明确请求异步执行工具，立即返回任务ID
+        # 响应: 立即返回任务接受确认，后续通过 tools/progress 和 tools/result 通知进度
         elif message.method == MCPMethods.TOOLS_CALL_ASYNC:
-            # Handle explicit async tool call
             return await self._handle_async_tool_call(message)
 
+        # MCP 请求消息: ping (Client -> Server)
+        # 用途: 客户端检测服务器是否存活
+        # 响应: 返回 pong 确认消息
         elif message.method == MCPMethods.PING:
-            # Ping response
-            # mcp_info("🏓 Processing PING request", tool_name="ticmaker_async")
+            # 构建 MCP 响应消息: ping response (Server -> Client)
             response = MCPMessage(
                 id=message.id,
                 result={"pong": True, "async_enabled": True}
             )
-            # mcp_debug("✅ PING response: pong with async support", tool_name="ticmaker_async")
             return response
 
+        # MCP 请求消息: resources/list (Client -> Server)
+        # 用途: 客户端请求服务器提供的资源列表 (文件、数据等)
+        # 响应: TICMaker 不提供资源，返回空列表
         elif message.method == MCPMethods.RESOURCES_LIST:
-            # List available resources (none for TICMaker)
             mcp_info("📚 Processing RESOURCES_LIST request", tool_name="ticmaker_async")
+            # 构建 MCP 响应消息: resources/list response (Server -> Client)
             response = MCPMessage(
                 id=message.id,
                 result={"resources": []}
@@ -904,9 +780,12 @@ class TICMakerAsyncStdioMCPServer:
             mcp_debug("✅ RESOURCES_LIST response: empty list", tool_name="ticmaker_async")
             return response
 
+        # MCP 请求消息: prompts/list (Client -> Server)
+        # 用途: 客户端请求服务器提供的提示词模板列表
+        # 响应: TICMaker 不提供提示词模板，返回空列表
         elif message.method == MCPMethods.PROMPTS_LIST:
-            # List available prompts (none for TICMaker)
             mcp_info("💬 Processing PROMPTS_LIST request", tool_name="ticmaker_async")
+            # 构建 MCP 响应消息: prompts/list response (Server -> Client)
             response = MCPMessage(
                 id=message.id,
                 result={"prompts": []}
@@ -915,8 +794,10 @@ class TICMakerAsyncStdioMCPServer:
             return response
 
         else:
-            # Unknown method
+            # MCP 错误响应: 未知方法 (Server -> Client)
+            # 当客户端请求的方法不被服务器支持时返回
             mcp_error(f"❌ Unknown method requested: {message.method}", tool_name="ticmaker_async")
+            # 构建 MCP 错误响应消息: error response (Server -> Client)
             return MCPMessage(
                 id=message.id,
                 error={
@@ -927,22 +808,14 @@ class TICMakerAsyncStdioMCPServer:
 
     async def _handle_tool_call(self, message: MCPMessage) -> MCPMessage:
         """Handle tool execution with automatic async detection"""
-        mcp_info("⚡ [TOOL_CALL_START] Processing TOOLS_CALL request with async support", tool_name="ticmaker_async")
 
         try:
             params = message.params or {}
             tool_name = params.get("name")
             arguments = params.get("arguments", {})
 
-            mcp_info(f"🔧 [TOOL_EXECUTION] Executing async tool: {tool_name}", tool_name="ticmaker_async")
-            mcp_debug(f"📝 [TOOL_ARGS] Tool arguments: {json.dumps(arguments, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
-
-            # Log user input specifically for debugging
-            user_input = arguments.get("user_input", "")
-            mcp_debug(f"👤 [USER_INPUT] User request: {user_input}", tool_name="ticmaker_async")
-
             if tool_name not in self.tools:
-                mcp_error(f"❌ Tool '{tool_name}' not found", tool_name="ticmaker_async")
+                mcp_error(f"Tool '{tool_name}' not found", tool_name="ticmaker_async")
                 return MCPMessage(
                     id=message.id,
                     error={
@@ -952,29 +825,15 @@ class TICMakerAsyncStdioMCPServer:
                 )
 
             # Execute async tool
-            mcp_debug(f"🚀 [TOOL_DISPATCH] Dispatching to tool handler: {tool_name}", tool_name="ticmaker_async")
-
             if tool_name == "create_interactive_course_async":
-                mcp_debug(f"📋 [COURSE_CREATE] Starting interactive course creation", tool_name="ticmaker_async")
                 result = await self._create_interactive_course_async(arguments, message.id)
             elif tool_name == "modify_interactive_course_async":
-                mcp_debug(f"✏️ [COURSE_MODIFY] Starting interactive course modification", tool_name="ticmaker_async")
                 result = await self._modify_interactive_course_async(arguments, message.id)
             else:
-                mcp_error(f"❌ [TOOL_ERROR] Unknown async tool requested: {tool_name}", tool_name="ticmaker_async")
+                mcp_error(f"Unknown async tool requested: {tool_name}", tool_name="ticmaker_async")
                 raise ValueError(f"Unknown async tool: {tool_name}")
 
-            mcp_info(f"✅ Async tool '{tool_name}' completed successfully", tool_name="ticmaker_async")
-
-            # Log tool execution completion to file
-            mcp_debug(f"Async tool execution completed: {tool_name}", {
-                "success": result.success,
-                "execution_time": result.execution_time,
-                "task_complexity": result.task_complexity.value if result.task_complexity else None,
-                "was_async": result.was_async,
-                "progress_updates": result.progress_updates_count,
-                "message_id": message.id
-            }, tool_name="ticmaker_async")
+            mcp_info(f"Tool '{tool_name}' completed", tool_name="ticmaker_async")
 
             # Create enhanced response
             response_content = {
@@ -1034,9 +893,12 @@ class TICMakerAsyncStdioMCPServer:
 
     async def _handle_async_tool_call(self, message: MCPMessage) -> MCPMessage:
         """Handle explicit async tool call with progress reporting"""
-        mcp_info("🚀 Processing explicit TOOLS_CALL_ASYNC request", tool_name="ticmaker_async")
+        mcp_info("Processing TOOLS_CALL_ASYNC request", tool_name="ticmaker_async")
 
-        # 立即返回异步任务已接受的响应
+        # MCP 异步响应模式: 立即返回任务接受确认 (Server -> Client)
+        # 用途: 告知客户端任务已被接受并开始执行，无需等待完成
+        # 后续进度: 通过 tools/progress 通知发送进度更新
+        # 最终结果: 通过 tools/result 通知发送执行结果
         async_accepted_response = MCPMessage(
             id=message.id,
             result={
@@ -1047,7 +909,7 @@ class TICMakerAsyncStdioMCPServer:
             }
         )
 
-        # 在后台执行实际的工具调用
+        # 在后台执行实际的工具调用，不阻塞响应
         asyncio.create_task(self._execute_async_tool_in_background(message))
 
         return async_accepted_response
@@ -1055,24 +917,26 @@ class TICMakerAsyncStdioMCPServer:
     async def _execute_async_tool_in_background(self, message: MCPMessage):
         """在后台执行异步工具调用"""
         try:
-            mcp_info(f"🔄 Starting background async tool execution for request_id: {message.id}", tool_name="ticmaker_async")
-
             # 执行实际的工具调用
             result = await self._handle_tool_call(message)
 
-            # 发送最终结果通知
+            # MCP 通知消息: tools/result (Server -> Client) - 异步任务完成
+            # 用途: 向客户端发送异步任务的最终执行结果
+            # 消息类型: Notification (无 id，不期待响应)
             if hasattr(self, 'send_message') and result and result.result:
                 final_result_message = MCPMessage(
                     method="tools/result",
                     params={
-                        "request_id": message.id,  # 用于客户端路由
+                        "request_id": message.id,  # 客户端用此路由到对应的请求处理器
                         "result": result.result
                     }
                 )
                 await self.send_message(final_result_message)
-                mcp_info(f"📤 Sent final tools/result notification with request_id: {message.id}", tool_name="ticmaker_async")
+                mcp_info(f"Sent tools/result notification: {message.id}", tool_name="ticmaker_async")
             elif result and not result.result:
-                # 发送错误通知
+                # MCP 通知消息: tools/error (Server -> Client) - 异步任务失败
+                # 用途: 向客户端发送异步任务执行失败的错误信息
+                # 消息类型: Notification (无 id，不期待响应)
                 error_message = MCPMessage(
                     method="tools/error",
                     params={
@@ -1081,12 +945,14 @@ class TICMakerAsyncStdioMCPServer:
                     }
                 )
                 await self.send_message(error_message)
-                mcp_error(f"📤 Sent tools/error notification with request_id: {message.id}", tool_name="ticmaker_async")
+                mcp_error(f"Sent tools/error notification: {message.id}", tool_name="ticmaker_async")
 
         except Exception as e:
             mcp_error(f"💥 Background async tool execution error: {str(e)}", tool_name="ticmaker_async")
 
-            # 发送错误通知
+            # MCP 通知消息: tools/error (Server -> Client) - 后台任务异常
+            # 用途: 向客户端发送后台任务执行过程中发生的异常
+            # 消息类型: Notification (无 id，不期待响应)
             error_message = MCPMessage(
                 method="tools/error",
                 params={
@@ -1120,18 +986,6 @@ class TICMakerAsyncStdioMCPServer:
 
             async def progress_callback(progress_data):
                 progress_reports.append(progress_data)
-                if progress_data and hasattr(progress_data, 'get'):
-                    mcp_debug(f"Progress update: {progress_data.get('message', 'Processing...')}", {
-                        "request_id": request_id,
-                        "progress": progress_data.get("progress", 0),
-                        "step": progress_data.get("current_step", 0)
-                    }, tool_name="ticmaker_async")
-                else:
-                    mcp_debug(f"Progress update: {progress_data}", {
-                        "request_id": request_id,
-                        "progress_data_type": type(progress_data).__name__ if progress_data else "None",
-                        "progress_data_value": str(progress_data)
-                    }, tool_name="ticmaker_async")
 
             # Use streaming AI generation method for better real-time feedback
             output_dir = str(self.ticmaker_client.output_dir)
@@ -1146,13 +1000,6 @@ class TICMakerAsyncStdioMCPServer:
                 template_style=template_style,
                 session_context=session_context
             )
-
-            # DEBUG LOG: Program execution reached this point
-            mcp_debug("🔧 DEBUG: Program execution reached L1068 - Creating result object", {
-                "result_content_length": len(result_content) if result_content else 0,
-                "result_content_preview": result_content[:100] if result_content else "None",
-                "progress_reports_count": len(progress_reports)
-            }, tool_name="ticmaker_async")
 
             # Create result object compatible with existing interface
             result = TICMakerAsyncResult(
@@ -1274,24 +1121,12 @@ def load_async_config(config_path: Optional[Path] = None) -> TICMakerAsyncConfig
     try:
         # Load SimaCode configuration
         config = load_simacode_config(config_path=config_path, tool_name="ticmaker_async")
-        mcp_info("[CONFIG_LOAD] Successfully loaded SimaCode configuration for async server", tool_name="ticmaker_async")
+        mcp_info("Configuration loaded", tool_name="ticmaker_async")
 
         # Create TICMaker async configuration from SimaCode config
         ticmaker_config = TICMakerAsyncConfig.from_simacode_config(config)
 
-        # Log configuration details
-        mcp_info("TICMaker async config loaded from SimaCode", {
-            "config_source": "simacode_config",
-            "output_dir": ticmaker_config.output_dir,
-            "default_template": ticmaker_config.default_template,
-            "ai_enabled": ticmaker_config.ai_enabled,
-            "ai_model": ticmaker_config.ai_model,
-            "ai_base_url": ticmaker_config.ai_base_url,
-            "ai_api_key_configured": bool(ticmaker_config.ai_api_key),
-            "async_detection_enabled": ticmaker_config.enable_async_detection,
-            "async_threshold": ticmaker_config.async_threshold_seconds,
-            "max_concurrent_tasks": ticmaker_config.max_concurrent_tasks
-        }, tool_name="ticmaker_async")
+        mcp_info("TICMaker config loaded", tool_name="ticmaker_async")
 
         return ticmaker_config
 
@@ -1317,19 +1152,13 @@ async def main():
 
     args = parser.parse_args()
 
-    # Always enable debug logging for troubleshooting
-    logging.getLogger().setLevel(logging.DEBUG)
-    mcp_debug("🔧 DEBUG: Main function started", tool_name="ticmaker_async")
-    mcp_debug(f"🔧 DEBUG: Args received: {args}", tool_name="ticmaker_async")
-
+    # Enable debug logging if requested
     if args.debug:
-        mcp_debug("🐛 Debug logging enabled for async server", tool_name="ticmaker_async")
+        logging.getLogger().setLevel(logging.DEBUG)
 
     # Load configuration
-    mcp_debug("🔧 DEBUG: Loading configuration...", tool_name="ticmaker_async")
     config_path = Path(args.config) if args.config else None
     ticmaker_config = load_async_config(config_path=config_path)
-    mcp_debug("🔧 DEBUG: Configuration loaded successfully", tool_name="ticmaker_async")
 
     # Override with command line arguments if provided
     if args.output_dir:
@@ -1341,18 +1170,10 @@ async def main():
     if args.max_concurrent:
         ticmaker_config.max_concurrent_tasks = args.max_concurrent
 
-    mcp_info(f"📋 Async configuration loaded:", tool_name="ticmaker_async")
-    mcp_info(f"   📂 Output directory: {ticmaker_config.output_dir}", tool_name="ticmaker_async")
-    mcp_info(f"   🎨 Default template: {ticmaker_config.default_template}", tool_name="ticmaker_async")
-    mcp_info(f"   🤖 AI enhancement: {ticmaker_config.ai_enhancement}", tool_name="ticmaker_async")
-    mcp_info(f"   ⚡ Async detection: {ticmaker_config.enable_async_detection}", tool_name="ticmaker_async")
-    mcp_info(f"   ⏱️ Async threshold: {ticmaker_config.async_threshold_seconds}s", tool_name="ticmaker_async")
-    mcp_info(f"   🔄 Max concurrent: {ticmaker_config.max_concurrent_tasks}", tool_name="ticmaker_async")
+    mcp_info(f"Configuration loaded - Output: {ticmaker_config.output_dir}", tool_name="ticmaker_async")
 
-    # Create and run async server
-    mcp_debug("🔧 DEBUG: Creating server instance...", tool_name="ticmaker_async")
+    # Create and run server
     server = TICMakerAsyncStdioMCPServer(ticmaker_config)
-    mcp_debug("🔧 DEBUG: Server instance created, starting run...", tool_name="ticmaker_async")
     await server.run()
 
 
