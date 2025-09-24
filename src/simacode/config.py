@@ -516,7 +516,7 @@ class Config(BaseModel):
         if not project_config.exists():
              logger.debug(f"No {project_config} found, skipping project configuration found")
         else:
-            with open(project_config) as f:
+            with open(project_config, encoding='utf-8') as f:
                 project_data = yaml.safe_load(f) or {}
                 config_data.update(project_data)
         

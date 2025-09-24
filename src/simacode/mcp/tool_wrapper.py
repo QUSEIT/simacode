@@ -535,16 +535,15 @@ class MCPToolWrapper(Tool):
         # 转换输入参数
         mcp_arguments = self._convert_input_to_mcp_args(input_data)
 
-        # 调用异步执行
-        logger.debug(f"[L538] _execute_with_server_async: About to call server_manager.call_tool_async for tool '{self.name}', server: '{self.server_name}', original_name: '{self.original_name}', execution_id: {input_data.execution_id}, mcp_arguments: {mcp_arguments}")
+        # Essential MCP async call logging
+        logger.debug(f"MCP async call: tool='{self.original_name}', server='{self.server_name}'")
         async for mcp_result in self.server_manager.call_tool_async(
             self.server_name,
             self.original_name,
             mcp_arguments,
             progress_callback=progress_callback
         ):
-            # 转换 MCP 结果为工具结果
-            logger.debug(f"[L545] _execute_with_server_async: Converting MCP result to tool result for tool '{self.name}', execution_id: {input_data.execution_id}")
+            # Convert MCP result to tool result
             async for tool_result in self._convert_mcp_result_to_tool_result(
                 mcp_result, input_data.execution_id, 0
             ):
@@ -586,7 +585,6 @@ class MCPToolWrapper(Tool):
 
             # 转换 MCP 结果为 SimaCode 结果
             execution_time = time.time() - execution_start
-            logger.debug(f"[L587] _execute_sync: Converting MCP result to tool result for tool '{self.name} {mcp_result}', execution_id: {input_data.execution_id}, execution_time: {execution_time:.3f}s")
             async for result in self._convert_mcp_result_to_tool_result(
                 mcp_result, input_data.execution_id, execution_time
             ):
@@ -643,20 +641,12 @@ class MCPToolWrapper(Tool):
         # Optionally include session context for MCP tools that support it
         # This allows MCP tools to access session information if they're designed to use it
         if hasattr(input_data, 'session_context') and input_data.session_context:
-            # Log session context availability for debugging
-            logger.debug(f"Session context available for tool {self.original_name}: {list(input_data.session_context.keys())}")
-            
             # Check if the MCP tool schema suggests it can handle session context
             supports_session = self._mcp_tool_supports_session_context()
-            logger.debug(f"Session context support check for {self.original_name}: supports={supports_session}")
-            
+
             if supports_session:
                 mcp_args["_session_context"] = input_data.session_context
                 logger.debug(f"Added session context to MCP args for {self.original_name}")
-            else:
-                logger.warning(f"Session context not supported by {self.original_name} (schema check failed)")
-        else:
-            logger.debug(f"No session context available for tool {self.original_name}")
         
         return mcp_args
     
@@ -668,33 +658,21 @@ class MCPToolWrapper(Tool):
             bool: True if the tool appears to support session context
         """
         if not self.mcp_schema:
-            logger.debug(f"No MCP schema available for {self.original_name}")
             return False
-        
+
         # Check if the schema has fields that suggest session context support
         schema_str = str(self.mcp_schema).lower()
         session_keywords = ["session", "context", "_session_context"]
-        
-        # Log schema analysis for debugging
-        schema_found = {}
-        for keyword in session_keywords:
-            found = keyword in schema_str
-            schema_found[keyword] = found
-        
-        logger.debug(f"Schema analysis for {self.original_name}: length={len(schema_str)}, keywords={schema_found}")
-        
+
         # More specific check for _session_context parameter
         if "_session_context" in schema_str:
-            logger.debug(f"Found explicit _session_context support in schema for {self.original_name}")
             return True
-        
+
         # Check for any session-related keywords
         for keyword in session_keywords:
             if keyword in schema_str:
-                logger.debug(f"Found session keyword '{keyword}' in schema for {self.original_name}")
                 return True
-        
-        logger.debug(f"No session support detected for {self.original_name}")
+
         return False
     
     async def _convert_mcp_result_to_tool_result(
@@ -705,15 +683,18 @@ class MCPToolWrapper(Tool):
     ) -> AsyncGenerator[ToolResult, None]:
         """
         Convert MCP result to SimaCode tool results.
-        
+
         Args:
             mcp_result: Result from MCP tool execution
             execution_id: Execution ID for tracking
             execution_time: Total execution time
-            
+
         Yields:
             ToolResult: Converted tool results
         """
+        # Essential MCP result conversion logging
+        logger.debug(f"Converting MCP result for tool '{self.name}': success={mcp_result.success}")
+
         if mcp_result.success:
             # Success result
             content = self._format_mcp_content(mcp_result.content)
