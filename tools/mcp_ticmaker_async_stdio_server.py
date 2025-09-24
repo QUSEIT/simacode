@@ -65,8 +65,6 @@ class TaskComplexity(Enum):
     LONG_RUNNING = "long_running"  # Extended tasks (>60s)
 
 
-
-
 @dataclass
 class TICMakerAsyncConfig:
     """Enhanced configuration for async TICMaker operations"""
@@ -317,120 +315,123 @@ class TICMakerAsyncAIClient:
         if not self.client:
             error_msg = "AI client not initialized"
             await self._send_mcp_progress(f"❌ {error_msg}")
-            await self._send_mcp_result(error_msg, success=False, error=error_msg)
             return error_msg
 
-        try:
-            # Send initial progress
-            await self._send_mcp_progress("🎯 开始生成互动教学内容...", {
-                "step": "initialization",
-                "progress": 0,
-                "user_input_length": len(user_input)
-            })
+        # Send initial progress
+        await self._send_mcp_progress("🎯 开始生成互动教学内容...", {
+            "step": "initialization",
+            "progress": 0,
+            "user_input_length": len(user_input)
+        })
 
-            # Prepare request for streaming
-            messages = [
-                {"role": "user", "content": user_input}
-            ]
+        # Prepare request for streaming
+        messages = [
+            {"role": "user", "content": user_input}
+        ]
 
-            # Start streaming request
-            await self._send_mcp_progress("🚀 发送流式请求到 AI 服务...", {
-                "step": "request_start",
-                "progress": 5
-            })
+        # Start streaming request
+        await self._send_mcp_progress("🚀 发送流式请求到 AI 服务...", {
+            "step": "request_start",
+            "progress": 5
+        })
 
-            # Use OpenAI client for streaming
-            stream = await self.client.chat.completions.create(
-                model="ticmaker",  # Use the specific model
-                messages=messages,
-                stream=True,  # Enable streaming
-                temperature=0.7,
-                max_tokens=4000
-            )
+        # Use OpenAI client for streaming
+        stream = await self.client.chat.completions.create(
+            model="ticmaker",  # Use the specific model
+            messages=messages,
+            stream=True,  # Enable streaming
+            temperature=0.7,
+            max_tokens=4000
+        )
 
-            # Track saved files to avoid duplicates
-            saved_files = set()
-            final_result = None
-            content_buffer = ""
+        # Track saved files to avoid duplicates
+        saved_files = set()
+        final_result = None
+        content_buffer = ""
 
-            # Process streaming chunks
-            async for chunk in stream:
-                # DEBUG LOG: 打印chunk的json_dump
-                mcp_debug(f"📦 [STREAM_CHUNK] Chunk JSON dump",
-                         json.dumps(chunk.model_dump() if hasattr(chunk, 'model_dump') else chunk.__dict__, ensure_ascii=False, indent=2),
-                         tool_name="ticmaker_async")
+        # Process streaming chunks
+        async for chunk in stream:
+            # DEBUG LOG: 打印chunk的json_dump
+            mcp_debug(f"📦 [STREAM_CHUNK] Chunk JSON dump",
+                     json.dumps(chunk.model_dump() if hasattr(chunk, 'model_dump') else chunk.__dict__, ensure_ascii=False, indent=2),
+                     tool_name="ticmaker_async")
 
-                if chunk.choices and len(chunk.choices) > 0:
-                    choice = chunk.choices[0]
+            if chunk.choices and len(chunk.choices) > 0:
+                choice = chunk.choices[0]
 
-                    # Handle delta content (progress messages)
-                    if choice.delta and choice.delta.content:
-                        content = choice.delta.content
-                        content_buffer += content
+                # Handle delta content (progress messages)
+                if choice.delta and choice.delta.content:
+                    content = choice.delta.content
+                    content_buffer += content
 
-                        # Send progress update with content
-                        await self._send_mcp_progress(content, {
-                            "type": "content_update",
-                            "chunk_size": len(content)
-                        })
+                    # Send progress update with content
+                    await self._send_mcp_progress(content, {
+                        "type": "content_update",
+                        "chunk_size": len(content)
+                    })
 
-                    # Handle finish_reason = "stop" (final result)
-                    if choice.finish_reason == "stop":
-                        # 写文件
-                        web_generation_pages = chunk.complete_response["web_generation"]
-                        await self._process_web_generation(web_generation_pages, output_dir, saved_files)
-                        # 首页
-                        # Send final completion message
-                        await self._send_mcp_progress("🎉 互动内容生成完成！", {
-                            "type": "completion",
-                            "progress": 100,
-                            "files_saved": len(saved_files)
-                        })
+                # Handle finish_reason = "stop" (final result)
+                if choice.finish_reason == "stop":
+                    # 写文件
+                    web_generation_pages = chunk.complete_response["web_generation"]
+                    await self._process_web_generation(web_generation_pages, output_dir, saved_files)
+                    # 首页
+                    # Send final completion message
+                    await self._send_mcp_progress("🎉 互动内容生成完成！", {
+                        "type": "completion",
+                        "progress": 100,
+                        "files_saved": len(saved_files)
+                    })
 
-                        # Close connection and exit after completing user_input course generation task
-                        await self.close()
-                        return content_buffer
+                    # DEBUG LOG: Program execution reached this point
+                    mcp_debug("🔧 DEBUG: Program execution reached L386 - Setting final result and breaking", {
+                        "content_buffer_length": len(content_buffer),
+                        "saved_files_count": len(saved_files),
+                        "about_to_break": True,
+                        "finish_reason": "stop"
+                    }, tool_name="ticmaker_async")
 
-                        final_result = content_buffer
+                    # Set final result and break from stream loop
+                    final_result = content_buffer
+                    break
 
-                    # Handle step_progress (from streaming format)
-                    if hasattr(chunk, 'step_progress') and chunk.step_progress is not None:
-                        step_progress = chunk.step_progress
+                # Handle step_progress (from streaming format)
+                if hasattr(chunk, 'step_progress') and chunk.step_progress is not None:
+                    step_progress = chunk.step_progress
 
-                        # Additional safety check: ensure step_progress is a dict-like object
-                        if hasattr(step_progress, 'get'):
-                            await self._send_mcp_progress(
-                                f"📊 {step_progress.get('step_name', 'Processing')} - {step_progress.get('details', '')}",
-                                {
-                                    "type": "step_progress",
-                                    "current_step": step_progress.get('current_step'),
-                                    "progress": step_progress.get('progress'),
-                                    "estimated_remaining": step_progress.get('estimated_remaining')
-                                }
-                            )
-                        else:
-                            # Debug log for unexpected step_progress type
-                            mcp_debug(f"⚠️ step_progress exists but is not dict-like", {
-                                "step_progress_type": type(step_progress).__name__,
-                                "step_progress_value": str(step_progress),
-                                "has_get_method": hasattr(step_progress, 'get')
-                            }, tool_name="ticmaker_async")
+                    # Additional safety check: ensure step_progress is a dict-like object
+                    if hasattr(step_progress, 'get'):
+                        await self._send_mcp_progress(
+                            f"📊 {step_progress.get('step_name', 'Processing')} - {step_progress.get('details', '')}",
+                            {
+                                "type": "step_progress",
+                                "current_step": step_progress.get('current_step'),
+                                "progress": step_progress.get('progress'),
+                                "estimated_remaining": step_progress.get('estimated_remaining')
+                            }
+                        )
+                    else:
+                        # Debug log for unexpected step_progress type
+                        mcp_debug(f"⚠️ step_progress exists but is not dict-like", {
+                            "step_progress_type": type(step_progress).__name__,
+                            "step_progress_value": str(step_progress),
+                            "has_get_method": hasattr(step_progress, 'get')
+                        }, tool_name="ticmaker_async")
 
-            # Send final result
-            result_message = final_result or content_buffer or "Interactive content generation completed"
-            await self._send_mcp_result(result_message, success=True)
-            return result_message
+        # Close connection after stream processing is complete
+        await self.close()
 
-        except Exception as e:
-            error_msg = f"Streaming generation failed: {str(e)}"
-            mcp_error(f"❌ [STREAMING_ERROR] {error_msg}", {
-                "error": str(e),
-                "user_input_preview": user_input[:100] if user_input else None
-            }, tool_name="ticmaker_async")
+        # DEBUG LOG: Program execution reached this point
+        mcp_debug("🔧 DEBUG: Program execution reached L417 - Sending final result", {
+            "final_result_length": len(final_result) if final_result else 0,
+            "content_buffer_length": len(content_buffer) if content_buffer else 0,
+            "has_final_result": final_result is not None,
+            "has_content_buffer": len(content_buffer) > 0 if content_buffer else False
+        }, tool_name="ticmaker_async")
 
-            await self._send_mcp_progress(f"❌ {error_msg}")
-            await self._send_mcp_result(error_msg, success=False, error=str(e))
-            return error_msg
+        # Return final result
+        result_message = final_result or content_buffer or "Interactive content generation completed"
+        return result_message
 
     async def _process_web_generation(self, web_generation: Dict, output_dir: str, saved_files: set):
         """Process web_generation data and save files"""
@@ -694,7 +695,7 @@ class TICMakerAsyncStdioMCPServer:
             response_json = message.to_dict()
             response_line = json.dumps(response_json, ensure_ascii=False)
             #print(response_line, flush=True)
-            mcp_debug(f"📤 [MCP_PROGRESS] Sent: {response_line}", tool_name="ticmaker_async")
+            mcp_debug(f"📤  Sent: {response_line}", tool_name="ticmaker_async")
         except Exception as e:
             mcp_error(f"❌ [MCP_SEND_ERROR] Failed to send message: {str(e)}", tool_name="ticmaker_async")
 
@@ -725,14 +726,14 @@ class TICMakerAsyncStdioMCPServer:
         try:
             while True:
                 try:
-                    # Debug: Waiting for input
-                    mcp_debug("🔧 DEBUG: Waiting for stdin input...", tool_name="ticmaker_async")
+                    # Debug: Waiting for input (suppress for ping requests)
+                    # mcp_debug("🔧 DEBUG: Waiting for stdin input...", tool_name="ticmaker_async")
 
                     # Read from stdin
                     line = await asyncio.to_thread(sys.stdin.readline)
 
-                    # Debug: Input received
-                    mcp_debug(f"🔧 DEBUG: Raw input received: {repr(line)}", tool_name="ticmaker_async")
+                    # Debug: Input received (suppress for ping requests)
+                    # mcp_debug(f"🔧 DEBUG: Raw input received: {repr(line)}", tool_name="ticmaker_async")
 
                     if not line:
                         mcp_debug("🔧 DEBUG: Empty line received, breaking", tool_name="ticmaker_async")
@@ -743,37 +744,38 @@ class TICMakerAsyncStdioMCPServer:
                         mcp_debug("🔧 DEBUG: Line is empty after strip, continuing", tool_name="ticmaker_async")
                         continue
 
-                    mcp_debug(f"📥 Received: {line}", tool_name="ticmaker_async")
+                    # mcp_debug(f"📥 Received: {line}", tool_name="ticmaker_async")
 
                     # Parse MCP message
                     try:
-                        mcp_debug("🔧 DEBUG: Parsing JSON message...", tool_name="ticmaker_async")
+                        # mcp_debug("🔧 DEBUG: Parsing JSON message...", tool_name="ticmaker_async")
                         message_data = json.loads(line)
-                        mcp_debug(f"🔧 DEBUG: JSON parsed successfully: {message_data}", tool_name="ticmaker_async")
+                        # mcp_debug(f"🔧 DEBUG: JSON parsed successfully: {message_data}", tool_name="ticmaker_async")
 
                         message = MCPMessage(**message_data)
-                        mcp_debug(f"🔧 DEBUG: MCPMessage created: {message.method}, id: {message.id}", tool_name="ticmaker_async")
+                        # mcp_debug(f"🔧 DEBUG: MCPMessage created: {message.method}, id: {message.id}", tool_name="ticmaker_async")
                     except (json.JSONDecodeError, TypeError, ValueError) as e:
                         mcp_error(f"❌ Invalid JSON message: {str(e)}", tool_name="ticmaker_async")
                         continue
 
                     # Process message
-                    mcp_debug(f"🔧 DEBUG: Processing message method: {message.method}", tool_name="ticmaker_async")
+                    # mcp_debug(f"🔧 DEBUG: Processing message method: {message.method}", tool_name="ticmaker_async")
                     response = await self.handle_message(message)
-                    mcp_debug(f"🔧 DEBUG: Message handled, response: {response is not None}", tool_name="ticmaker_async")
+                    # mcp_debug(f"🔧 DEBUG: Message handled, response: {response is not None}", tool_name="ticmaker_async")
 
                     # Send response
                     if response:
-                        mcp_debug("🔧 DEBUG: Preparing response...", tool_name="ticmaker_async")
+                        # mcp_debug("🔧 DEBUG: Preparing response...", tool_name="ticmaker_async")
                         response_json = response.to_dict()
                         response_line = json.dumps(response_json, ensure_ascii=False)
-                        mcp_debug(f"🔧 DEBUG: Response JSON prepared: {response_line}", tool_name="ticmaker_async")
+                        # mcp_debug(f"🔧 DEBUG: Response JSON prepared: {response_line}", tool_name="ticmaker_async")
 
                         print(response_line, flush=True)
-                        mcp_debug(f"📤 Sent: {response_line}", tool_name="ticmaker_async")
-                        mcp_debug("🔧 DEBUG: Response sent successfully", tool_name="ticmaker_async")
+                        # mcp_debug(f"📤 Sent: {response_line}", tool_name="ticmaker_async")
+                        # mcp_debug("🔧 DEBUG: Response sent successfully", tool_name="ticmaker_async")
                     else:
-                        mcp_debug("🔧 DEBUG: No response to send", tool_name="ticmaker_async")
+                        # mcp_debug("🔧 DEBUG: No response to send", tool_name="ticmaker_async")
+                        pass
 
                 except Exception as e:
                     mcp_error(f"💥 Error processing message: {str(e)}", tool_name="ticmaker_async")
@@ -807,13 +809,13 @@ class TICMakerAsyncStdioMCPServer:
         mcp_debug(f"🔧 DEBUG: handle_message called with method: {message.method}", tool_name="ticmaker_async")
 
         # Log detailed message information
-        if message.params:
-            mcp_debug(f"📋 [REQUEST_PARAMS] Message parameters: {json.dumps(message.params, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
-        else:
-            mcp_debug("🔧 DEBUG: No parameters in message", tool_name="ticmaker_async")
+        # if message.params:
+        #     mcp_debug(f"📋 [REQUEST_PARAMS] Message parameters: {json.dumps(message.params, ensure_ascii=False, indent=2)}", tool_name="ticmaker_async")
+        # else:
+        #     mcp_debug("🔧 DEBUG: No parameters in message", tool_name="ticmaker_async")
 
         if message.method == "notifications/initialized":
-            mcp_info("Received initialized notification", tool_name="ticmaker_async")
+            # mcp_info("Received initialized notification", tool_name="ticmaker_async")
             return None
 
         if message.method == MCPMethods.INITIALIZE:
@@ -841,12 +843,12 @@ class TICMakerAsyncStdioMCPServer:
 
         elif message.method == MCPMethods.TOOLS_LIST:
             # List available tools
-            mcp_info("🛠️ Processing TOOLS_LIST request", tool_name="ticmaker_async")
-            mcp_debug(f"🔧 DEBUG: Building tools list from {len(self.tools)} tools", tool_name="ticmaker_async")
+            # mcp_info("🛠️ Processing TOOLS_LIST request", tool_name="ticmaker_async")
+            # mcp_debug(f"🔧 DEBUG: Building tools list from {len(self.tools)} tools", tool_name="ticmaker_async")
 
             tools_list = []
             for tool_name, tool_info in self.tools.items():
-                mcp_debug(f"🔧 DEBUG: Processing tool: {tool_name}", tool_name="ticmaker_async")
+                # mcp_debug(f"🔧 DEBUG: Processing tool: {tool_name}", tool_name="ticmaker_async")
                 tool_data = {
                     "name": tool_name,
                     "description": tool_info["description"],
@@ -854,14 +856,14 @@ class TICMakerAsyncStdioMCPServer:
                 }
                 tools_list.append(tool_data)
 
-            mcp_debug(f"🔧 DEBUG: Tools list built successfully with {len(tools_list)} tools", tool_name="ticmaker_async")
+            # mcp_debug(f"🔧 DEBUG: Tools list built successfully with {len(tools_list)} tools", tool_name="ticmaker_async")
 
             response = MCPMessage(
                 id=message.id,
                 result={"tools": tools_list}
             )
-            mcp_debug(f"✅ TOOLS_LIST response: {len(tools_list)} async tools", tool_name="ticmaker_async")
-            mcp_debug(f"🔧 DEBUG: Response object created: {response.id}", tool_name="ticmaker_async")
+            # mcp_debug(f"✅ TOOLS_LIST response: {len(tools_list)} async tools", tool_name="ticmaker_async")
+            # mcp_debug(f"🔧 DEBUG: Response object created: {response.id}", tool_name="ticmaker_async")
             return response
 
         elif message.method == MCPMethods.TOOLS_CALL:
@@ -874,12 +876,12 @@ class TICMakerAsyncStdioMCPServer:
 
         elif message.method == MCPMethods.PING:
             # Ping response
-            mcp_info("🏓 Processing PING request", tool_name="ticmaker_async")
+            # mcp_info("🏓 Processing PING request", tool_name="ticmaker_async")
             response = MCPMessage(
                 id=message.id,
                 result={"pong": True, "async_enabled": True}
             )
-            mcp_debug("✅ PING response: pong with async support", tool_name="ticmaker_async")
+            # mcp_debug("✅ PING response: pong with async support", tool_name="ticmaker_async")
             return response
 
         elif message.method == MCPMethods.RESOURCES_LIST:
@@ -1024,9 +1026,22 @@ class TICMakerAsyncStdioMCPServer:
         """Handle explicit async tool call with progress reporting"""
         mcp_info("🚀 Processing explicit TOOLS_CALL_ASYNC request", tool_name="ticmaker_async")
 
-        # For now, redirect to the same logic as regular tool call
-        # In a full implementation, this would handle streaming progress updates
-        return await self._handle_tool_call(message)
+        # Execute the tool call normally
+        result = await self._handle_tool_call(message)
+
+        # Send the final result via tools/result message for async protocol
+        if hasattr(self, 'send_message') and result and result.result:
+            final_result_message = MCPMessage(
+                id=str(uuid.uuid4()),
+                method="tools/result",
+                params={
+                    "result": result.result
+                }
+            )
+            await self.send_message(final_result_message)
+            mcp_info("📤 Sent final tools/result message for async completion", tool_name="ticmaker_async")
+
+        return result
 
     async def _create_interactive_course_async(self, arguments: Dict[str, Any], request_id: str) -> TICMakerAsyncResult:
         """Create interactive course with async support"""
@@ -1077,6 +1092,13 @@ class TICMakerAsyncStdioMCPServer:
                 template_style=template_style,
                 session_context=session_context
             )
+
+            # DEBUG LOG: Program execution reached this point
+            mcp_debug("🔧 DEBUG: Program execution reached L1068 - Creating result object", {
+                "result_content_length": len(result_content) if result_content else 0,
+                "result_content_preview": result_content[:100] if result_content else "None",
+                "progress_reports_count": len(progress_reports)
+            }, tool_name="ticmaker_async")
 
             # Create result object compatible with existing interface
             result = TICMakerAsyncResult(
