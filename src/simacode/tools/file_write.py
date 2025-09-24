@@ -25,7 +25,7 @@ class FileWriteInput(ToolInput):
     content: str = Field(..., description="Content to write to the file")
     encoding: str = Field(
         "utf-8",
-        description="File encoding for writing"
+        description="File encoding for writing (always utf-8 for cross-platform compatibility)"
     )
     mode: str = Field(
         "write",
@@ -67,12 +67,9 @@ class FileWriteInput(ToolInput):
     
     @validator('encoding')
     def validate_encoding(cls, v):
-        """Validate encoding."""
-        try:
-            "test".encode(v)
-            return v.lower()
-        except LookupError:
-            raise ValueError(f"Unknown encoding: {v}")
+        """Force UTF-8 encoding for cross-platform compatibility."""
+        # Always use UTF-8 regardless of input
+        return "utf-8"
     
     @validator('insert_line', always=True)
     def validate_insert_line(cls, v, values):
@@ -186,7 +183,10 @@ class FileWriteTool(Tool):
             final_content = await self._prepare_content(
                 normalized_path, input_data, execution_id
             )
-            
+
+            # Force UTF-8 encoding
+            input_data.encoding = "utf-8"
+
             # Write the file
             await self._write_file(
                 normalized_path, final_content, input_data, execution_id
@@ -253,7 +253,7 @@ class FileWriteTool(Tool):
         elif input_data.mode == "append":
             # Append to existing content
             if os.path.exists(file_path):
-                async with aiofiles.open(file_path, 'r', encoding=input_data.encoding) as f:
+                async with aiofiles.open(file_path, 'r', encoding=input_data.encoding, errors='replace') as f:
                     existing_content = await f.read()
                 
                 # Add newline if the existing content doesn't end with one
@@ -267,7 +267,7 @@ class FileWriteTool(Tool):
         elif input_data.mode == "insert":
             # Insert at specific line
             if os.path.exists(file_path):
-                async with aiofiles.open(file_path, 'r', encoding=input_data.encoding) as f:
+                async with aiofiles.open(file_path, 'r', encoding=input_data.encoding, errors='replace') as f:
                     lines = await f.readlines()
                 
                 insert_line = input_data.insert_line
@@ -307,39 +307,57 @@ class FileWriteTool(Tool):
         return content
     
     async def _write_file(
-        self, 
-        file_path: str, 
-        content: str, 
+        self,
+        file_path: str,
+        content: str,
         input_data: FileWriteInput,
         execution_id: str
     ) -> None:
-        """Write content to file atomically."""
+        """Write content to file atomically with UTF-8 encoding."""
         # Use temporary file for atomic write
         temp_fd = None
         temp_path = None
-        
+
         try:
             # Create temporary file in the same directory
             parent_dir = os.path.dirname(file_path)
             temp_fd, temp_path = tempfile.mkstemp(
                 dir=parent_dir,
-                prefix=f".tmp_{os.path.basename(file_path)}_"
+                prefix=f".tmp_{os.path.basename(file_path)}_",
+                text=True
             )
-            
-            # Write to temporary file
-            async with aiofiles.open(temp_path, 'w', encoding=input_data.encoding) as f:
+
+            # Close the file descriptor immediately
+            os.close(temp_fd)
+            temp_fd = None
+
+            # Write to temporary file with UTF-8 encoding and error handling
+            async with aiofiles.open(
+                temp_path,
+                'w',
+                encoding=input_data.encoding,  # This is now always 'utf-8'
+                errors='replace',  # Replace problematic characters instead of failing
+                newline='' if input_data.line_ending != 'auto' else None
+            ) as f:
                 await f.write(content)
-            
+                await f.flush()
+
             # Atomic move to final location
             shutil.move(temp_path, file_path)
             temp_path = None  # Don't delete it in finally block
-            
+
         finally:
             # Clean up temporary file if something went wrong
             if temp_fd is not None:
-                os.close(temp_fd)
+                try:
+                    os.close(temp_fd)
+                except:
+                    pass
             if temp_path and os.path.exists(temp_path):
-                os.unlink(temp_path)
+                try:
+                    os.unlink(temp_path)
+                except:
+                    pass
     
     async def get_file_info(self, file_path: str) -> Dict[str, Any]:
         """Get information about a file."""
