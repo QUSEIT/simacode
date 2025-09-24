@@ -343,7 +343,7 @@ class MCPProtocol:
         if await self._server_supports_async():
             # 使用新的异步协议
             async for result in self._call_tool_async_protocol(
-                tool_name, arguments, progress_callback, timeout or 3600
+                tool_name, arguments, progress_callback, timeout or 600
             ):
                 yield result
         else:
@@ -369,15 +369,11 @@ class MCPProtocol:
     async def _server_supports_async(self) -> bool:
         """检查服务器是否支持异步扩展"""
         if self._server_capabilities is None:
-            # 尝试获取服务器能力
-            # 这个信息通常在初始化握手时获得
-            logger.debug("Server capabilities not available, defaulting to async support")
-            return True
+            return False
 
         # 检查服务器能力中是否包含异步工具支持
         tools_capabilities = self._server_capabilities.get("tools", {})
         async_support = tools_capabilities.get("async_support", False)
-        logger.debug(f"Server async support check: {async_support}, capabilities: {tools_capabilities}")
         return async_support
 
     async def _call_tool_async_protocol(
@@ -415,26 +411,19 @@ class MCPProtocol:
             )
 
             await self.send_message(request)
+            # Keep essential MCP async flow logging
             logger.debug(f"Sent async tool call request for '{tool_name}' with ID {request_id}")
 
             # 等待响应流
             async for message in self._wait_for_async_responses(request_id, timeout):
+                # Essential MCP async flow logging
+                logger.debug(f"MCP async message: method='{message.method}', request_id='{request_id}'")
+
                 if message.method == "tools/progress":
                     # 进度通知
                     progress_data = message.params
-
-                    # DEBUG LOG: 详细记录tools/progress消息
-                    logger.debug(f"🔄 [TOOLS_PROGRESS] Received tools/progress message", extra={
-                        "request_id": request_id,
-                        "progress_data": progress_data,
-                        "message_id": getattr(message, 'id', None),
-                        "has_callbacks": request_id in self._progress_callbacks,
-                        "callback_count": len(self._progress_callbacks.get(request_id, [])),
-                        "progress_keys": list(progress_data.keys()) if isinstance(progress_data, dict) else None,
-                        "progress_type": progress_data.get("type") if isinstance(progress_data, dict) else None,
-                        "progress_value": progress_data.get("progress") if isinstance(progress_data, dict) else None,
-                        "progress_message": progress_data.get("message") if isinstance(progress_data, dict) else None
-                    })
+                    # Essential MCP progress logging
+                    logger.debug(f"MCP tools/progress: request_id={request_id}")
 
                     # 调用进度回调
                     if request_id in self._progress_callbacks:
@@ -453,6 +442,7 @@ class MCPProtocol:
                 elif message.method == "tools/result":
                     # 最终结果
                     result_data = message.params
+                    logger.debug(f"MCP tools/result: request_id='{request_id}'")
                     yield MCPResult(
                         success=True,
                         content=result_data.get("result"),
@@ -496,7 +486,6 @@ class MCPProtocol:
         response_queue = self._async_response_queues.get(request_id)
         if not response_queue:
             raise ValueError(f"No response queue found for request {request_id}")
-
         start_time = asyncio.get_event_loop().time()
 
         while True:
@@ -514,6 +503,8 @@ class MCPProtocol:
                     timeout=min(remaining_timeout, 5.0)
                 )
 
+                # Essential MCP async response logging
+                logger.debug(f"MCP async response: method={message.method}, request_id={request_id}")
                 yield message
 
                 # 如果是最终结果或错误，停止等待
@@ -534,37 +525,15 @@ class MCPProtocol:
             # 异步任务相关通知，路由到对应的响应队列
             request_id = message.params.get("request_id") if message.params else None
 
-            # 针对tools/progress添加额外的DEBUG日志
-            if message.method == "tools/progress":
-                logger.debug(f"📨 [TOOLS_PROGRESS_ROUTING] Routing tools/progress notification", extra={
-                    "method": message.method,
-                    "request_id": request_id,
-                    "message_id": getattr(message, 'id', None),
-                    "params": message.params,
-                    "has_request_queue": request_id and request_id in self._async_response_queues,
-                    "active_queues": list(self._async_response_queues.keys()),
-                    "queue_count": len(self._async_response_queues),
-                    "progress_data": message.params if message.params else None
-                })
-
             if request_id and request_id in self._async_response_queues:
                 try:
                     await self._async_response_queues[request_id].put(message)
-                    if message.method == "tools/progress":
-                        logger.debug(f"✅ [TOOLS_PROGRESS_ROUTED] Successfully routed tools/progress to queue {request_id}")
-                    else:
-                        logger.debug(f"Routed {message.method} notification for request {request_id}")
+                    # Essential MCP routing logging for debugging
+                    logger.debug(f"MCP routed {message.method} to queue {request_id}")
                 except Exception as e:
                     logger.error(f"Failed to route notification for request {request_id}: {e}")
             else:
-                if message.method == "tools/progress":
-                    logger.debug(f"⚠️ [TOOLS_PROGRESS_NO_QUEUE] tools/progress notification has no corresponding request queue", extra={
-                        "request_id": request_id,
-                        "available_queues": list(self._async_response_queues.keys()),
-                        "message_params": message.params
-                    })
-                else:
-                    logger.debug(f"Received {message.method} notification but no corresponding request queue found")
+                logger.debug(f"MCP {message.method} notification without request queue (request_id: {request_id})")
         else:
             # 其他通知类型，记录日志
             logger.debug(f"Received notification: {message.method}")
@@ -572,7 +541,8 @@ class MCPProtocol:
     def set_server_capabilities(self, capabilities: Dict[str, Any]):
         """设置服务器能力信息（通常在初始化时调用）"""
         self._server_capabilities = capabilities
-        logger.debug(f"Server capabilities updated: {capabilities}")
+        # Keep server capabilities logging for MCP debugging
+        logger.debug(f"MCP server capabilities updated: {capabilities.keys() if capabilities else None}")
 
     def _generate_request_id(self) -> str:
         """Generate unique request ID."""
