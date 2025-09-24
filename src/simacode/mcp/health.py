@@ -319,22 +319,19 @@ class MCPHealthMonitor:
             if client.is_connected():
                 # Try to ping the server, but fall back to connection check if ping fails
                 try:
-                    success = await asyncio.wait_for(client.ping(), timeout=5.0)
+                    success = await asyncio.wait_for(client.ping(), timeout=60.0)
                     if not success:
                         # Ping returned False, try alternative health check
-                        tools = await asyncio.wait_for(client.list_tools(), timeout=5.0)
+                        tools = await asyncio.wait_for(client.list_tools(), timeout=60.0)
                         success = True  # If we can list tools, server is healthy
-                        logger.debug(f"Ping returned False for '{server_name}', but tool list succeeded ({len(tools)} tools)")
                 except asyncio.TimeoutError:
                     error_message = "Health check timeout"
                 except Exception as ping_error:
                     # If ping fails, use tool list as health check for servers that don't support ping
                     try:
-                        tools = await asyncio.wait_for(client.list_tools(), timeout=5.0)
+                        tools = await asyncio.wait_for(client.list_tools(), timeout=60.0)
                         success = True  # If we can list tools, server is healthy
-                        logger.debug(f"Ping failed for '{server_name}', but tool list succeeded ({len(tools)} tools)")
                     except Exception as tools_error:
-                        logger.debug(f"Both ping and tool list failed for '{server_name}': ping={ping_error}, tools={tools_error}")
                         success = True  # Still consider connected if client says it's connected
             else:
                 error_message = f"Client not connected (state: {client.get_state()})"
@@ -352,8 +349,8 @@ class MCPHealthMonitor:
         
         # Log health check result
         if success:
+            # Only log successful checks at debug level for critical servers or errors
             pass
-            #logger.debug(f"Health check passed for '{server_name}' ({response_time:.3f}s)")
         else:
             logger.warning(f"Health check failed for '{server_name}': {error_message}")
         

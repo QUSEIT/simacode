@@ -207,6 +207,7 @@ class TICMakerAsyncAIClient:
         self.config = config
         self.client = None
         self.mcp_send_message = mcp_send_message  # Callback to send MCP messages
+        self.current_request_id = None  # Track current request for progress routing
 
         if config.ai_enabled and config.ai_api_key:
             # OpenAI client for streaming responses
@@ -219,14 +220,19 @@ class TICMakerAsyncAIClient:
     async def _send_mcp_progress(self, content: str, progress_data: Optional[Dict] = None):
         """Send progress message via MCP protocol"""
         if self.mcp_send_message:
+            params = {
+                "content": content,
+                "timestamp": datetime.now().isoformat(),
+                **(progress_data or {})
+            }
+
+            # 添加 request_id 用于客户端路由
+            if self.current_request_id:
+                params["request_id"] = self.current_request_id
+
             message = MCPMessage(
-                id=str(uuid.uuid4()),
-                method="tools/progress",
-                params={
-                    "content": content,
-                    "timestamp": datetime.now().isoformat(),
-                    **(progress_data or {})
-                }
+                method="tools/progress",  # 通知消息不需要id
+                params=params
             )
 
             # DEBUG LOG: 记录发送tools/progress消息
@@ -302,6 +308,7 @@ class TICMakerAsyncAIClient:
         self,
         user_input: str,
         output_dir: str,
+        request_id: Optional[str] = None,
         **kwargs
     ) -> str:
         """
@@ -316,6 +323,9 @@ class TICMakerAsyncAIClient:
             error_msg = "AI client not initialized"
             await self._send_mcp_progress(f"❌ {error_msg}")
             return error_msg
+
+        # 设置当前的 request_id
+        self.current_request_id = request_id
 
         # Send initial progress
         await self._send_mcp_progress("🎯 开始生成互动教学内容...", {
@@ -694,8 +704,8 @@ class TICMakerAsyncStdioMCPServer:
         try:
             response_json = message.to_dict()
             response_line = json.dumps(response_json, ensure_ascii=False)
-            #print(response_line, flush=True)
-            mcp_debug(f"📤  Sent: {response_line}", tool_name="ticmaker_async")
+            print(response_line, flush=True)  # 修复：启用实际的消息发送
+            mcp_debug(f"📤 [MESSAGE_SENT] Sent to stdout: {response_line}", tool_name="ticmaker_async")
         except Exception as e:
             mcp_error(f"❌ [MCP_SEND_ERROR] Failed to send message: {str(e)}", tool_name="ticmaker_async")
 
@@ -1026,22 +1036,65 @@ class TICMakerAsyncStdioMCPServer:
         """Handle explicit async tool call with progress reporting"""
         mcp_info("🚀 Processing explicit TOOLS_CALL_ASYNC request", tool_name="ticmaker_async")
 
-        # Execute the tool call normally
-        result = await self._handle_tool_call(message)
+        # 立即返回异步任务已接受的响应
+        async_accepted_response = MCPMessage(
+            id=message.id,
+            result={
+                "accepted": True,
+                "task_id": message.id,
+                "message": "Async task accepted and started",
+                "async_mode": True
+            }
+        )
 
-        # Send the final result via tools/result message for async protocol
-        if hasattr(self, 'send_message') and result and result.result:
-            final_result_message = MCPMessage(
-                id=str(uuid.uuid4()),
-                method="tools/result",
+        # 在后台执行实际的工具调用
+        asyncio.create_task(self._execute_async_tool_in_background(message))
+
+        return async_accepted_response
+
+    async def _execute_async_tool_in_background(self, message: MCPMessage):
+        """在后台执行异步工具调用"""
+        try:
+            mcp_info(f"🔄 Starting background async tool execution for request_id: {message.id}", tool_name="ticmaker_async")
+
+            # 执行实际的工具调用
+            result = await self._handle_tool_call(message)
+
+            # 发送最终结果通知
+            if hasattr(self, 'send_message') and result and result.result:
+                final_result_message = MCPMessage(
+                    method="tools/result",
+                    params={
+                        "request_id": message.id,  # 用于客户端路由
+                        "result": result.result
+                    }
+                )
+                await self.send_message(final_result_message)
+                mcp_info(f"📤 Sent final tools/result notification with request_id: {message.id}", tool_name="ticmaker_async")
+            elif result and not result.result:
+                # 发送错误通知
+                error_message = MCPMessage(
+                    method="tools/error",
+                    params={
+                        "request_id": message.id,
+                        "error": result.error or "Tool execution failed"
+                    }
+                )
+                await self.send_message(error_message)
+                mcp_error(f"📤 Sent tools/error notification with request_id: {message.id}", tool_name="ticmaker_async")
+
+        except Exception as e:
+            mcp_error(f"💥 Background async tool execution error: {str(e)}", tool_name="ticmaker_async")
+
+            # 发送错误通知
+            error_message = MCPMessage(
+                method="tools/error",
                 params={
-                    "result": result.result
+                    "request_id": message.id,
+                    "error": f"Background execution failed: {str(e)}"
                 }
             )
-            await self.send_message(final_result_message)
-            mcp_info("📤 Sent final tools/result message for async completion", tool_name="ticmaker_async")
-
-        return result
+            await self.send_message(error_message)
 
     async def _create_interactive_course_async(self, arguments: Dict[str, Any], request_id: str) -> TICMakerAsyncResult:
         """Create interactive course with async support"""
@@ -1087,6 +1140,7 @@ class TICMakerAsyncStdioMCPServer:
             result_content = await self.ticmaker_client.ai_client.generate_interactive_content_streaming(
                 user_input=user_input,
                 output_dir=output_dir,
+                request_id=request_id,  # 传递 request_id
                 course_title=course_title,
                 content_type=content_type,
                 template_style=template_style,
