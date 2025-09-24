@@ -370,16 +370,15 @@ class MCPProtocol:
         """检查服务器是否支持异步扩展"""
         if self._server_capabilities is None:
             # 尝试获取服务器能力
-            try:
-                # 这个信息通常在初始化握手时获得
-                # 暂时默认支持，后续可以通过其他方式检测
-                return True
-            except Exception:
-                return False
+            # 这个信息通常在初始化握手时获得
+            logger.debug("Server capabilities not available, defaulting to async support")
+            return True
 
         # 检查服务器能力中是否包含异步工具支持
         tools_capabilities = self._server_capabilities.get("tools", {})
-        return tools_capabilities.get("async_support", False)
+        async_support = tools_capabilities.get("async_support", False)
+        logger.debug(f"Server async support check: {async_support}, capabilities: {tools_capabilities}")
+        return async_support
 
     async def _call_tool_async_protocol(
         self,
@@ -423,6 +422,19 @@ class MCPProtocol:
                 if message.method == "tools/progress":
                     # 进度通知
                     progress_data = message.params
+
+                    # DEBUG LOG: 详细记录tools/progress消息
+                    logger.debug(f"🔄 [TOOLS_PROGRESS] Received tools/progress message", extra={
+                        "request_id": request_id,
+                        "progress_data": progress_data,
+                        "message_id": getattr(message, 'id', None),
+                        "has_callbacks": request_id in self._progress_callbacks,
+                        "callback_count": len(self._progress_callbacks.get(request_id, [])),
+                        "progress_keys": list(progress_data.keys()) if isinstance(progress_data, dict) else None,
+                        "progress_type": progress_data.get("type") if isinstance(progress_data, dict) else None,
+                        "progress_value": progress_data.get("progress") if isinstance(progress_data, dict) else None,
+                        "progress_message": progress_data.get("message") if isinstance(progress_data, dict) else None
+                    })
 
                     # 调用进度回调
                     if request_id in self._progress_callbacks:
@@ -522,14 +534,37 @@ class MCPProtocol:
             # 异步任务相关通知，路由到对应的响应队列
             request_id = message.params.get("request_id") if message.params else None
 
+            # 针对tools/progress添加额外的DEBUG日志
+            if message.method == "tools/progress":
+                logger.debug(f"📨 [TOOLS_PROGRESS_ROUTING] Routing tools/progress notification", extra={
+                    "method": message.method,
+                    "request_id": request_id,
+                    "message_id": getattr(message, 'id', None),
+                    "params": message.params,
+                    "has_request_queue": request_id and request_id in self._async_response_queues,
+                    "active_queues": list(self._async_response_queues.keys()),
+                    "queue_count": len(self._async_response_queues),
+                    "progress_data": message.params if message.params else None
+                })
+
             if request_id and request_id in self._async_response_queues:
                 try:
                     await self._async_response_queues[request_id].put(message)
-                    logger.debug(f"Routed {message.method} notification for request {request_id}")
+                    if message.method == "tools/progress":
+                        logger.debug(f"✅ [TOOLS_PROGRESS_ROUTED] Successfully routed tools/progress to queue {request_id}")
+                    else:
+                        logger.debug(f"Routed {message.method} notification for request {request_id}")
                 except Exception as e:
                     logger.error(f"Failed to route notification for request {request_id}: {e}")
             else:
-                logger.debug(f"Received {message.method} notification but no corresponding request queue found")
+                if message.method == "tools/progress":
+                    logger.debug(f"⚠️ [TOOLS_PROGRESS_NO_QUEUE] tools/progress notification has no corresponding request queue", extra={
+                        "request_id": request_id,
+                        "available_queues": list(self._async_response_queues.keys()),
+                        "message_params": message.params
+                    })
+                else:
+                    logger.debug(f"Received {message.method} notification but no corresponding request queue found")
         else:
             # 其他通知类型，记录日志
             logger.debug(f"Received notification: {message.method}")

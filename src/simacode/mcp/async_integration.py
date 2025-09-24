@@ -25,7 +25,6 @@ class TaskType(Enum):
     """任务类型枚举"""
     REACT = "react"
     CHAT = "chat"
-    MCP_TOOL = "mcp_tool"
 
 
 class TaskStatus(Enum):
@@ -230,8 +229,6 @@ class MCPAsyncTaskManager:
                     await self._execute_react_task(task)
                 elif task.task_type == TaskType.CHAT:
                     await self._execute_chat_task(task)
-                elif task.task_type == TaskType.MCP_TOOL:
-                    await self._execute_mcp_tool_task(task)
                 else:
                     raise ValueError(f"Unknown task type: {task.task_type}")
 
@@ -322,36 +319,6 @@ class MCPAsyncTaskManager:
             "session_id": getattr(request, 'session_id', None)
         }
 
-    async def _execute_mcp_tool_task(self, task: MCPAsyncTask):
-        """执行 MCP 工具异步任务"""
-        request_data = task.request
-
-        # 模拟 MCP 工具执行
-        # TODO: 这里需要与实际的 MCP 工具执行集成
-
-        tool_name = request_data.get('tool_name', 'unknown_tool')
-
-        # 模拟长时间运行的工具
-        for i in range(10):
-            if task.status == TaskStatus.CANCELLED:
-                return
-
-            await asyncio.sleep(0.5)  # 模拟处理
-
-            progress = (i + 1) * 10
-            await self._report_progress(task.task_id, {
-                "type": "progress",
-                "progress": progress,
-                "message": f"Executing {tool_name}... {progress}%",
-                "timestamp": time.time()
-            })
-
-        # 设置模拟结果
-        task.result = {
-            "tool_name": tool_name,
-            "output": f"Tool {tool_name} executed successfully",
-            "arguments": request_data.get('arguments', {})
-        }
 
     async def _report_progress(self, task_id: str, progress_data: Dict[str, Any]):
         """报告任务进度"""
