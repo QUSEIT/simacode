@@ -370,16 +370,15 @@ class MCPProtocol:
         """检查服务器是否支持异步扩展"""
         if self._server_capabilities is None:
             # 尝试获取服务器能力
-            try:
-                # 这个信息通常在初始化握手时获得
-                # 暂时默认支持，后续可以通过其他方式检测
-                return True
-            except Exception:
-                return False
+            # 这个信息通常在初始化握手时获得
+            logger.debug("Server capabilities not available, defaulting to async support")
+            return True
 
         # 检查服务器能力中是否包含异步工具支持
         tools_capabilities = self._server_capabilities.get("tools", {})
-        return tools_capabilities.get("async_support", False)
+        async_support = tools_capabilities.get("async_support", False)
+        logger.debug(f"Server async support check: {async_support}, capabilities: {tools_capabilities}")
+        return async_support
 
     async def _call_tool_async_protocol(
         self,

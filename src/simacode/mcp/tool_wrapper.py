@@ -21,7 +21,6 @@ from ..permissions import PermissionManager
 from .protocol import MCPTool, MCPResult
 from .server_manager import MCPServerManager
 from .exceptions import MCPConnectionError, MCPToolNotFoundError
-from .async_integration import TaskType, get_global_task_manager
 
 logger = logging.getLogger(__name__)
 
@@ -96,8 +95,6 @@ class MCPToolWrapper(Tool):
         self.original_name = mcp_tool.name
         self.mcp_schema = mcp_tool.input_schema
 
-        # 异步任务管理
-        self.task_manager = get_global_task_manager()
     
     def _create_input_schema(self) -> Type[MCPToolInput]:
         """
@@ -513,8 +510,8 @@ class MCPToolWrapper(Tool):
                 async for result in self._execute_with_server_async(input_data):
                     yield result
             else:
-                # 使用任务管理器的异步包装
-                async for result in self._execute_with_task_manager_async(input_data):
+                # 服务器不支持异步调用，回退到同步执行
+                async for result in self._execute_sync(input_data, TaskComplexity.LOW):
                     yield result
 
         except Exception as e:
@@ -539,6 +536,7 @@ class MCPToolWrapper(Tool):
         mcp_arguments = self._convert_input_to_mcp_args(input_data)
 
         # 调用异步执行
+        logger.debug(f"[L538] _execute_with_server_async: About to call server_manager.call_tool_async for tool '{self.name}', server: '{self.server_name}', original_name: '{self.original_name}', execution_id: {input_data.execution_id}, mcp_arguments: {mcp_arguments}")
         async for mcp_result in self.server_manager.call_tool_async(
             self.server_name,
             self.original_name,
@@ -546,66 +544,12 @@ class MCPToolWrapper(Tool):
             progress_callback=progress_callback
         ):
             # 转换 MCP 结果为工具结果
+            logger.debug(f"[L545] _execute_with_server_async: Converting MCP result to tool result for tool '{self.name}', execution_id: {input_data.execution_id}")
             async for tool_result in self._convert_mcp_result_to_tool_result(
                 mcp_result, input_data.execution_id, 0
             ):
                 yield tool_result
 
-    async def _execute_with_task_manager_async(self, input_data: ToolInput) -> AsyncGenerator[ToolResult, None]:
-        """使用任务管理器的异步包装"""
-
-        # 创建任务请求
-        task_request = {
-            "tool_name": self.original_name,
-            "server_name": self.server_name,
-            "arguments": self._convert_input_to_mcp_args(input_data),
-            "execution_id": input_data.execution_id
-        }
-
-        # 提交到任务管理器
-        task_id = await self.task_manager.submit_task(
-            TaskType.MCP_TOOL,
-            task_request
-        )
-
-        yield ToolResult(
-            type=ToolResultType.INFO,
-            content=f"Task submitted for background execution: {task_id}",
-            tool_name=self.name,
-            execution_id=input_data.execution_id,
-            metadata={"async_task_id": task_id, "task_type": "long_running"}
-        )
-
-        # 订阅进度流
-        async for progress in self.task_manager.get_task_progress_stream(task_id):
-            progress_type = progress.get('type', 'progress')
-
-            if progress_type == 'progress':
-                yield ToolResult(
-                    type=ToolResultType.PROGRESS,
-                    content=progress.get('message', 'Processing...'),
-                    tool_name=self.name,
-                    execution_id=input_data.execution_id,
-                    metadata=progress
-                )
-            elif progress_type == 'final_result':
-                yield ToolResult(
-                    type=ToolResultType.SUCCESS,
-                    content=str(progress.get('result', 'Task completed')),
-                    tool_name=self.name,
-                    execution_id=input_data.execution_id,
-                    metadata=progress
-                )
-                break
-            elif progress_type == 'error':
-                yield ToolResult(
-                    type=ToolResultType.ERROR,
-                    content=progress.get('error', 'Task failed'),
-                    tool_name=self.name,
-                    execution_id=input_data.execution_id,
-                    metadata=progress
-                )
-                break
 
     async def _execute_sync(self, input_data: ToolInput, complexity: TaskComplexity) -> AsyncGenerator[ToolResult, None]:
         """
@@ -642,6 +586,7 @@ class MCPToolWrapper(Tool):
 
             # 转换 MCP 结果为 SimaCode 结果
             execution_time = time.time() - execution_start
+            logger.debug(f"[L587] _execute_sync: Converting MCP result to tool result for tool '{self.name} {mcp_result}', execution_id: {input_data.execution_id}, execution_time: {execution_time:.3f}s")
             async for result in self._convert_mcp_result_to_tool_result(
                 mcp_result, input_data.execution_id, execution_time
             ):
