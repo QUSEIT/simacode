@@ -328,18 +328,34 @@ class MCPHealthMonitor:
                     error_message = "Health check timeout"
                 except Exception as ping_error:
                     # If ping fails, use tool list as health check for servers that don't support ping
+                    logger.debug(f"Ping failed for '{server_name}': {str(ping_error)}, trying list_tools as fallback")
                     try:
                         tools = await asyncio.wait_for(client.list_tools(), timeout=60.0)
                         success = True  # If we can list tools, server is healthy
                     except Exception as tools_error:
+                        logger.debug(f"List tools also failed for '{server_name}': {str(tools_error)}, but client reports connected")
                         success = True  # Still consider connected if client says it's connected
             else:
-                error_message = f"Client not connected (state: {client.get_state()})"
+                last_error = client.get_last_error()
+                state = client.get_state()
+                stats = client.get_stats()
+                connection_attempts = stats.get('connection_attempts', 0)
+
+                if last_error:
+                    error_message = f"Client not connected (state: {state}, connection_attempts: {connection_attempts}, last_error: {str(last_error)})"
+                else:
+                    error_message = f"Client not connected (state: {state}, connection_attempts: {connection_attempts})"
             
         except asyncio.TimeoutError:
             error_message = "Health check timeout"
         except Exception as e:
-            error_message = f"Health check failed: {str(e)}"
+            # Include client state and last error for better diagnostics
+            state = client.get_state()
+            last_error = client.get_last_error()
+            if last_error:
+                error_message = f"Health check failed: {str(e)} (client_state: {state}, last_client_error: {str(last_error)})"
+            else:
+                error_message = f"Health check failed: {str(e)} (client_state: {state})"
         
         response_time = time.time() - start_time
         
