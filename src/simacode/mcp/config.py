@@ -49,11 +49,13 @@ class MCPServerConfig(BaseModel):
     
     name: str = Field(..., description="Unique server name")
     enabled: bool = Field(default=True)
-    type: str = Field(default="stdio", description="Transport type")
-    command: List[str] = Field(..., description="Command to start server")
+    type: str = Field(default="stdio", description="Transport type: stdio, websocket, or embedded")
+    command: List[str] = Field(default_factory=list, description="Command to start server (for stdio/websocket)")
     args: List[str] = Field(default_factory=list)
     url: Optional[str] = Field(default=None, description="WebSocket URL for websocket type")
     headers: Dict[str, str] = Field(default_factory=dict, description="HTTP headers for websocket connection")
+    module_path: Optional[str] = Field(default=None, description="Module path for embedded servers (e.g., tools.mcp_smtp_send_email)")
+    main_function: Optional[str] = Field(default="main", description="Main function name for embedded servers")
     environment: Dict[str, str] = Field(default_factory=dict)
     working_directory: Optional[str] = None
     timeout: int = Field(default=30, ge=1, le=300)
@@ -65,21 +67,37 @@ class MCPServerConfig(BaseModel):
     @classmethod
     def validate_command(cls, v: List[str], info) -> List[str]:
         """Validate command list."""
-        # For websocket type servers, command can be empty
         server_type = info.data.get('type', 'stdio')
-        if server_type == 'websocket':
-            return v  # Allow empty command for websocket servers
-        
-        if not v:
-            raise ValueError("Command cannot be empty for stdio servers")
-        
-        # Check if first element (executable) exists
-        executable = v[0]
-        if not executable:
-            raise ValueError("Executable name cannot be empty")
-        
+
+        # For websocket and embedded servers, command can be empty
+        if server_type in ['websocket', 'embedded']:
+            return v
+
+        # For stdio servers, command is required
+        if server_type == 'stdio':
+            if not v:
+                raise ValueError("Command cannot be empty for stdio servers")
+
+            # Check if first element (executable) exists
+            executable = v[0]
+            if not executable:
+                raise ValueError("Executable name cannot be empty")
+
         return v
-    
+
+    @field_validator('module_path')
+    @classmethod
+    def validate_module_path(cls, v: Optional[str], info) -> Optional[str]:
+        """Validate module path for embedded servers."""
+        server_type = info.data.get('type', 'stdio')
+
+        # For embedded servers, module_path is required
+        if server_type == 'embedded':
+            if not v:
+                raise ValueError("module_path is required for embedded servers")
+
+        return v
+
     @field_validator('environment')
     @classmethod
     def validate_environment(cls, v: Dict[str, str]) -> Dict[str, str]:

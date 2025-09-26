@@ -136,7 +136,13 @@ class SMTPConfig:
         # Get username and password from environment variables with fallbacks
         username = smtp_config.username or os.getenv('EMAIL_USERNAME') or os.getenv('SIMACODE_SMTP_USER', '')
         password = smtp_config.password or os.getenv('EMAIL_PASSWORD') or os.getenv('SIMACODE_SMTP_PASS', '')
-        
+
+        # Get from_name and from_email with environment variable fallbacks
+        from_name = email_config.defaults.from_name or os.getenv('EMAIL_FROM_NAME', '')
+        from_email = email_config.defaults.from_email or os.getenv('EMAIL_FROM_EMAIL', '')
+
+        # Configuration loaded successfully
+
         return cls(
             server=smtp_config.server or os.getenv('EMAIL_SMTP_SERVER', ''),
             port=smtp_config.port,
@@ -145,8 +151,8 @@ class SMTPConfig:
             use_ssl=smtp_config.use_ssl,
             use_tls=smtp_config.use_tls,
             timeout=smtp_config.timeout,
-            from_name=email_config.defaults.from_name,
-            from_email=email_config.defaults.from_email,
+            from_name=from_name,
+            from_email=from_email,
             max_recipients=email_config.security.max_recipients,
             max_body_size=email_config.security.max_body_size,
             max_attachment_size=email_config.security.max_attachment_size,
@@ -343,7 +349,9 @@ class SMTPEmailClient:
         # Determine sender info
         sender_email = from_email or self.config.from_email or self.config.username
         sender_name = from_name or self.config.from_name
-        
+
+        # Sender email determined
+
         if not sender_email:
             return None, "No sender email configured"
         
@@ -619,12 +627,25 @@ class EmailSMTPMCPServer:
     def __init__(self, smtp_config: Optional[SMTPConfig] = None):
         """
         Initialize Email SMTP MCP server.
-        
+
         Args:
-            smtp_config: Email SMTP configuration
+            smtp_config: Email SMTP configuration. If None, will load from .simacode/config.yaml
         """
+        if smtp_config is None:
+            # Auto-load configuration from .simacode/config.yaml
+            from src.simacode.utils.config_loader import load_simacode_config
+            from pathlib import Path
+
+            # Try to find the config file path
+            config_path = Path(".simacode/config.yaml")
+            if not config_path.exists():
+                config_path = None
+
+            simacode_config = load_simacode_config(config_path=config_path)
+            smtp_config = SMTPConfig.from_simacode_config(simacode_config)
+
         # Initialize email client with configuration
-        self.smtp_config = smtp_config or SMTPConfig()
+        self.smtp_config = smtp_config
         self.email_client = SMTPEmailClient(self.smtp_config)
         
         # MCP server info

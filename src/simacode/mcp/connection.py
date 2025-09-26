@@ -6,8 +6,11 @@ including stdio, WebSocket, and HTTP transports.
 """
 
 import asyncio
+import contextlib
 import logging
 import os
+import sys
+import importlib.util
 from typing import Dict, Any, Optional
 from abc import ABC, abstractmethod
 import websockets
@@ -41,10 +44,8 @@ class StdioTransport(MCPTransport):
             logger.info(f"Starting MCP server: {' '.join(self.command + self.args)}")
             
             # Start subprocess
-            # Merge custom env with current environment to ensure Python can run properly
-            process_env = dict(os.environ) if self.env else None
-            if self.env:
-                process_env.update(self.env)
+            # Use shared environment preparation method
+            process_env = self._prepare_environment()
             
             # Set larger limit for MCP communication to handle large responses
             # Default asyncio readline limit is 64KB, increase to 10MB for large email attachments
@@ -243,11 +244,9 @@ class WebSocketTransport(MCPTransport):
             
         try:
             logger.info(f"Starting MCP WebSocket server: {' '.join(self.command + self.args)}")
-            
-            # Merge custom env with current environment
-            process_env = dict(os.environ) if self.env else None
-            if self.env:
-                process_env.update(self.env)
+
+            # Use shared environment preparation method
+            process_env = self._prepare_environment()
             
             # Set larger limit for MCP communication to handle large responses
             # Default asyncio readline limit is 64KB, increase to 10MB for large email attachments
@@ -463,28 +462,337 @@ class MCPConnection:
             logger.error(f"Reconnection error: {str(e)}")
 
 
+class EmbeddedTransport(MCPTransport):
+    """
+    Universal embedded MCP server transport that runs in the same process.
+
+    This transport supports all stdio-based MCP tools by dynamically detecting
+    their protocol type and adapting accordingly. Perfect for PyInstaller
+    environments where subprocess creation fails.
+
+    Supports two common stdio MCP patterns:
+    1. Custom stdio protocol with _process_mcp_message() method
+    2. Standard MCP library with Server() class and stdio_server()
+    """
+
+    def __init__(self, module_path: str, main_function: str = "main", args: list = None, env: Dict[str, str] = None):
+        """
+        Initialize universal embedded transport.
+
+        Args:
+            module_path: Path to the MCP server module (e.g., "tools.mcp_smtp_send_email")
+            main_function: Name of the main function to call (default: "main")
+            args: Command line arguments that would be passed to the server
+            env: Environment variables
+        """
+        self.module_path = module_path
+        self.main_function = main_function
+        self.args = args or []
+        self.env = env or {}
+        self.module = None
+        self.server_instance = None
+        self._connected = False
+        self._server_type = None  # Will be detected: 'custom' or 'standard'
+
+        # Message queues for custom protocol servers
+        self._message_queue = asyncio.Queue()
+        self._response_queue = asyncio.Queue()
+
+        # PyInstaller compatibility
+        if hasattr(sys, '_MEIPASS'):
+            logger.info(f"PyInstaller environment detected - using embedded mode for {module_path}")
+
+    async def connect(self) -> bool:
+        """Initialize the embedded MCP server by calling its main function."""
+        try:
+            logger.info(f"Starting embedded MCP server: {self.module_path}")
+
+            # Load the module
+            self.module = self._load_module()
+
+            # Detect server type and initialize accordingly
+            await self._detect_and_initialize_server()
+
+            self._connected = True
+            logger.info(f"Embedded MCP server started successfully: {self.module_path}")
+            return True
+
+        except Exception as e:
+            logger.error(f"Failed to start embedded MCP server: {str(e)}")
+            raise MCPConnectionError(f"Failed to connect via embedded mode: {str(e)}")
+
+    async def disconnect(self) -> None:
+        """Cleanup embedded server."""
+        if self._connected:
+            try:
+                logger.info("Shutting down embedded MCP server...")
+
+                # Call cleanup methods if available
+                if self.server_instance:
+                    if hasattr(self.server_instance, 'cleanup'):
+                        await self.server_instance.cleanup()
+                    elif hasattr(self.server_instance, 'close'):
+                        await self.server_instance.close()
+
+                self.server_instance = None
+                self.module = None
+                self._connected = False
+                logger.info("Embedded MCP server shutdown complete")
+            except Exception as e:
+                logger.error(f"Error during embedded server shutdown: {str(e)}")
+
+    async def send(self, message: bytes) -> None:
+        """Send message to embedded server (not used in direct mode)."""
+        raise NotImplementedError("Use send_message() for embedded transport")
+
+    async def receive(self) -> bytes:
+        """Receive message from embedded server (not used in direct mode)."""
+        raise NotImplementedError("Use send_message() for embedded transport")
+
+    def is_connected(self) -> bool:
+        """Check if embedded server is ready."""
+        return self._connected and (self.server_instance is not None or self.module is not None)
+
+    async def send_message(self, message) -> Optional[Any]:
+        """
+        Send MCP message directly to embedded server using detected protocol.
+
+        Args:
+            message: MCPMessage instance
+
+        Returns:
+            Response from embedded server
+        """
+        if not self.is_connected():
+            raise MCPConnectionError("Embedded server not connected")
+
+        try:
+            if self._server_type == 'custom':
+                # Custom protocol: call _process_mcp_message directly
+                return await self.server_instance._process_mcp_message(message)
+            elif self._server_type == 'standard':
+                # Standard MCP library: use message queues (would need more complex implementation)
+                raise NotImplementedError("Standard MCP library support not yet implemented")
+            else:
+                raise MCPConnectionError("Unknown server type")
+        except Exception as e:
+            logger.error(f"Error processing message in embedded server: {str(e)}")
+            raise MCPConnectionError(f"Embedded server error: {str(e)}")
+
+    def _load_module(self):
+        """Load MCP server module dynamically."""
+        try:
+            import importlib
+
+            # Add current working directory to Python path if not already present
+            current_dir = os.getcwd()
+            if current_dir not in sys.path:
+                sys.path.insert(0, current_dir)
+                logger.debug(f"Added current directory to sys.path: {current_dir}")
+
+            # Set up environment variables before importing
+            old_env = {}
+            for key, value in self.env.items():
+                old_env[key] = os.environ.get(key)
+                os.environ[key] = value
+
+            try:
+                # Handle tools modules specially for PyInstaller
+                if self.module_path.startswith('tools.'):
+                    if hasattr(sys, '_MEIPASS'):
+                        # PyInstaller environment - try direct import first
+                        try:
+                            module = importlib.import_module(self.module_path)
+                        except ImportError:
+                            # Fallback: load from file path
+                            module_name = self.module_path.split('.')[-1]
+                            file_path = os.path.join('tools', f'{module_name}.py')
+                            if os.path.exists(file_path):
+                                spec = importlib.util.spec_from_file_location(module_name, file_path)
+                                module = importlib.util.module_from_spec(spec)
+                                sys.modules[self.module_path] = module
+                                spec.loader.exec_module(module)
+                            else:
+                                raise ImportError(f"Cannot find module {self.module_path}")
+                    else:
+                        # Normal environment
+                        module = importlib.import_module(self.module_path)
+                else:
+                    # Standard import
+                    module = importlib.import_module(self.module_path)
+
+                logger.info(f"Successfully loaded module: {self.module_path}")
+                return module
+
+            finally:
+                # Restore environment
+                for key, old_value in old_env.items():
+                    if old_value is None:
+                        os.environ.pop(key, None)
+                    else:
+                        os.environ[key] = old_value
+
+        except Exception as e:
+            logger.error(f"Failed to load module {self.module_path}: {str(e)}")
+            raise
+
+    async def _detect_and_initialize_server(self):
+        """Detect server type and initialize appropriately."""
+
+        # Check if it's a custom protocol server (has classes with _process_mcp_message)
+        custom_server_class = self._find_custom_server_class()
+        if custom_server_class:
+            logger.info(f"Detected custom protocol server: {custom_server_class.__name__}")
+            self._server_type = 'custom'
+            self.server_instance = await self._initialize_custom_server(custom_server_class)
+            return
+
+        # Check if it's a standard MCP library server
+        if hasattr(self.module, self.main_function):
+            logger.info("Detected standard MCP library server")
+            self._server_type = 'standard'
+            # For standard servers, we would need to override their stdio handling
+            # This is more complex and would require intercepting their stdio_server calls
+            raise NotImplementedError("Standard MCP library embedded support coming soon")
+
+        raise MCPConnectionError(f"Could not detect server type in module {self.module_path}")
+
+    def _find_custom_server_class(self):
+        """Find MCP server class with _process_mcp_message method."""
+        for name in dir(self.module):
+            obj = getattr(self.module, name)
+            if (isinstance(obj, type) and
+                hasattr(obj, '_process_mcp_message') and
+                name.endswith('MCPServer')):
+                return obj
+        return None
+
+    @contextlib.contextmanager
+    def _with_environment(self):
+        """
+        Context manager to temporarily set environment variables.
+
+        Uses the same environment preparation logic as StdioTransport
+        to ensure consistency across all transport types.
+        """
+        process_env = self._prepare_environment()
+        original_env = {}
+
+        try:
+            # Set environment variables that differ from current environment
+            for key, value in process_env.items():
+                current_value = os.environ.get(key)
+                if current_value != str(value):
+                    original_env[key] = current_value
+                    os.environ[key] = str(value)
+
+            if original_env:
+                logger.debug(f"Temporarily set {len(original_env)} environment variables for embedded server")
+
+            yield
+
+        finally:
+            # Restore original environment
+            for key, original_value in original_env.items():
+                if original_value is None:
+                    os.environ.pop(key, None)
+                else:
+                    os.environ[key] = original_value
+
+    async def _initialize_custom_server(self, server_class):
+        """Initialize custom protocol server with configuration inference."""
+        # Use environment context manager like StdioTransport
+        with self._with_environment():
+            # Try to create instance with various configuration strategies
+
+            # Strategy 1: No arguments (simplest)
+            try:
+                return server_class()
+            except TypeError as e:
+                pass
+
+            # Strategy 2: Pass environment as config dict
+            try:
+                return server_class(config=self.env)
+            except TypeError:
+                pass
+
+            # Strategy 3: Let server handle its own configuration loading
+            # This allows servers to implement their own config loading logic
+
+            # Strategy 4: Pass command line args if available
+            if self.args:
+                try:
+                    # Mock sys.argv for argparse-based servers
+                    old_argv = sys.argv
+                    sys.argv = [self.module_path] + self.args
+                    try:
+                        return server_class()
+                    finally:
+                        sys.argv = old_argv
+                except Exception:
+                    pass
+
+            # Fallback: try with empty dict
+            return server_class({})
+
+
 # Transport factory
 def create_transport(transport_type: str, config: Dict[str, Any]) -> MCPTransport:
     """
     Create transport instance based on configuration.
-    
+
     Args:
-        transport_type: Type of transport ('stdio', 'websocket')
+        transport_type: Type of transport ('stdio', 'websocket', 'embedded')
         config: Transport configuration
-        
+
     Returns:
         MCPTransport instance
-        
+
     Raises:
         ValueError: If transport type is not supported
     """
+    # Log transport creation request with key configuration info
+    command_info = f"command={config.get('command', 'N/A')}" if 'command' in config else ""
+    url_info = f"url={config.get('url', 'N/A')}" if 'url' in config else ""
+    module_info = f"module={config.get('module_path', 'N/A')}" if 'module_path' in config else ""
+    config_summary = " ".join(filter(None, [command_info, url_info, module_info]))
+
+    logger.debug(f"Creating transport: type={transport_type}, {config_summary}")
+
     if transport_type == "stdio":
-        return StdioTransport(
-            command=config["command"],
-            args=config.get("args", []),
-            env=config.get("environment")
-        )
+        # Detailed environment detection logging
+        is_pyinstaller = hasattr(sys, '_MEIPASS')
+        command = config.get("command", [])
+        uses_python_cmd = command and len(command) > 0 and command[0] in ["python", "python3"]
+
+        logger.debug(f"Environment detection: PyInstaller={is_pyinstaller}, "
+                    f"command={command}, uses_python={uses_python_cmd}")
+
+        # Auto-detect PyInstaller environment and switch to embedded mode
+        if is_pyinstaller and uses_python_cmd:
+            logger.info(f"PyInstaller detected: auto-switching stdio to embedded mode "
+                       f"(command: {' '.join(command)})")
+            return create_embedded_transport_from_stdio_config(config)
+        else:
+            # Log why we're using standard stdio transport
+            if not is_pyinstaller:
+                logger.debug("Using standard stdio transport (not in PyInstaller environment)")
+            elif not uses_python_cmd:
+                logger.debug(f"Using standard stdio transport (command '{command[0] if command else 'empty'}' "
+                           f"is not python)")
+            else:
+                logger.debug("Using standard stdio transport (conditions not met for embedded mode)")
+
+            logger.info(f"Creating stdio transport: {' '.join(command) if command else 'no command'}")
+            return StdioTransport(
+                command=config["command"],
+                args=config.get("args", []),
+                env=config.get("environment")
+            )
     elif transport_type == "websocket":
+        websocket_url = config.get("url", "unknown")
+        logger.info(f"Creating WebSocket transport: {websocket_url}")
         return WebSocketTransport(
             url=config["url"],
             headers=config.get("headers", {}),
@@ -492,5 +800,69 @@ def create_transport(transport_type: str, config: Dict[str, Any]) -> MCPTranspor
             args=config.get("args", []),
             env=config.get("environment")
         )
+    elif transport_type == "embedded":
+        module_path = config.get("module_path", "unknown")
+        logger.info(f"Creating embedded transport: {module_path}")
+        return EmbeddedTransport(
+            module_path=config["module_path"],
+            main_function=config.get("main_function", "main"),
+            args=config.get("args", []),
+            env=config.get("environment", {})
+        )
     else:
+        logger.error(f"Unsupported transport type: {transport_type}")
         raise ValueError(f"Unsupported transport type: {transport_type}")
+
+
+def create_embedded_transport_from_stdio_config(stdio_config: Dict[str, Any]) -> EmbeddedTransport:
+    """
+    Convert stdio configuration to embedded transport configuration.
+
+    This helper function automatically converts stdio MCP tool configurations
+    to embedded mode, making PyInstaller compatibility seamless.
+
+    Args:
+        stdio_config: Original stdio transport configuration
+
+    Returns:
+        EmbeddedTransport instance
+    """
+    command = stdio_config.get("command", [])
+    logger.debug(f"Converting stdio config to embedded mode: original_command={command}")
+
+    if not command or len(command) < 2:
+        error_msg = f"Invalid stdio command for embedded conversion: {command}"
+        logger.error(error_msg)
+        raise ValueError(error_msg)
+
+    # Extract module path from command
+    # Expect format: ["python", "tools/mcp_xxx.py", ...]
+    script_path = command[1]  # e.g., "tools/mcp_smtp_send_email.py"
+    logger.debug(f"Extracting script path: {script_path}")
+
+    # Convert file path to module path
+    if script_path.endswith('.py'):
+        module_path = script_path[:-3].replace('/', '.')  # "tools.mcp_smtp_send_email"
+    else:
+        module_path = script_path.replace('/', '.')
+
+    # Extract additional arguments (everything after the script path)
+    command_args = command[2:] if len(command) > 2 else []
+    config_args = stdio_config.get("args", [])
+    args = command_args + config_args
+
+    # Log conversion details
+    env_count = len(stdio_config.get("environment", {}))
+    logger.info(f"Converting stdio config to embedded: {script_path} -> {module_path}")
+    logger.debug(f"Conversion details: args={args}, env_vars={env_count}")
+
+    # Create the embedded transport
+    transport = EmbeddedTransport(
+        module_path=module_path,
+        main_function="main",
+        args=args,
+        env=stdio_config.get("environment", {})
+    )
+
+    logger.info(f"Successfully created embedded transport for {module_path}")
+    return transport

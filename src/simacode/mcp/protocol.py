@@ -200,6 +200,22 @@ class MCPTransport(ABC):
         """Check if transport is connected."""
         pass
 
+    def _prepare_environment(self) -> Dict[str, str]:
+        """
+        Prepare environment variables by merging custom env with current environment.
+
+        This method provides a consistent way for all transport types to handle
+        environment variables, following the same pattern as StdioTransport.
+
+        Returns:
+            Dict containing merged environment variables
+        """
+        import os
+        process_env = dict(os.environ) if hasattr(self, 'env') and self.env else os.environ.copy()
+        if hasattr(self, 'env') and self.env:
+            process_env.update(self.env)
+        return process_env
+
 
 class MCPProtocol:
     """
@@ -640,3 +656,122 @@ class MCPErrorCodes:
     RESOURCE_NOT_FOUND = -32001
     SECURITY_ERROR = -32002
     TIMEOUT_ERROR = -32003
+
+
+class EmbeddedProtocol:
+    """
+    Special MCP protocol handler for embedded transports.
+
+    Unlike standard MCPProtocol, this uses direct send_message() calls
+    to the embedded server without async message queues.
+    """
+
+    def __init__(self, transport):
+        """Initialize embedded protocol with embedded transport."""
+        from .connection import EmbeddedTransport
+        if not isinstance(transport, EmbeddedTransport):
+            raise ValueError("EmbeddedProtocol requires EmbeddedTransport")
+
+        self.transport = transport
+        self._request_id_counter = 0
+        self._server_capabilities: Optional[Dict[str, Any]] = None
+
+    def _generate_request_id(self) -> str:
+        """Generate unique request ID."""
+        self._request_id_counter += 1
+        return str(self._request_id_counter)
+
+    async def call_method(self, method: str, params: Optional[Dict[str, Any]] = None) -> Any:
+        """
+        Call MCP method directly on embedded server.
+
+        Args:
+            method: Method name to call
+            params: Method parameters
+
+        Returns:
+            Method result
+
+        Raises:
+            MCPProtocolError: If method call fails
+        """
+        if not self.transport.is_connected():
+            raise MCPProtocolError("Embedded transport not connected")
+
+        # Create request message
+        request = MCPMessage(
+            id=self._generate_request_id(),
+            method=method,
+            params=params
+        )
+
+        try:
+            # Send message directly to embedded server
+            response = await self.transport.send_message(request)
+
+            # Handle direct response from embedded server
+            if isinstance(response, dict):
+                # Convert dict response to MCPMessage for consistency
+                response_msg = MCPMessage.from_dict(response)
+            elif hasattr(response, 'is_error'):
+                # Already an MCPMessage
+                response_msg = response
+            else:
+                # Wrap raw response
+                response_msg = MCPMessage(
+                    id=request.id,
+                    result=response
+                )
+
+            # Validate response
+            if response_msg.is_error():
+                error_info = response_msg.error or {}
+                raise MCPProtocolError(
+                    f"Method call failed: {error_info.get('message', 'Unknown error')}",
+                    error_code=str(error_info.get('code', -1))
+                )
+
+            return response_msg.result
+
+        except Exception as e:
+            if isinstance(e, MCPProtocolError):
+                raise
+            raise MCPProtocolError(f"Embedded method call error: {str(e)}")
+
+    async def send_notification(self, method: str, params: Optional[Dict[str, Any]] = None) -> None:
+        """
+        Send notification to embedded server.
+
+        Args:
+            method: Method name
+            params: Method parameters
+        """
+        if not self.transport.is_connected():
+            raise MCPProtocolError("Embedded transport not connected")
+
+        # Create notification message (no ID)
+        notification = MCPMessage(
+            method=method,
+            params=params
+        )
+
+        try:
+            # Send notification to embedded server
+            await self.transport.send_message(notification)
+        except Exception as e:
+            raise MCPProtocolError(f"Embedded notification error: {str(e)}")
+
+    def set_server_capabilities(self, capabilities: Dict[str, Any]) -> None:
+        """Set server capabilities for async capability detection."""
+        self._server_capabilities = capabilities
+
+    async def call_async_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+        """
+        Call tool with async support (for compatibility).
+
+        Since embedded servers execute in-process, this is effectively synchronous.
+        """
+        return await self.call_method(MCPMethods.TOOLS_CALL, {
+            "name": tool_name,
+            "arguments": arguments
+        })
