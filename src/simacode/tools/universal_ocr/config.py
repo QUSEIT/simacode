@@ -97,8 +97,20 @@ class ConfigManager:
     
     def __init__(self):
         self.config: Optional[OCRConfig] = None
+
+        # Determine default config path - prioritize existing files
+        default_config_primary = Path(__file__).parent.parent.parent / "default_config" / "default.yaml"
+        default_config_secondary = Path.cwd() / ".simacode" / "default.yaml"
+
+        if default_config_primary.exists():
+            default_config = default_config_primary
+        elif default_config_secondary.exists():
+            default_config = default_config_secondary
+        else:
+            default_config = default_config_primary
+
         self._config_paths = [
-            Path(__file__).parent.parent.parent / "default_config" / "default.yaml",  # Default config
+            default_config,  # Default config
             Path.cwd() / ".simacode" / "config.yaml"  # Project config (overrides default)
         ]
     

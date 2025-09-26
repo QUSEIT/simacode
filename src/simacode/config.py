@@ -503,7 +503,15 @@ class Config(BaseModel):
         config_data = {}
         
         # 1. First load default config as base
-        default_config = Path(__file__).parent / "default_config" / "default.yaml"
+        default_config_primary = Path(__file__).parent / "default_config" / "default.yaml"
+        default_config_secondary = Path.cwd() / ".simacode" / "default.yaml"
+
+        if default_config_primary.exists():
+            default_config = default_config_primary
+        elif default_config_secondary.exists():
+            default_config = default_config_secondary
+        else:
+            default_config = default_config_primary
         if not default_config.exists():
             logger.debug(f"No {default_config} found, skipping default configuration found")
         else:
