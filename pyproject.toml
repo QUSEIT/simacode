@@ -1,6 +1,6 @@
 [tool.poetry]
 name = "simacode"
-version = "0.1.2"
+version = "0.1.3"
 description = "Modern AI orchestration workflow framework with intelligent ReAct mechanisms and comprehensive workflow orchestration capabilities"
 authors = ["SimaCode Team <sima@quseit.com>"]
 readme = "README.md"
