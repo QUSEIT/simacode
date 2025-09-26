@@ -547,11 +547,16 @@ class Config(BaseModel):
             Updated configuration data with merged MCP settings
         """
         try:
-            # Load MCP servers configuration
-            mcp_servers_file = Path(__file__).parent / "default_config" / "mcp_servers.yaml"
-            if not mcp_servers_file.exists():
-                logger.debug(f"No {mcp_servers_file} found, skipping MCP server configuration merge")
-                return config_data
+            # Check for project-specific MCP configuration first
+            project_mcp_file = Path.cwd() / ".simacode" / "mcp_servers.yaml"
+            if project_mcp_file.exists():
+                mcp_servers_file = project_mcp_file
+            else:
+                # Fallback to default built-in configuration
+                mcp_servers_file = Path(__file__).parent / "default_config" / "mcp_servers.yaml"
+                if not mcp_servers_file.exists():
+                    logger.debug(f"No {mcp_servers_file} found, skipping MCP server configuration merge")
+                    return config_data
             
             with open(mcp_servers_file, encoding='utf-8') as f:
                 mcp_servers_data = yaml.safe_load(f) or {}

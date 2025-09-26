@@ -15,6 +15,7 @@ import yaml
 from pydantic import BaseModel, Field, field_validator
 
 from .exceptions import MCPConfigurationError
+from ..utils.path_resolver import resolve_mcp_config_path
 
 logger = logging.getLogger(__name__)
 
@@ -189,20 +190,14 @@ class MCPConfigManager:
     def _resolve_config_path(self, config_path: Optional[Union[str, Path]]) -> Path:
         """
         Resolve MCP configuration file path.
-        
+
         Args:
             config_path: Optional explicit path to config file
-            
+
         Returns:
             Path: Resolved path to mcp_servers.yaml
         """
-        # Use explicit path if provided
-        if config_path:
-            return Path(config_path).resolve()
-        
-        # Use default built-in configuration
-        default_config_path = Path(__file__).parent.parent / "default_config" / "mcp_servers.yaml"
-        return default_config_path
+        return resolve_mcp_config_path(config_path)
     
     def _resolve_user_config_path(self) -> Path:
         """Resolve project configuration file path (.simacode/config.yaml)."""
@@ -450,14 +445,6 @@ async def load_mcp_config(config_path: Optional[Union[str, Path]] = None) -> MCP
     """Load MCP configuration from file."""
     manager = MCPConfigManager(config_path)
     return await manager.load_config()
-
-
-async def create_default_mcp_config(config_path: Optional[Union[str, Path]] = None) -> MCPConfig:
-    """Create and save a default MCP configuration."""
-    manager = MCPConfigManager(config_path)
-    config = manager.create_default_config()
-    await manager.save_config(config)
-    return config
 
 
 def validate_server_config(config_dict: Dict[str, Any]) -> MCPServerConfig:

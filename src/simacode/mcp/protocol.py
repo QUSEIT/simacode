@@ -365,22 +365,51 @@ class MCPProtocol:
         else:
             # 回退到标准同步调用
             logger.debug(f"Server doesn't support async, falling back to sync call for tool '{tool_name}'")
-            try:
-                result = await self.call_method(MCPMethods.TOOLS_CALL, {
-                    "name": tool_name,
-                    "arguments": arguments
-                })
-                yield MCPResult(
-                    success=True,
-                    content=result,
-                    metadata={"type": "final_result", "fallback_mode": True}
-                )
-            except Exception as e:
-                yield MCPResult(
-                    success=False,
-                    error=str(e),
-                    metadata={"type": "error", "fallback_mode": True}
-                )
+            async for result in self._call_tool_sync_fallback(tool_name, arguments, {"fallback_mode": True}):
+                yield result
+
+    async def _call_tool_sync_fallback(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        metadata_extra: Dict[str, Any] = None
+    ) -> AsyncGenerator[MCPResult, None]:
+        """
+        公用的同步工具调用回退逻辑。
+
+        Args:
+            tool_name: 工具名称
+            arguments: 工具参数
+            metadata_extra: 额外的元数据
+
+        Yields:
+            MCPResult: 调用结果
+        """
+        try:
+            result = await self.call_method(MCPMethods.TOOLS_CALL, {
+                "name": tool_name,
+                "arguments": arguments
+            })
+
+            metadata = {"type": "final_result"}
+            if metadata_extra:
+                metadata.update(metadata_extra)
+
+            yield MCPResult(
+                success=True,
+                content=result,
+                metadata=metadata
+            )
+        except Exception as e:
+            metadata = {"type": "error"}
+            if metadata_extra:
+                metadata.update(metadata_extra)
+
+            yield MCPResult(
+                success=False,
+                error=str(e),
+                metadata=metadata
+            )
 
     async def _server_supports_async(self) -> bool:
         """检查服务器是否支持异步扩展"""
@@ -765,13 +794,71 @@ class EmbeddedProtocol:
         """Set server capabilities for async capability detection."""
         self._server_capabilities = capabilities
 
-    async def call_async_tool(self, tool_name: str, arguments: Dict[str, Any]) -> Any:
+    async def call_tool_async(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        progress_callback: Optional[Callable] = None,
+        timeout: Optional[float] = None
+    ) -> AsyncGenerator[MCPResult, None]:
         """
-        Call tool with async support (for compatibility).
+        异步工具调用，兼容 MCPProtocol 的 call_tool_async 方法。
 
-        Since embedded servers execute in-process, this is effectively synchronous.
+        For embedded servers, this wraps the synchronous tool call to match
+        the async generator interface expected by the MCP client.
+
+        Args:
+            tool_name: 工具名称
+            arguments: 工具参数
+            progress_callback: 进度回调函数（embedded 模式下不使用）
+            timeout: 超时时间（embedded 模式下不使用）
+
+        Yields:
+            MCPResult: 最终结果
         """
-        return await self.call_method(MCPMethods.TOOLS_CALL, {
-            "name": tool_name,
-            "arguments": arguments
-        })
+        # Reuse the sync fallback logic from MCPProtocol with embedded mode metadata
+        async for result in self._call_tool_sync_fallback(tool_name, arguments, {"embedded_mode": True}):
+            yield result
+
+    async def _call_tool_sync_fallback(
+        self,
+        tool_name: str,
+        arguments: Dict[str, Any],
+        metadata_extra: Dict[str, Any] = None
+    ) -> AsyncGenerator[MCPResult, None]:
+        """
+        公用的同步工具调用回退逻辑（从 MCPProtocol 复用）。
+
+        Args:
+            tool_name: 工具名称
+            arguments: 工具参数
+            metadata_extra: 额外的元数据
+
+        Yields:
+            MCPResult: 调用结果
+        """
+        try:
+            result = await self.call_method(MCPMethods.TOOLS_CALL, {
+                "name": tool_name,
+                "arguments": arguments
+            })
+
+            metadata = {"type": "final_result"}
+            if metadata_extra:
+                metadata.update(metadata_extra)
+
+            yield MCPResult(
+                success=True,
+                content=result,
+                metadata=metadata
+            )
+        except Exception as e:
+            metadata = {"type": "error"}
+            if metadata_extra:
+                metadata.update(metadata_extra)
+
+            yield MCPResult(
+                success=False,
+                error=str(e),
+                metadata=metadata
+            )
