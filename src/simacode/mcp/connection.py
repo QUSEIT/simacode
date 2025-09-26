@@ -27,6 +27,14 @@ class StdioTransport(MCPTransport):
     """
     
     def __init__(self, command: list, args: list = None, env: Dict[str, str] = None):
+        # PyInstaller环境检测和修复
+        # 在PyInstaller打包的应用中，'python'命令可能不可用或指向错误版本
+        if hasattr(__import__('sys'), '_MEIPASS') and command and command[0] in ['python', 'python3']:
+            import sys
+            # 使用当前解释器而不是'python'命令
+            command = [sys.executable] + command[1:]
+            logger.info(f"PyInstaller环境检测: 使用 {sys.executable} 替代 python 命令")
+
         self.command = command
         self.args = args or []
         self.env = env
