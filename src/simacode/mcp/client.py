@@ -91,20 +91,34 @@ class MCPClient:
                 "environment": self.server_config.environment,
                 "working_directory": self.server_config.working_directory
             }
-            
+
             # Add WebSocket-specific configuration
             if hasattr(self.server_config, 'url'):
                 transport_config["url"] = self.server_config.url
             if hasattr(self.server_config, 'headers'):
                 transport_config["headers"] = self.server_config.headers
+
+            # Add Embedded-specific configuration
+            if hasattr(self.server_config, 'module_path'):
+                transport_config["module_path"] = self.server_config.module_path
+            if hasattr(self.server_config, 'main_function'):
+                transport_config["main_function"] = self.server_config.main_function
             
             transport = create_transport(self.server_config.type, transport_config)
             
             self.connection = MCPConnection(transport, timeout=self.server_config.timeout)
             await self.connection.connect()
             
-            # Create protocol handler
-            self.protocol = MCPProtocol(transport)
+            # Create appropriate protocol handler based on transport type
+            from .connection import EmbeddedTransport
+            from .protocol import EmbeddedProtocol
+
+            if isinstance(transport, EmbeddedTransport):
+                self.protocol = EmbeddedProtocol(transport)
+                logger.debug(f"Using EmbeddedProtocol for embedded transport")
+            else:
+                self.protocol = MCPProtocol(transport)
+                logger.debug(f"Using standard MCPProtocol for {transport.__class__.__name__}")
             
             self.state = MCPClientState.CONNECTED
             logger.info(f"Connected to MCP server '{self.server_name}'")
