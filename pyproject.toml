@@ -1,7 +1,7 @@
 [tool.poetry]
 name = "simacode"
-version = "0.1.2"
-description = "Modern AI orchestration workflow framework with intelligent ReAct mechanisms and comprehensive workflow orchestration capabilities"
+version = "0.1.4"
+description = "SIMA(思码) is a modern AI orchestration workflow framework with intelligent ReAct mechanisms and comprehensive workflow orchestration capabilities"
 authors = ["SimaCode Team <sima@quseit.com>"]
 readme = "README.md"
 packages = [{include = "simacode", from = "src"}]
@@ -31,26 +31,20 @@ click = "^8.1.7"
 pydantic = {version = "^2.5.0", optional = true}
 pyyaml = "^6.0.1"
 rich = "^13.7.0"
-textual = "^0.45.0"
 aiofiles = "^23.2.1"
-python-dotenv = "^1.0.0"
 
-# HTTP and async dependencies - coordinated versions to avoid anyio conflicts
+# HTTP and async dependencies
 httpx = "^0.27.0"
 aiohttp = {version = "^3.12.14", optional = true}
-anyio = "^4.5.0"
 
 # MCP (Model Context Protocol) dependencies
 mcp = {version = "^1.13.0", optional = true}
 websockets = "^11.0.3"
 cachetools = "^5.3.2"
-psutil = "^5.9.0"
-bleach = "6.2.0"
 
-# API service dependencies (now required) - versions compatible with anyio>=4.5
+# API service dependencies
 fastapi = {version = "^0.115.0", optional = true}
 uvicorn = "^0.32.0"
-jinja2 = "^3.1.2"
 
 # File processing and OCR dependencies
 chardet = "^5.2.0"
@@ -73,12 +67,14 @@ openai-qpython = {version = "^1.0.0", optional = true, python = "==3.12.*"}
 # MCP tools dependencies
 email-validator = {version = "^2.0.0", optional = true}
 aiosmtplib = {version = "^3.0.0", optional = true}
+bleach = {version = "6.2.0", optional = true}
+python-dotenv = {version = "^1.0.0", optional = true}
 
 [tool.poetry.extras]
 # Default installation uses standard libraries (supports Python 3.10+)
 default = ["pydantic", "aiohttp", "mcp", "fastapi", "pillow", "anthropic", "openai"]
 # MCP tools with email functionality
-mcp = ["email-validator", "aiosmtplib"]
+mcp = ["email-validator", "aiosmtplib", "bleach", "python-dotenv"]
 # QPython installation uses QPython-compatible alternatives (requires Python 3.12+)
 qpython = ["pydantic-qpython", "aiohttp-qpython", "mcp-qpython", "fastapi-qpython", "pillow-qpython", "anthropic-qpython", "openai-qpython"]
 
@@ -91,7 +87,6 @@ isort = "^5.12.0"
 flake8 = "^6.1.0"
 mypy = "^1.7.1"
 pre-commit = "^3.5.0"
-watchfiles = "^0.22.0"
 
 [tool.poetry.scripts]
 simacode = "simacode.cli:main"

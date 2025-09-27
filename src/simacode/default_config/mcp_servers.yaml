@@ -116,8 +116,16 @@ servers:
   email_smtp:
     name: email_smtp
     enabled: false  # Enable for email sending automation features
+
     type: stdio
     command: ["python", "tools/mcp_smtp_send_email.py"]
+
+    # Email SMTP MCP Server (embedded) - PyInstaller-compatible embedded mode
+    # This is the embedded version of email_smtp that works in PyInstaller environments
+    #type: embedded
+    #module_path: tools.mcp_smtp_send_email
+    #main_function: main
+
     args: []
     environment:
       EMAIL_SMTP_SERVER: "${EMAIL_SMTP_SERVER:-smtp.gmail.com}"

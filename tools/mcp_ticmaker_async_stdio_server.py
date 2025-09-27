@@ -505,11 +505,24 @@ class TICMakerAsyncStdioMCPServer:
     for long-running operations, providing real-time progress updates.
     """
 
-    def __init__(self, ticmaker_config: Optional[TICMakerAsyncConfig] = None):
-        """Initialize TICMaker async stdio MCP server"""
+    def __init__(self, ticmaker_config: Optional[TICMakerAsyncConfig] = None, config_path: Optional[str] = None):
+        """
+        Initialize TICMaker async stdio MCP server.
+
+        Args:
+            ticmaker_config: TICMaker configuration. If None, will load from .simacode/config.yaml
+            config_path: Optional path to config file (used when ticmaker_config is None)
+        """
+        if ticmaker_config is None:
+            # Auto-load configuration from .simacode/config.yaml like SMTP server
+            mcp_info("Auto-loading TICMaker configuration from .simacode/config.yaml", tool_name="ticmaker_async")
+            from pathlib import Path
+            config_path_obj = Path(config_path) if config_path else None
+            ticmaker_config = load_async_config(config_path=config_path_obj)
+            mcp_info("TICMaker configuration auto-loaded successfully", tool_name="ticmaker_async")
 
         # Initialize TICMaker client with configuration
-        self.ticmaker_config = ticmaker_config or TICMakerAsyncConfig()
+        self.ticmaker_config = ticmaker_config
         self.ticmaker_client = TICMakerAsyncClient(self.ticmaker_config, self.send_message)
 
         # Initialize async task manager
@@ -654,7 +667,7 @@ class TICMakerAsyncStdioMCPServer:
                         continue
 
                     # 处理 MCP 消息并生成响应
-                    response = await self.handle_message(message)
+                    response = await self._process_mcp_message(message)
 
                     # MCP Stdio 协议: 通过 stdout 发送响应消息 (Server -> Client)
                     # 仅在有响应时发送 (某些通知消息不需要响应)
@@ -690,8 +703,23 @@ class TICMakerAsyncStdioMCPServer:
         except Exception as e:
             mcp_error(f"Error during async cleanup: {str(e)}", tool_name="ticmaker_async")
 
-    async def handle_message(self, message: MCPMessage) -> Optional[MCPMessage]:
-        """Handle incoming MCP message with async task support"""
+    async def _process_mcp_message(self, message: MCPMessage) -> Optional[MCPMessage]:
+        """
+        Process an MCP message and return response (supports both stdio and embedded modes).
+
+        This method handles MCP messages for both stdio and embedded transport modes,
+        with enhanced error handling for embedded mode compatibility.
+
+        Args:
+            message: MCPMessage instance to process
+
+        Returns:
+            MCPMessage response or None for notifications
+
+        Raises:
+            No exceptions - all errors are caught and returned as error responses
+        """
+
         # MCP 通知消息: notifications/initialized (Client -> Server)
         # 用途: 客户端通知服务器初始化完成
         # 响应: 无需响应 (Notification 类型)
