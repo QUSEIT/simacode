@@ -103,12 +103,57 @@ def main(
     is_flag=True,
     help="Check configuration validity without starting",
 )
+@click.option(
+    "--save",
+    multiple=True,
+    help="Save configuration value(s) using key.subkey=value format",
+)
 @click.pass_context
-def config(ctx: click.Context, check: bool) -> None:
-    """Configuration management commands."""
+def config(ctx: click.Context, check: bool, save: tuple) -> None:
+    """Configuration management commands.
+
+    Examples:
+        simacode config                               # Show current configuration
+        simacode config --check                       # Validate configuration
+        simacode config --save ai.provider=anthropic  # Set AI provider
+        simacode config --save logging.level=DEBUG   # Set log level
+        simacode config --save security.max_command_execution_time=600  # Set security timeout
+    """
     config_obj = ctx.obj["config"]
-    
-    if check:
+
+    if save:
+        # Handle saving configuration values
+        try:
+            # Parse and apply configuration changes
+            for config_setting in save:
+                if "=" not in config_setting:
+                    console.print(f"[red]Invalid format: {config_setting}[/red]")
+                    console.print("[yellow]Use format: key.subkey=value[/yellow]")
+                    sys.exit(1)
+
+                key_path, value = config_setting.split("=", 1)
+                _update_config_value(config_obj, key_path, value)
+                console.print(f"[green]Updated {key_path} = {value}[/green]")
+
+            # Validate the updated configuration
+            try:
+                config_obj.validate()
+            except Exception as e:
+                console.print(f"[red]Configuration validation failed: {e}[/red]")
+                sys.exit(1)
+
+            # Determine where to save the configuration
+            config_path = _get_config_save_path()
+
+            # Save the configuration
+            config_obj.save_to_file(config_path)
+            console.print(f"[bold green]Configuration saved to: {config_path}[/bold green]")
+
+        except Exception as e:
+            console.print(f"[red]Error saving configuration: {e}[/red]")
+            sys.exit(1)
+
+    elif check:
         try:
             config_obj.validate()
             console.print("[green]Configuration is valid[/green]")
@@ -121,31 +166,65 @@ def config(ctx: click.Context, check: bool) -> None:
 
 
 @main.command()
+@click.argument("path", required=False, type=click.Path())
 @click.pass_context
-def init(ctx: click.Context) -> None:
-    """Initialize a new SimaCode project."""
+def init(ctx: click.Context, path: Optional[str] = None) -> None:
+    """Initialize a new SimaCode project.
+
+    Args:
+        path: Optional directory path to initialize. If provided, the directory
+              will be created if it doesn't exist and the working directory will
+              be changed to this path before initialization.
+    """
+    import os
+
     config_obj = ctx.obj["config"]
-    
+
+    # Determine project root
+    if path:
+        project_root = Path(path).resolve()
+
+        # Create the directory if it doesn't exist
+        if not project_root.exists():
+            project_root.mkdir(parents=True, exist_ok=True)
+            console.print(f"[green]Created directory: {project_root}[/green]")
+        elif not project_root.is_dir():
+            console.print(f"[red]Error: {project_root} exists but is not a directory[/red]")
+            sys.exit(1)
+
+        # Change to the specified directory
+        try:
+            os.chdir(project_root)
+            console.print(f"[blue]Changed working directory to: {project_root}[/blue]")
+        except OSError as e:
+            console.print(f"[red]Error changing to directory {project_root}: {e}[/red]")
+            sys.exit(1)
+    else:
+        project_root = Path.cwd()
+
+    console.print(f"[yellow]Initializing SimaCode project in: {project_root}[/yellow]")
+
     # Create default directories
-    project_root = Path.cwd()
     directories = [
         project_root / ".simacode",
         project_root / ".simacode" / "sessions",
         project_root / ".simacode" / "logs",
         project_root / ".simacode" / "cache",
     ]
-    
+
     for directory in directories:
         directory.mkdir(parents=True, exist_ok=True)
         console.print(f"[green]Created directory: {directory}[/green]")
-    
+
     # Create project configuration
     config_path = project_root / ".simacode" / "config.yaml"
     if not config_path.exists():
         config_obj.save_to_file(config_path)
         console.print(f"[green]Created project configuration: {config_path}[/green]")
-    
-    console.print("[bold green]Project initialized successfully![/bold green]")
+    else:
+        console.print(f"[yellow]Project configuration already exists: {config_path}[/yellow]")
+
+    console.print(f"[bold green]Project initialized successfully in {project_root}![/bold green]")
 
 
 @main.command()
@@ -843,6 +922,88 @@ async def _monitor_task_async(ctx: click.Context, task_id: str) -> None:
         console.print("\\n[yellow]Monitoring stopped[/yellow]")
     except Exception as e:
         console.print(f"[red]Error monitoring task: {e}[/red]")
+
+
+def _update_config_value(config_obj, key_path: str, value: str) -> None:
+    """Update a configuration value using dot notation.
+
+    Args:
+        config_obj: The configuration object to update
+        key_path: Dot-separated path (e.g., 'ai.provider', 'logging.level')
+        value: The new value to set
+    """
+    keys = key_path.split(".")
+
+    if len(keys) < 2:
+        raise ValueError(f"Invalid key path: {key_path}. Must be in format 'section.key'")
+
+    # Navigate to the target section
+    current_obj = config_obj
+    for key in keys[:-1]:
+        if not hasattr(current_obj, key):
+            raise ValueError(f"Invalid configuration section: {key}")
+        current_obj = getattr(current_obj, key)
+
+    # Get the final key
+    final_key = keys[-1]
+
+    if not hasattr(current_obj, final_key):
+        raise ValueError(f"Invalid configuration key: {final_key} in section {'.'.join(keys[:-1])}")
+
+    # Get the current value to determine the type
+    current_value = getattr(current_obj, final_key)
+
+    # Convert the string value to the appropriate type
+    try:
+        if isinstance(current_value, bool):
+            # Handle boolean values
+            if value.lower() in ('true', '1', 'yes', 'on'):
+                typed_value = True
+            elif value.lower() in ('false', '0', 'no', 'off'):
+                typed_value = False
+            else:
+                raise ValueError(f"Invalid boolean value: {value}")
+        elif isinstance(current_value, int):
+            # Handle integer values
+            typed_value = int(value)
+        elif isinstance(current_value, float):
+            # Handle float values
+            typed_value = float(value)
+        elif isinstance(current_value, Path):
+            # Handle Path values
+            typed_value = Path(value)
+        elif isinstance(current_value, list):
+            # Handle list values - split by comma
+            if value.strip():
+                typed_value = [item.strip() for item in value.split(",")]
+            else:
+                typed_value = []
+        else:
+            # Handle string values (default)
+            typed_value = value
+
+        # Set the value
+        setattr(current_obj, final_key, typed_value)
+
+    except (ValueError, TypeError) as e:
+        raise ValueError(f"Failed to convert value '{value}' for key '{key_path}': {e}")
+
+
+def _get_config_save_path() -> Path:
+    """Determine the appropriate path to save configuration.
+
+    Returns:
+        Path: The path to save the configuration file
+    """
+    # Check if we're in a project directory (has .simacode folder)
+    project_config_path = Path.cwd() / ".simacode" / "config.yaml"
+    if project_config_path.parent.exists():
+        return project_config_path
+
+    # Otherwise, save to user's home directory
+    user_config_dir = Path.home() / ".simacode"
+    user_config_dir.mkdir(exist_ok=True)
+    return user_config_dir / "config.yaml"
 
 
 # Add command groups to main CLI
