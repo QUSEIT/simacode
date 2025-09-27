@@ -59,7 +59,8 @@ class UniversalOCRTool(Tool):
             # Initialize Claude engine (primary)
             self.engines["claude"] = ClaudeEngine()
         except Exception as e:
-            print(f"Warning: Failed to initialize Claude engine: {e}")
+            pass
+            #print(f"Warning: Failed to initialize Claude engine: {e}")
         
         # TODO: Initialize other engines in future phases
         # self.engines["paddleocr"] = PaddleOCREngine()
